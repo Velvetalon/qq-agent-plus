@@ -2857,7 +2857,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       if (chatWakeMatch && method === 'POST') {
         const chatKey = `${chatWakeMatch[1]}:${chatWakeMatch[2]}`;
         const result = orchestrator.requestManualWake(chatKey);
-        return json(res, result.ok ? 202 : 409, result);
+        return json(res, result.ok ? 202 : 409, result.ok ? result : {
+          ...result,
+          error: result.reason || '该会话当前无法唤醒'
+        });
       }
 
       const chatThreadMatch = /^\/api\/chats\/(group|private)_(\d+)\/thread$/.exec(pathname);
