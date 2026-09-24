@@ -3051,6 +3051,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       }
     }
     refreshTimeControl();
+    await orchestrator.startPlugins();
     orchestrator.startRecoveryLoop();
     if (getConfig().dailyMoments?.enabled) dailyMoments.start();
     if (getConfig().qzoneInteractions?.enabled) qzoneInteractions.start();
@@ -3077,6 +3078,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     slangPilot = null;
     await incidentPilot?.stop();
     incidentPilot = null;
+    await orchestrator.stopPlugins('shutdown');
     onebot.close();
     await orchestrator.abortAll();
     await Promise.allSettled([...ingress.values()]);

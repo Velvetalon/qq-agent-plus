@@ -21,9 +21,9 @@ export * from './tools-core.js';
 // 显式导出覆盖 export * 中同名项；关闭实验时仍原样调用旧实现。
 export const buildToolDefs = coreBuildToolDefs;
 
-export function toOpenAiTools(defs) {
+export function toOpenAiTools(defs, cfg = getConfig()) {
   const tools = coreToOpenAiTools(defs);
-  return annotateExperimentalToolSchemas(tools, getConfig());
+  return annotateExperimentalToolSchemas(tools, cfg);
 }
 
 const batchBySession = new WeakMap();
@@ -98,21 +98,40 @@ function observeMultimodalResult(ctx, name, argsJson, result, cfg) {
   );
 }
 
+function pluginDisabledResult(name) {
+  return {
+    content: `错误：插件工具 ${name} 已停用，本次调用未执行。`,
+    isError: true,
+    errorCode: 'PLUGIN_DISABLED',
+    reportIncident: false
+  };
+}
+
 /**
  * 实验关闭：直接进入旧 executeTool，连批次解析都不做。
  * 实验开启：宿主依旧逐个 await 本函数；仅连续只读工具会被后台并行预启动。
  */
 export async function executeTool(defs, ctx, name, argsJson) {
-  const cfg = getConfig();
+  const cfg = ctx?.runSnapshot?.config || getConfig();
+  const owner = defs.find((item) => item.name === name)?.ownerPluginId;
+  const generation = owner ? ctx?.runSnapshot?.generations?.[owner] : null;
+  if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
+    && !ctx.runSnapshot.isActive(owner, generation)) {
+    return pluginDisabledResult(name);
+  }
   const settings = experimentalToolSchedulerConfig(cfg);
   if (!settings.enabled) {
     const result = await coreExecuteTool(defs, ctx, name, argsJson);
+    if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
+      && !ctx.runSnapshot.isActive(owner, generation)) return pluginDisabledResult(name);
     return observeMultimodalResult(ctx, name, argsJson, result, cfg);
   }
 
   const batch = runtimeBatch(defs, ctx, settings);
   if (!batch) {
     const result = await coreExecuteTool(defs, ctx, name, argsJson);
+    if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
+      && !ctx.runSnapshot.isActive(owner, generation)) return pluginDisabledResult(name);
     return observeMultimodalResult(ctx, name, argsJson, result, cfg);
   }
 
@@ -120,8 +139,12 @@ export async function executeTool(defs, ctx, name, argsJson) {
   if (!scheduled.handled) {
     // Session 审计结构与宿主调用顺序出现任何不一致时，宁可退回旧串行路径。
     const result = await coreExecuteTool(defs, ctx, name, argsJson);
+    if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
+      && !ctx.runSnapshot.isActive(owner, generation)) return pluginDisabledResult(name);
     return observeMultimodalResult(ctx, name, argsJson, result, cfg);
   }
+  if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
+    && !ctx.runSnapshot.isActive(owner, generation)) return pluginDisabledResult(name);
   schedulerMetrics(ctx?.session, batch, settings);
   return observeMultimodalResult(ctx, name, argsJson, scheduled.result, cfg);
 }

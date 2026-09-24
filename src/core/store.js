@@ -126,6 +126,20 @@ export class ChatStore {
       CREATE INDEX IF NOT EXISTS thread_turns_lookup
         ON thread_turns(thread_id, sequence);
       CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS extension_events (
+        event_id TEXT PRIMARY KEY, observer_id TEXT NOT NULL, observer_plugin_id TEXT NOT NULL,
+        account_id TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '',
+        chat_key TEXT NOT NULL, plugin_generation INTEGER NOT NULL DEFAULT 0,
+        result_class TEXT NOT NULL, action_summary TEXT NOT NULL DEFAULT '{}',
+        source_message_ids TEXT NOT NULL DEFAULT '[]', completed_at INTEGER NOT NULL,
+        state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+        available_at INTEGER NOT NULL DEFAULT 0, delivery_started_at INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS extension_events_idempotency
+        ON extension_events(observer_id, account_id, session_id);
+      CREATE INDEX IF NOT EXISTS extension_events_pending
+        ON extension_events(state, available_at, completed_at);
     `);
     ensureColumn(this.db, 'conversation_threads', 'mode', "TEXT NOT NULL DEFAULT 'threaded'");
     ensureColumn(this.db, 'conversation_threads', 'disposition', "TEXT NOT NULL DEFAULT 'active'");
@@ -326,17 +340,105 @@ export class ChatStore {
     });
   }
 
-  ackLease(id) {
+  ackLease(id, { completionEvents = [] } = {}) {
     return this.#transaction(() => {
       const changed = this.db.prepare("UPDATE messages SET state='acked',lease_id=NULL WHERE lease_id=? AND state='leased'").run(id).changes;
       this.db.prepare("UPDATE runs SET state='acked' WHERE id=? AND state='leased'").run(id);
       this.db.prepare("DELETE FROM outbox WHERE run_id=? AND state IN ('sent','failed')").run(id);
+      this.#enqueueExtensionEvents(completionEvents);
       return changed;
     });
   }
 
-  completeRun(id) {
-    return this.db.prepare("DELETE FROM outbox WHERE run_id=? AND state IN ('sent','failed')").run(id).changes;
+  completeRun(id, { completionEvents = [] } = {}) {
+    return this.#transaction(() => {
+      const changed = this.db.prepare("DELETE FROM outbox WHERE run_id=? AND state IN ('sent','failed')").run(id).changes;
+      this.#enqueueExtensionEvents(completionEvents);
+      return changed;
+    });
+  }
+
+  #enqueueExtensionEvents(events) {
+    const list = Array.isArray(events) ? events : [];
+    if (!list.length) return 0;
+    const insert = this.db.prepare(`INSERT OR IGNORE INTO extension_events
+      (event_id,observer_id,observer_plugin_id,account_id,session_id,run_id,chat_key,
+       plugin_generation,result_class,action_summary,source_message_ids,completed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+    let added = 0;
+    for (const event of list) {
+      const sourceIds = (Array.isArray(event.sourceMessageIds) ? event.sourceMessageIds : [])
+        .map(String).slice(0, 32);
+      const result = insert.run(
+        String(event.eventId || ''), String(event.observerId || ''), String(event.observerPluginId || ''),
+        String(event.accountId || ''), String(event.sessionId || ''), String(event.runId || ''),
+        String(event.chatKey || ''), Math.max(0, Number(event.pluginGeneration) || 0),
+        String(event.resultClass || '').slice(0, 80), JSON.stringify(event.actionSummary || {}),
+        JSON.stringify(sourceIds), Math.max(0, Number(event.completedAt) || Date.now())
+      );
+      added += result.changes;
+    }
+    return added;
+  }
+
+  claimExtensionEvents(limit = 20, now = Date.now()) {
+    return this.#transaction(() => {
+      const rows = this.db.prepare(`SELECT * FROM extension_events
+        WHERE (state IN ('pending','failed') AND available_at<=?)
+           OR (state='delivering' AND delivery_started_at<=?)
+        ORDER BY completed_at,event_id LIMIT ?`).all(now, now - 60000, Math.min(100, Math.max(1, Number(limit) || 20)));
+      const claim = this.db.prepare(`UPDATE extension_events SET state='delivering',attempts=attempts+1,
+        delivery_started_at=?,available_at=? WHERE event_id=?`);
+      for (const row of rows) claim.run(now, now + 60000, row.event_id);
+      return rows.map((row) => {
+        let actionSummary = {};
+        let sourceMessageIds = [];
+        try { actionSummary = JSON.parse(row.action_summary || '{}'); } catch { /* keep empty */ }
+        try { sourceMessageIds = JSON.parse(row.source_message_ids || '[]'); } catch { /* keep empty */ }
+        return {
+          eventId: row.event_id,
+          observerId: row.observer_id,
+          observerPluginId: row.observer_plugin_id,
+          accountId: row.account_id,
+          sessionId: row.session_id,
+          runId: row.run_id,
+          chatKey: row.chat_key,
+          pluginGeneration: Number(row.plugin_generation) || 0,
+          resultClass: row.result_class,
+          actionSummary,
+          sourceMessageIds,
+          completedAt: Number(row.completed_at) || 0,
+          attempts: Number(row.attempts) + 1
+        };
+      });
+    });
+  }
+
+  completeExtensionEvent(eventId) {
+    return this.#transaction(() => this.db.prepare(`UPDATE extension_events
+      SET state='delivered',available_at=0,last_error=NULL WHERE event_id=? AND state='delivering'`)
+      .run(String(eventId || '')).changes > 0);
+  }
+
+  failExtensionEvent(eventId, error, { expired = false } = {}) {
+    return this.#transaction(() => this.db.prepare(`UPDATE extension_events
+      SET state=?,available_at=?,last_error=? WHERE event_id=? AND state='delivering'`)
+      .run(expired ? 'expired' : 'failed', expired ? 0 : Date.now() + 1000,
+        String(error || '').slice(0, 500), String(eventId || '')).changes > 0);
+  }
+
+  listExtensionEvents({ state = '', limit = 100 } = {}) {
+    const rows = state
+      ? this.db.prepare('SELECT * FROM extension_events WHERE state=? ORDER BY completed_at,event_id LIMIT ?').all(state, Math.min(500, Math.max(1, Number(limit) || 100)))
+      : this.db.prepare('SELECT * FROM extension_events ORDER BY completed_at,event_id LIMIT ?').all(Math.min(500, Math.max(1, Number(limit) || 100)));
+    return rows.map((row) => ({
+      eventId: row.event_id,
+      observerId: row.observer_id,
+      observerPluginId: row.observer_plugin_id,
+      state: row.state,
+      attempts: Number(row.attempts) || 0,
+      lastError: row.last_error || ''
+    }));
   }
 
   hasEffects(id) {
@@ -759,12 +861,13 @@ export class ChatStore {
     messages = [],
     maxTranscriptChars = 240000,
     forceRollover = '',
-    rolloverArmedMs = 600000
+    rolloverArmedMs = 600000,
+    completionEvents = []
   } = {}) {
     return this.#transaction(() => {
       const acknowledged = leaseId
-        ? this.ackLease(leaseId)
-        : this.completeRun(runId);
+        ? this.ackLease(leaseId, { completionEvents })
+        : this.completeRun(runId, { completionEvents });
       if (closeReason) {
         this.closeConversationThread(chatKey, closeReason);
         return { acknowledged, thread: null, checkpoint: null, transcriptChars: 0 };

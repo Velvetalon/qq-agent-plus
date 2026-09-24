@@ -95,11 +95,17 @@ import { vendorOfConfig } from '../pricing/model-prices.js';
 import { minuteOfDayInZone, randInt, sleep, createEventBus, todayKey } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from '../llm/prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from '../llm/llm.js';
-import { buildToolDefs, toOpenAiTools, executeTool } from '../tools/tools.js';
+import { toOpenAiTools, executeTool } from '../tools/tools.js';
 import { modelImageVerdict } from '../llm/vision-scan.js';
 import { currentProviders } from './providers.js';
 import { buildSlangContextForChat } from '../console/asset-observer.js';
 import { parseInlineToolCalls } from '../tools/inline-tools.js';
+import { createRunContext } from '../plugins/context.js';
+import { PluginManager } from '../plugins/manager.js';
+import { createLegacyToolsPlugin } from '../plugins/builtin/legacy-tools.js';
+import { runtimeControlPlugin } from '../plugins/builtin/runtime-control.js';
+import { messagingPlugin } from '../plugins/builtin/messaging.js';
+import { memoryToolsPlugin } from '../plugins/builtin/memory-tools.js';
 
 function handoffParticipantIds(triggerEntries) {
   return [...new Set((triggerEntries || [])
@@ -261,7 +267,8 @@ export class Orchestrator {
     emit = null,
     random = Math.random,
     getIdentityPilot = null,
-    getIncidentPilot = null
+    getIncidentPilot = null,
+    pluginManager = null
   }) {
     this.store = store;
     this.memory = memory;
@@ -275,7 +282,22 @@ export class Orchestrator {
       ? getIncidentPilot
       : (() => null);
     this.emit = typeof emit === 'function' ? emit : ((b) => b.emit.bind(b))(createEventBus());
-    this.toolDefs = buildToolDefs();
+    this.pluginManager = pluginManager || new PluginManager({ configProvider: getConfig, eventStore: store });
+    if (!pluginManager) {
+      this.pluginManager.registerAll([
+        runtimeControlPlugin,
+        messagingPlugin,
+        memoryToolsPlugin,
+        createLegacyToolsPlugin({
+          exclude: [
+            'schedule_wake', 'finish',
+            'send_message', 'send_sticker', 'send_face', 'send_poke',
+            'memory_append', 'memory_query', 'person_memory_lookup', 'memory_remove'
+          ]
+        })
+      ]);
+    }
+    this.toolDefs = this.pluginManager.getToolDefs();
 
     this.chatNameCache = new Map();    // groupId -> name
     this.wakeTimers = new Map();       // chatKey -> timer
@@ -300,6 +322,7 @@ export class Orchestrator {
     // 模型自己安排的「稍后主动发言」：chatKey -> { at, note, timer }
     this.scheduledWakes = new Map();
     this.scheduledWakeTicker = null;
+    this.pluginRunSnapshots = new Map();
     this.aborted = false;
   }
 
@@ -307,6 +330,17 @@ export class Orchestrator {
     const key = String(reason || 'background-task');
     if (suppressed) this.proactiveSuppressions.add(key);
     else this.proactiveSuppressions.delete(key);
+  }
+
+  async startPlugins() {
+    return this.pluginManager.startAll({
+      config: getConfig(),
+      services: { logger: (...args) => console.log('[plugin]', ...args) }
+    });
+  }
+
+  async stopPlugins(reason = 'shutdown') {
+    await this.pluginManager.stopAll(reason);
   }
 
   #chatRuntimeDecision(chatKey) {
@@ -960,21 +994,35 @@ export class Orchestrator {
       const runResult = await this.#runAgent(session, { kind, chatId, chatKey, triggerEntries, proactive, wakeNote, paced, seq,
         manual, contextLimit: tierResult.count, tierInfo: tierResult, conversation, signal: controller.signal });
       controller.signal.throwIfAborted();
+      const status = session.sent.length > 0 ? 'done' : 'noreply';
+      const runSnapshot = this.pluginRunSnapshots.get(session.id);
+      const completionEvents = this.pluginManager.buildCompletionEvents(runSnapshot, {
+        accountId: this.onebot.selfId,
+        sessionId: session.id,
+        runId: session.leaseId,
+        chatKey,
+        resultClass: status,
+        actionSummary: {
+          sentCount: session.sent.length,
+          finishReason: session.finishReason,
+          outboundAttempted: session.sent.length > 0
+        },
+        sourceMessageIds: triggerEntries.map((entry) => entry.id)
+      });
       if (conversation.mode === 'lifecycle') {
         const handoff = this.#commitSessionHandoff(session, { chatKey, triggerEntries });
         this.#commitConversationThread(session, {
           chatKey, triggerEntries, handoff, conversation, runResult,
-          leaseId: lease?.id || '', runId: session.leaseId
+          leaseId: lease?.id || '', runId: session.leaseId, completionEvents
         });
       } else {
-        if (lease) this.store.ackLease(lease.id);
-        else this.store.completeRun(session.leaseId);
+        if (lease) this.store.ackLease(lease.id, { completionEvents });
+        else this.store.completeRun(session.leaseId, { completionEvents });
         const handoff = this.#commitSessionHandoff(session, { chatKey, triggerEntries });
         this.#commitConversationThread(session, {
           chatKey, triggerEntries, handoff, conversation, runResult
         });
       }
-      const status = session.sent.length > 0 ? 'done' : 'noreply';
       this.sessions.finish(session.id, status);
       this.emit('session-end', { sessionId: session.id, chatKey, status,
         sent: session.sent.length, finishReason: session.finishReason, usage: session.usage });
@@ -1016,6 +1064,9 @@ export class Orchestrator {
       releaseTimeGuard();
       clearTimeout(runTimer);
       this.controllers.delete(chatKey);
+      const snapshot = this.pluginRunSnapshots.get(session.id);
+      this.pluginManager.releaseRunSnapshot(snapshot);
+      this.pluginRunSnapshots.delete(session.id);
       this.activeRuns.delete(chatKey);
       this.runningChats.delete(chatKey);
       this.emit('chat-update', chatKey);
@@ -1095,14 +1146,15 @@ export class Orchestrator {
     conversation,
     runResult = null,
     leaseId = '',
-    runId = ''
+    runId = '',
+    completionEvents = []
   }) {
     const mode = conversation?.mode || 'legacy';
     const currentMode = conversationConfigForChat(chatKey).mode;
     if (currentMode !== mode) {
       if (mode === 'lifecycle') {
         this.store.commitLifecycleRun({
-          chatKey, leaseId, runId, persistThread: false, closeReason: 'mode-changed'
+          chatKey, leaseId, runId, persistThread: false, closeReason: 'mode-changed', completionEvents
         });
       } else {
         this.store.closeConversationThread?.(chatKey, 'mode-changed');
@@ -1163,7 +1215,8 @@ export class Orchestrator {
         messages: runResult?.providerTranscriptDelta || [],
         maxTranscriptChars: conversation?.maxTranscriptChars,
         forceRollover: runResult?.forceThreadRollover || '',
-        rolloverArmedMs: conversation?.rolloverArmedMs
+        rolloverArmedMs: conversation?.rolloverArmedMs,
+        completionEvents
       });
       session.threadId = result.thread?.threadId || session.threadId || null;
       this.#applyThreadSnapshot(session, result.thread, closeReason ? 'closed' : null);
@@ -1222,7 +1275,10 @@ export class Orchestrator {
     conversation = null,
     signal
   }) {
-    const cfg = getConfig();
+    const liveConfig = getConfig();
+    const runSnapshot = this.pluginManager.createRunSnapshot(liveConfig);
+    this.pluginRunSnapshots.set(session.id, runSnapshot);
+    const cfg = runSnapshot.config;
     const conversationCfg = conversation || conversationConfigForChat(chatKey);
     const chatName = kind === 'group' ? await this.#chatName(chatId) : '';
     const selfNickname = kind === 'group' ? (cfg.persona.selfNickname || this.onebot.selfNickname || cfg.persona.botName) : cfg.persona.botName;
@@ -1260,14 +1316,14 @@ export class Orchestrator {
     const identityPilot = this.getIdentityPilot();
     const identityAvailable = identityPilotEnabled(cfg) && identityPilot?.active === true;
     const friendProposalAvailable = identityAvailable && promptFriendProposalEnabled(cfg);
-    const toolDefs = this.toolDefs.filter((d) => {
+    const toolDefs = runSnapshot.tools.filter((d) => {
       if (!visionEnabled && (d.name === 'get_message_images' || d.name === 'get_sticker_image')) return false;
       if (!searchEnabled && (d.name === 'web_search' || d.name === 'web_fetch')) return false;
       if (d.feature === 'identityPilot' && !identityAvailable) return false;
       if (d.feature === 'friendProposal' && !friendProposalAvailable) return false;
       return true;
     });
-    const openAiTools = toOpenAiTools(toolDefs);
+    const openAiTools = toOpenAiTools(toolDefs, cfg);
     const systemPrompt = buildSystemPrompt({
       identityPilotAvailable: identityAvailable,
       friendProposalAvailable,
@@ -1319,6 +1375,16 @@ export class Orchestrator {
     const lifecycleContinuation = priorProviderMessages.length > 0;
 
     // 首轮带完整上下文；生命周期后续轮只附加增量，旧消息保持字节级稳定以命中 DeepSeek 前缀缓存。
+    const pluginContext = createRunContext(runSnapshot, {
+      chatKey,
+      sessionId: session.id,
+      signal: runSnapshot.signal,
+      currentMessageIds: (triggerEntries || []).map((entry) => entry.id)
+    });
+    const extensionContext = await this.pluginManager.collectContext(runSnapshot, pluginContext);
+    const contextText = extensionContext.blocks.length
+      ? `\n\n【插件上下文】\n${extensionContext.blocks.map((block) => `${block.title}: ${block.text}`).join('\n')}`
+      : '';
     const userPrompt = buildUserPrompt({
       chatKey, kind, chatId, chatName,
       triggerEntries,
@@ -1342,7 +1408,7 @@ export class Orchestrator {
       conversationMode: conversationCfg.mode,
       lifecycleContinuation,
       session
-    });
+    }) + contextText;
 
     session.systemPrompt = systemPrompt;
     session.userPrompt = userPrompt;
@@ -1400,7 +1466,30 @@ export class Orchestrator {
       ? 'deepseek-lifecycle-append-v1'
       : 'stable-prefix-v2';
     session.promptPrefixHash = promptPrefixHash;
+    session.pluginSnapshot = {
+      registryRevision: runSnapshot.registryRevision,
+      plugins: runSnapshot.plugins.map((plugin) => ({
+        id: plugin.id,
+        version: plugin.version,
+        generation: runSnapshot.generations[plugin.id] || 0
+      })),
+      toolNames: toolDefs.map((tool) => tool.name)
+    };
+    session.pluginContext = {
+      blocks: extensionContext.blocks.map((block) => ({
+        id: block.id,
+        title: block.title,
+        sourceRefs: block.sourceRefs,
+        revision: block.revision
+      })),
+      diagnostics: extensionContext.diagnostics,
+      degraded: extensionContext.degraded === true
+    };
 
+    const combinedSignal = typeof AbortSignal?.any === 'function'
+      ? AbortSignal.any([signal, runSnapshot.signal])
+      : signal;
+    signal = combinedSignal;
     const ctx = {
       chatKey, kind, chatId,
       selfId: this.onebot.selfId,
@@ -1414,7 +1503,9 @@ export class Orchestrator {
       stickers: this.stickers,
       sender: this.sender,
       session,
-      signal,
+      runSnapshot,
+      pluginContext,
+      signal: combinedSignal,
       emit: (type, payload) => this.emit(type, payload),
       // 让模型能给自己安排一次稍后的主动发言
       scheduleWake: (delayMs, note) => this.scheduleInitiativeWake(chatKey, delayMs, note)
@@ -1434,6 +1525,7 @@ export class Orchestrator {
     };
     for (let round = 0; round < maxRounds && !finish; round++) {
       signal.throwIfAborted();
+      runSnapshot.signal.throwIfAborted();
       if (this.aborted || !canRun(chatKey)) throw new Error('Run cancelled');
       const maxRunTokens = Math.min(
         1000000,
