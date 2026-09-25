@@ -9,6 +9,35 @@ export {
 } from './notebook-store.js';
 
 export {
+  CAPABILITY_GAP_CATEGORIES,
+  DEFAULT_REFLECTION_LIMITS,
+  REFLECTION_DATABASE_NAME,
+  REFLECTION_JOB_STATUSES,
+  REFLECTION_MODES,
+  REFLECTION_OBSERVER_ID,
+  REFLECTION_PROPOSAL_STATUSES,
+  ReflectionError,
+  ReflectionStore,
+  createReflectionObserver,
+  hashBasePersona,
+  normalizeCompletionObservation,
+  observationWindowKey,
+  reflectionDatabasePath,
+  reflectionPrompt,
+  validateReflectionOutput
+} from './reflection-store.js';
+
+export {
+  ReflectionWorker
+} from './reflection-worker.js';
+
+export {
+  createReflectionPlugin,
+  openReflectionStore,
+  reflectionConfig
+} from './reflection-plugin.js';
+
+export {
   createSelfEvolutionPlugin,
   openSelfEvolutionNotebook,
   selfEvolutionPlugin
