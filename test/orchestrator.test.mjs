@@ -525,7 +525,10 @@ describe('Orchestrator', () => {
     await runner.wake('group:1');
 
     assert.equal(requests.length, 2);
-    assert.deepEqual(lookups, [{ userId: '42', chatKey: 'group:1' }]);
+    assert.equal(lookups.length, 1);
+    assert.equal(lookups[0].userId, '42');
+    assert.equal(lookups[0].chatKey, 'group:1');
+    assert.equal(lookups[0].signal instanceof AbortSignal, true);
     const session = runner.sessions.get(runner.sessions.listSummaries(1)[0].id);
     assert.ok(session.messages.some((message) =>
       message.toolCall?.name === 'person_memory_lookup'));

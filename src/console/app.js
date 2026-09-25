@@ -3197,9 +3197,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     slangPilot = null;
     await incidentPilot?.stop();
     incidentPilot = null;
+    await orchestrator.abortAll();
     await orchestrator.stopPlugins('shutdown');
     onebot.close();
-    await orchestrator.abortAll();
     await Promise.allSettled([...ingress.values()]);
     for (const client of sseClients) client.end();
     await new Promise((resolve) => {

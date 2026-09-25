@@ -1,16 +1,17 @@
 import { createRunContext, snapshotConfig, snapshotPluginConfig } from './context.js';
 import { PluginRegistry } from './registry.js';
 
+const STOP_TIMEOUT_MS = 1000;
+const OBSERVER_TIMEOUT_MS = 1000;
+
 function enabledFor(plugin, config) {
   if (plugin.required) return true;
   if (typeof plugin.isEnabled === 'function') return plugin.isEnabled(config) === true;
   return plugin.enabled !== false;
 }
 
-function stableToolSnapshot(registrySnapshot, config) {
-  const enabledIds = new Set(registrySnapshot.plugins
-    .filter((plugin) => enabledFor(plugin, config))
-    .map((plugin) => plugin.id));
+function stableToolSnapshot(registrySnapshot, enabledPlugins) {
+  const enabledIds = new Set(enabledPlugins.map((plugin) => plugin.id));
   return registrySnapshot.tools.filter((tool) => enabledIds.has(tool.ownerPluginId));
 }
 
@@ -25,12 +26,14 @@ export class PluginManager {
     this.activeSnapshots = new Set();
     this.observerTimer = null;
     this.services = {};
+    this.stopping = false;
+    this.inFlight = new Set();
   }
 
   register(plugin) {
     const result = this.registry.register(plugin);
     this.generations.set(plugin.id, (this.generations.get(plugin.id) || 0) + 1);
-    this.enabled.set(plugin.id, plugin.enabled !== false);
+    if (plugin.enabled === false) this.enabled.set(plugin.id, false);
     return result;
   }
 
@@ -38,7 +41,7 @@ export class PluginManager {
     const result = this.registry.registerAll(plugins);
     for (const plugin of (Array.isArray(plugins) ? plugins : [plugins])) {
       this.generations.set(plugin.id, (this.generations.get(plugin.id) || 0) + 1);
-      this.enabled.set(plugin.id, plugin.enabled !== false);
+      if (plugin.enabled === false) this.enabled.set(plugin.id, false);
     }
     return result;
   }
@@ -51,43 +54,72 @@ export class PluginManager {
     }
     this.enabled.set(pluginId, enabled === true);
     this.generations.set(pluginId, (this.generations.get(pluginId) || 0) + 1);
-    if (!enabled) this.runtime.get(pluginId)?.controller.abort(new Error('Plugin disabled'));
+    if (!enabled) {
+      const runtime = this.runtime.get(pluginId);
+      this.#clearTimers(runtime);
+      runtime?.controller.abort(new Error('Plugin disabled'));
+    }
   }
 
   async startAll({ services = {}, config = this.configProvider() } = {}) {
+    this.stopping = false;
     this.services = services && typeof services === 'object' ? { ...services } : {};
     const started = [];
+    const preExistingRuntimeIds = new Set(this.runtime.keys());
     let startingId = '';
     try {
       for (const registration of this.registry.getRegistrations()) {
         const plugin = registration.plugin;
-        if (!this.isEnabled(plugin.id)) continue;
+        if (!this.isEnabled(plugin.id, config) || this.runtime.has(plugin.id)) continue;
         startingId = plugin.id;
         const generation = this.generations.get(plugin.id) || 0;
         const controller = new AbortController();
-        const runtimeServices = this.#servicesFor(plugin.id, config, generation, controller.signal);
+        const runtime = {
+          controller,
+          generation,
+          timers: new Set(),
+          services: null
+        };
+        const runtimeServices = this.#servicesFor(
+          plugin.id, config, generation, controller.signal, runtime
+        );
+        runtime.services = runtimeServices;
+        this.runtime.set(plugin.id, runtime);
         if (typeof plugin.start === 'function') await plugin.start(runtimeServices, snapshotPluginConfig(config), controller.signal);
-        this.runtime.set(plugin.id, { controller, generation, services: runtimeServices });
         started.push(plugin.id);
         startingId = '';
       }
       this.#startObserverWorker();
       return this.status();
     } catch (error) {
-      if (startingId) {
-        try { await this.registry.getRegistrations().find((item) => item.plugin.id === startingId)?.plugin.stop?.('startup-failed'); } catch { /* best effort */ }
-        this.registry.unregister(startingId);
+      const rollbackIds = startingId ? [startingId, ...started] : started;
+      const rollbackError = new Error('Plugin startup failed');
+      for (const pluginId of rollbackIds) {
+        if (preExistingRuntimeIds.has(pluginId)) continue;
+        this.enabled.set(pluginId, false);
+        this.#invalidateRuntime(pluginId, rollbackError);
       }
-      await this.#stopIds(started, 'startup-failed');
+      await this.#drainInFlight(new Set(rollbackIds));
+      await this.#stopIds(rollbackIds, 'startup-failed', { prepared: true });
+      for (const pluginId of rollbackIds) {
+        if (preExistingRuntimeIds.has(pluginId)) continue;
+        this.registry.unregister(pluginId);
+        this.enabled.delete(pluginId);
+      }
       throw error;
     }
   }
 
   async stopAll(reason = 'shutdown') {
+    this.stopping = true;
     if (this.observerTimer) clearTimeout(this.observerTimer);
     this.observerTimer = null;
-    await this.#stopIds([...this.runtime.keys()], reason);
-    for (const snapshot of this.activeSnapshots) snapshot.abortController.abort(new Error(`Plugins stopped: ${reason}`));
+    const stopError = new Error(`Plugins stopped: ${reason}`);
+    for (const snapshot of this.activeSnapshots) snapshot.abortController.abort(stopError);
+    const ids = [...this.runtime.keys()];
+    for (const id of ids) this.#invalidateRuntime(id, stopError);
+    await this.#drainInFlight();
+    await this.#stopIds(ids, reason, { prepared: true });
     this.activeSnapshots.clear();
   }
 
@@ -99,33 +131,28 @@ export class PluginManager {
         snapshot.abortController.abort(new Error(`Plugin disabled: ${pluginId}`));
       }
     }
-    await this.#stopIds([pluginId], reason);
+    await this.#drainInFlight(new Set([pluginId]));
+    await this.#stopIds([pluginId], reason, { prepared: true });
   }
 
   releaseRunSnapshot(snapshot) {
     if (snapshot) this.activeSnapshots.delete(snapshot);
   }
 
-  isEnabled(pluginId) {
+  isEnabled(pluginId, config = this.configProvider()) {
     const registration = this.registry.getRegistrations().find((item) => item.plugin.id === pluginId);
     if (!registration) return false;
+    if (this.stopping) return false;
     return this.enabled.has(pluginId)
       ? this.enabled.get(pluginId) === true
-      : enabledFor(registration.plugin, this.configProvider());
+      : enabledFor(registration.plugin, config);
   }
 
   createRunSnapshot(config = this.configProvider()) {
     const registrySnapshot = this.registry.snapshot();
     const configSnapshot = snapshotConfig(config);
-    const tools = stableToolSnapshot({
-      ...registrySnapshot,
-      plugins: registrySnapshot.plugins.filter((plugin) => (
-        (this.enabled.has(plugin.id) ? this.enabled.get(plugin.id) : enabledFor(plugin, configSnapshot))
-      ))
-    }, configSnapshot);
-    const plugins = registrySnapshot.plugins.filter((plugin) => (
-      (this.enabled.has(plugin.id) ? this.enabled.get(plugin.id) : enabledFor(plugin, configSnapshot))
-    ));
+    const plugins = registrySnapshot.plugins.filter((plugin) => this.isEnabled(plugin.id, configSnapshot));
+    const tools = stableToolSnapshot(registrySnapshot, plugins);
     const toolHandles = Object.freeze(Object.fromEntries(tools.map((tool) => [
       tool.name,
       Object.freeze({
@@ -187,12 +214,40 @@ export class PluginManager {
     for (const provider of snapshot?.contextProviders || []) {
       const startedAt = Date.now();
       let timeoutHandle = null;
+      const providerController = new AbortController();
+      const providerSignal = this.#combineSignals(
+        snapshot.signal,
+        runContext?.signal,
+        providerController.signal
+      );
+      const providerContext = runContext && typeof runContext === 'object'
+        ? Object.freeze({ ...runContext, signal: providerSignal })
+        : runContext;
       try {
+        const providerTask = this.#trackTask(provider.ownerPluginId, Promise.resolve().then(() => provider.provide(
+          providerContext,
+          this.#servicesFor(provider.ownerPluginId, snapshot.config,
+            snapshot.generations[provider.ownerPluginId] || 0, providerSignal)
+        )));
+        const abortTask = new Promise((_, reject) => {
+          if (providerSignal.aborted) {
+            reject(providerSignal.reason || new Error('provider aborted'));
+            return;
+          }
+          providerSignal.addEventListener(
+            'abort',
+            () => reject(providerSignal.reason || new Error('provider aborted')),
+            { once: true }
+          );
+        });
         const result = await Promise.race([
-          provider.provide(runContext, this.#servicesFor(provider.ownerPluginId, snapshot.config,
-            snapshot.generations[provider.ownerPluginId] || 0, snapshot.signal)),
+          providerTask,
+          abortTask,
           new Promise((_, reject) => {
-            timeoutHandle = setTimeout(() => reject(new Error('provider timeout')), timeoutMs);
+            timeoutHandle = setTimeout(() => {
+              providerController.abort(new Error('provider timeout'));
+              reject(new Error('provider timeout'));
+            }, Math.max(1, Number(timeoutMs) || 500));
           })
         ]);
         const candidates = Array.isArray(result?.blocks) ? result.blocks : [];
@@ -249,17 +304,30 @@ export class PluginManager {
       }));
   }
 
-  #servicesFor(pluginId, config, generation, signal) {
+  #servicesFor(pluginId, config, generation, signal, runtime = null) {
+    const timers = runtime?.timers || new Set();
+    const setTimer = (fn, ms, ...args) => {
+      if (signal?.aborted || this.stopping || typeof fn !== 'function') return null;
+      let timer = null;
+      timer = setTimeout(() => {
+        timers.delete(timer);
+        if (!signal?.aborted && !this.stopping) fn(...args);
+      }, Math.max(0, Number(ms) || 0));
+      timers.add(timer);
+      return timer;
+    };
+    const clearTimer = (timer) => {
+      if (timer == null) return;
+      clearTimeout(timer);
+      timers.delete(timer);
+    };
     return Object.freeze({
       pluginId,
       generation,
       config: snapshotPluginConfig(config),
       signal,
       logger: this.services.logger || (() => {}),
-      resources: Object.freeze({
-        setTimer: (fn, ms) => setTimeout(fn, ms),
-        clearTimer: (timer) => clearTimeout(timer)
-      })
+      resources: Object.freeze({ setTimer, clearTimer })
     });
   }
 
@@ -269,15 +337,19 @@ export class PluginManager {
     if (!this.eventStore || !hasEnabledObserver || this.observerTimer) return;
     const tick = async () => {
       this.observerTimer = null;
-      await this.drainCompletionEvents();
-      if (this.runtime.size) this.observerTimer = setTimeout(tick, 1000);
+      try {
+        await this.drainCompletionEvents();
+      } catch {
+        // A failed observer drain must not kill the worker.
+      }
+      if (!this.stopping && this.runtime.size) this.observerTimer = setTimeout(tick, 1000);
       this.observerTimer?.unref?.();
     };
     this.observerTimer = setTimeout(tick, 0);
     this.observerTimer.unref?.();
   }
 
-  async drainCompletionEvents(limit = 20) {
+  async drainCompletionEvents(limit = 20, observerTimeoutMs = OBSERVER_TIMEOUT_MS) {
     if (!this.eventStore) return 0;
     const events = this.eventStore.claimExtensionEvents?.(limit) || [];
     let delivered = 0;
@@ -285,31 +357,130 @@ export class PluginManager {
       const registration = this.registry.getRegistrations()
         .find((item) => item.plugin.id === event.observerPluginId);
       const observer = registration?.sessionObservers.find((item) => item.id === event.observerId);
-      if (!observer || !this.isEnabled(event.observerPluginId)) {
+      const runtime = this.runtime.get(event.observerPluginId);
+      const signal = runtime?.controller.signal || new AbortController().signal;
+      if (!observer || !this.isEnabled(event.observerPluginId)
+        || signal.aborted
+        || (this.generations.get(event.observerPluginId) || 0) !== Number(event.pluginGeneration)) {
         this.eventStore.failExtensionEvent?.(event.eventId, 'observer disabled', { expired: true });
         continue;
       }
+      const observerController = new AbortController();
+      const observerSignal = this.#combineSignals(signal, observerController.signal);
+      let timeoutHandle = null;
       try {
-        await observer.observe(event, this.#servicesFor(event.observerPluginId, this.configProvider(),
-          event.pluginGeneration, new AbortController().signal));
-        this.eventStore.completeExtensionEvent?.(event.eventId);
-        delivered += 1;
+        const observerTask = Promise.resolve().then(() => observer.observe(
+          event,
+          this.#servicesFor(event.observerPluginId, this.configProvider(),
+            event.pluginGeneration, observerSignal, runtime)
+        ));
+        await this.#trackTask(event.observerPluginId, Promise.race([
+          observerTask,
+          new Promise((_, reject) => {
+            timeoutHandle = setTimeout(() => {
+              const timeoutError = new Error('observer timeout');
+              observerController.abort(timeoutError);
+              reject(timeoutError);
+            }, Math.max(1, Number(observerTimeoutMs) || OBSERVER_TIMEOUT_MS));
+          })
+        ]));
+        if (observerSignal.aborted
+          || !this.isEnabled(event.observerPluginId)
+          || (this.generations.get(event.observerPluginId) || 0) !== Number(event.pluginGeneration)) {
+          this.eventStore.failExtensionEvent?.(event.eventId, 'observer disabled', { expired: true });
+        } else {
+          this.eventStore.completeExtensionEvent?.(event.eventId);
+          delivered += 1;
+        }
       } catch (error) {
         this.eventStore.failExtensionEvent?.(event.eventId, String(error?.message ?? error));
+      } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
       }
     }
     return delivered;
   }
 
-  async #stopIds(ids, reason) {
+  async #stopIds(ids, reason, { prepared = false } = {}) {
     for (const id of ids) {
       const runtime = this.runtime.get(id);
       const registration = this.registry.getRegistrations().find((item) => item.plugin.id === id);
       if (!runtime || !registration) continue;
-      runtime.controller.abort(new Error(`Plugin stopped: ${reason}`));
-      try { await registration.plugin.stop?.(reason, runtime.services); } catch { /* best effort */ }
+      if (!prepared) this.#invalidateRuntime(id, new Error(`Plugin stopped: ${reason}`));
+      else this.#clearTimers(runtime);
+      await this.#boundedStop(registration.plugin, reason, runtime.services);
       this.runtime.delete(id);
-      this.generations.set(id, (this.generations.get(id) || 0) + 1);
+      this.#clearTimers(runtime);
     }
+  }
+
+  #invalidateRuntime(pluginId, reason) {
+    const runtime = this.runtime.get(pluginId);
+    this.generations.set(pluginId, (this.generations.get(pluginId) || 0) + 1);
+    if (!runtime) return;
+    this.#clearTimers(runtime);
+    runtime.controller.abort(reason);
+  }
+
+  #clearTimers(runtime) {
+    for (const timer of runtime?.timers || []) clearTimeout(timer);
+    runtime?.timers?.clear();
+  }
+
+  #trackTask(pluginId, task) {
+    const tracked = {
+      pluginId,
+      promise: Promise.resolve(task)
+    };
+    this.inFlight.add(tracked);
+    tracked.promise.finally(() => this.inFlight.delete(tracked)).catch(() => {});
+    return tracked.promise;
+  }
+
+  async #drainInFlight(pluginIds = null) {
+    const pending = [...this.inFlight]
+      .filter((entry) => !pluginIds || pluginIds.has(entry.pluginId))
+      .map((entry) => entry.promise);
+    if (!pending.length) return;
+    let timer = null;
+    try {
+      await Promise.race([
+        Promise.allSettled(pending),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, STOP_TIMEOUT_MS);
+        })
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async #boundedStop(plugin, reason, services) {
+    if (typeof plugin.stop !== 'function') return;
+    let timer = null;
+    try {
+      await Promise.race([
+        Promise.resolve().then(() => plugin.stop(reason, services)),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, STOP_TIMEOUT_MS);
+        })
+      ]);
+    } catch {
+      // Plugin cleanup is best effort; runtime resources are still released.
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  #combineSignals(...signals) {
+    const active = signals.filter((signal) => signal && typeof signal.addEventListener === 'function');
+    if (active.length === 1) return active[0];
+    if (typeof AbortSignal?.any === 'function') return AbortSignal.any(active);
+    const controller = new AbortController();
+    for (const signal of active) {
+      if (signal.aborted) controller.abort(signal.reason);
+      else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+    }
+    return controller.signal;
   }
 }

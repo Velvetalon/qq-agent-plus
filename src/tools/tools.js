@@ -10,6 +10,7 @@ import {
   experimentalToolSchedulerConfig,
   ExperimentalToolBatch
 } from '../pilots/experimental-tool-scheduler.js';
+import { createToolCallbackContext } from '../plugins/context.js';
 import {
   buildToolDefs as coreBuildToolDefs,
   executeTool as coreExecuteTool,
@@ -18,8 +19,12 @@ import {
 
 export * from './tools-core.js';
 
-// 显式导出覆盖 export * 中同名项；关闭实验时仍原样调用旧实现。
-export const buildToolDefs = coreBuildToolDefs;
+// 直接调用旧工具执行器的兼容入口必须保留 raw host context 契约。
+export function buildToolDefs() {
+  return coreBuildToolDefs().map((tool) => (
+    tool.ownerPluginId ? tool : { ...tool, ownerPluginId: 'legacy-tools' }
+  ));
+}
 
 export function toOpenAiTools(defs, cfg = getConfig()) {
   const tools = coreToOpenAiTools(defs);
@@ -50,8 +55,16 @@ function schedulerMetrics(session, batch, settings) {
   };
 }
 
-function runtimeBatch(defs, ctx, settings) {
-  const session = ctx?.session;
+function definitionFor(defs, name) {
+  return defs.find((item) => item.name === name);
+}
+
+function callbackContext(def, hostCtx) {
+  return createToolCallbackContext(def, hostCtx);
+}
+
+function runtimeBatch(defs, hostCtx, settings) {
+  const session = hostCtx?.session;
   if (!session || typeof session !== 'object') return null;
   const calls = latestAssistantToolCalls(session);
   if (!calls.length) return null;
@@ -61,12 +74,16 @@ function runtimeBatch(defs, ctx, settings) {
 
   const batch = new ExperimentalToolBatch(calls, {
     maxParallelReads: settings.maxParallelReads,
-    execute: (call) => coreExecuteTool(
-      defs,
-      ctx,
-      call?.function?.name ?? '',
-      call?.function?.arguments ?? '{}'
-    ),
+    execute: (call) => {
+      const name = call?.function?.name ?? '';
+      const def = definitionFor(defs, name);
+      return coreExecuteTool(
+        defs,
+        callbackContext(def, hostCtx),
+        name,
+        call?.function?.arguments ?? '{}'
+      );
+    },
     onParallelWave: ({ size, names }) => {
       session.experimentalToolScheduler = {
         enabled: true,
@@ -113,7 +130,8 @@ function pluginDisabledResult(name) {
  */
 export async function executeTool(defs, ctx, name, argsJson) {
   const cfg = ctx?.runSnapshot?.config || getConfig();
-  const owner = defs.find((item) => item.name === name)?.ownerPluginId;
+  const def = definitionFor(defs, name);
+  const owner = def?.ownerPluginId;
   const generation = owner ? ctx?.runSnapshot?.generations?.[owner] : null;
   if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
     && !ctx.runSnapshot.isActive(owner, generation)) {
@@ -121,7 +139,7 @@ export async function executeTool(defs, ctx, name, argsJson) {
   }
   const settings = experimentalToolSchedulerConfig(cfg);
   if (!settings.enabled) {
-    const result = await coreExecuteTool(defs, ctx, name, argsJson);
+    const result = await coreExecuteTool(defs, callbackContext(def, ctx), name, argsJson);
     if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
       && !ctx.runSnapshot.isActive(owner, generation)) return pluginDisabledResult(name);
     return observeMultimodalResult(ctx, name, argsJson, result, cfg);
@@ -129,7 +147,7 @@ export async function executeTool(defs, ctx, name, argsJson) {
 
   const batch = runtimeBatch(defs, ctx, settings);
   if (!batch) {
-    const result = await coreExecuteTool(defs, ctx, name, argsJson);
+    const result = await coreExecuteTool(defs, callbackContext(def, ctx), name, argsJson);
     if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
       && !ctx.runSnapshot.isActive(owner, generation)) return pluginDisabledResult(name);
     return observeMultimodalResult(ctx, name, argsJson, result, cfg);
@@ -138,7 +156,7 @@ export async function executeTool(defs, ctx, name, argsJson) {
   const scheduled = await batch.next(name, argsJson);
   if (!scheduled.handled) {
     // Session 审计结构与宿主调用顺序出现任何不一致时，宁可退回旧串行路径。
-    const result = await coreExecuteTool(defs, ctx, name, argsJson);
+    const result = await coreExecuteTool(defs, callbackContext(def, ctx), name, argsJson);
     if (owner && typeof ctx?.runSnapshot?.isActive === 'function'
       && !ctx.runSnapshot.isActive(owner, generation)) return pluginDisabledResult(name);
     return observeMultimodalResult(ctx, name, argsJson, result, cfg);
