@@ -1,0 +1,80 @@
+RUN 03-p4-notebook-focused: E:\node22\node.exe --test --test-reporter=tap test/self-evolution-notebook.test.mjs
+TAP version 13
+# (node:85164) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: declares exactly four notebook tools with local-write/read effects
+ok 1 - declares exactly four notebook tools with local-write/read effects
+  ---
+  duration_ms: 2.1568
+  type: 'test'
+  ...
+# Subtest: disabled plugin creates no database, directory, timers, or registered tools
+ok 2 - disabled plugin creates no database, directory, timers, or registered tools
+  ---
+  duration_ms: 2.7799
+  type: 'test'
+  ...
+# Subtest: enabled plugin exposes persistent tool callbacks through the P2 manager
+ok 3 - enabled plugin exposes persistent tool callbacks through the P2 manager
+  ---
+  duration_ms: 63.5177
+  type: 'test'
+  ...
+# Subtest: append is idempotent and restart preserves note, revision, and audit source
+ok 4 - append is idempotent and restart preserves note, revision, and audit source
+  ---
+  duration_ms: 52.3506
+  type: 'test'
+  ...
+# Subtest: same idempotency key cannot silently represent a different write
+ok 5 - same idempotency key cannot silently represent a different write
+  ---
+  duration_ms: 46.4554
+  type: 'test'
+  ...
+# Subtest: concurrent revisions use CAS and persist the losing conflict for audit
+ok 6 - concurrent revisions use CAS and persist the losing conflict for audit
+  ---
+  duration_ms: 54.8229
+  type: 'test'
+  ...
+# Subtest: chat scope, account namespace, and tags cannot widen search visibility
+ok 7 - chat scope, account namespace, and tags cannot widen search visibility
+  ---
+  duration_ms: 50.6718
+  type: 'test'
+  ...
+# Subtest: archive advances revision, remains in history, and is excluded from recall
+ok 8 - archive advances revision, remains in history, and is excluded from recall
+  ---
+  duration_ms: 48.3283
+  type: 'test'
+  ...
+# Subtest: body, capacity, and per-run limits reject explicitly without claiming saved
+ok 9 - body, capacity, and per-run limits reject explicitly without claiming saved
+  ---
+  duration_ms: 48.7748
+  type: 'test'
+  ...
+# Subtest: invalid chat source is rejected and chat writes require host run identity
+ok 10 - invalid chat source is rejected and chat writes require host run identity
+  ---
+  duration_ms: 41.962
+  type: 'test'
+  ...
+# Subtest: existing Notebook can be read in stopped read-only mode without enabling writes
+ok 11 - existing Notebook can be read in stopped read-only mode without enabling writes
+  ---
+  duration_ms: 52.0414
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 783.2174
+EXIT 03-p4-notebook-focused code=0 duration_ms=921

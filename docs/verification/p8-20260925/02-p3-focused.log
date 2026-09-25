@@ -1,0 +1,491 @@
+RUN 02-p3-focused: E:\node22\node.exe --test --test-reporter=tap test/p3-active-silence.test.mjs test/orchestrator.test.mjs test/tools.test.mjs test/tool-scheduler-wrapper.test.mjs test/experimental-tool-scheduler.test.mjs test/store.test.mjs
+TAP version 13
+# Subtest: disabled experiment preserves tool schema object and defaults to old path
+ok 1 - disabled experiment preserves tool schema object and defaults to old path
+  ---
+  duration_ms: 1.712
+  type: 'test'
+  ...
+# Subtest: current base tool inventory has an explicit scheduler classification
+ok 2 - current base tool inventory has an explicit scheduler classification
+  ---
+  duration_ms: 1.9044
+  type: 'test'
+  ...
+# Subtest: enabled experiment strongly guides same-round finish without mutating base schemas
+ok 3 - enabled experiment strongly guides same-round finish without mutating base schemas
+  ---
+  duration_ms: 0.6743
+  type: 'test'
+  ...
+# Subtest: consecutive read tools execute concurrently but are returned in host order
+ok 4 - consecutive read tools execute concurrently but are returned in host order
+  ---
+  duration_ms: 35.9301
+  type: 'test'
+  ...
+# Subtest: ordered image reads stay serial and are never prestarted as a read wave
+ok 5 - ordered image reads stay serial and are never prestarted as a read wave
+  ---
+  duration_ms: 11.3091
+  type: 'test'
+  ...
+# Subtest: parallel read concurrency respects configured limit
+ok 6 - parallel read concurrency respects configured limit
+  ---
+  duration_ms: 20.0646
+  type: 'test'
+  ...
+# Subtest: failed earlier tool blocks finish instead of committing terminal state
+ok 7 - failed earlier tool blocks finish instead of committing terminal state
+  ---
+  duration_ms: 0.6367
+  type: 'test'
+  ...
+# Subtest: finish is a hard barrier and tools after it never execute
+ok 8 - finish is a hard barrier and tools after it never execute
+  ---
+  duration_ms: 0.4117
+  type: 'test'
+  ...
+# Subtest: batch mismatch fails closed to caller fallback instead of guessing call identity
+ok 9 - batch mismatch fails closed to caller fallback instead of guessing call identity
+  ---
+  duration_ms: 0.5345
+  type: 'test'
+  ...
+# (node:89080) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Orchestrator
+    # Subtest: draws the debounce delay inside the configured range
+    ok 1 - draws the debounce delay inside the configured range
+      ---
+      duration_ms: 1.1853
+      type: 'test'
+      ...
+    # Subtest: classifies persisted Session trigger kinds without parsing display text
+    ok 2 - classifies persisted Session trigger kinds without parsing display text
+      ---
+      duration_ms: 0.408
+      type: 'test'
+      ...
+    # Subtest: omits inline image bytes from next-round Token estimation
+    ok 3 - omits inline image bytes from next-round Token estimation
+      ---
+      duration_ms: 50.1692
+      type: 'test'
+      ...
+    # Subtest: only acknowledges the claimed batch after successful model processing
+    ok 4 - only acknowledges the claimed batch after successful model processing
+      ---
+      duration_ms: 140.4801
+      type: 'test'
+      ...
+    # Subtest: preserves failed input and recorded token usage without clearing a run
+    ok 5 - preserves failed input and recorded token usage without clearing a run
+      ---
+      duration_ms: 134.5968
+      type: 'test'
+      ...
+    # Subtest: does not escalate model-correctable malformed tool arguments to incidents
+    ok 6 - does not escalate model-correctable malformed tool arguments to incidents
+      ---
+      duration_ms: 110.0261
+      type: 'test'
+      ...
+    # Subtest: records explicit silence with zero outbound side effects
+    ok 7 - records explicit silence with zero outbound side effects
+      ---
+      duration_ms: 106.4667
+      type: 'test'
+      ...
+    # Subtest: rejects a conflicting send+stay_silent batch before side effects (scheduler=false)
+    ok 8 - rejects a conflicting send+stay_silent batch before side effects (scheduler=false)
+      ---
+      duration_ms: 110.4286
+      type: 'test'
+      ...
+    # Subtest: blocks stay_silent after an earlier tool error with the scheduler=false
+    ok 9 - blocks stay_silent after an earlier tool error with the scheduler=false
+      ---
+      duration_ms: 106.6733
+      type: 'test'
+      ...
+    # Subtest: skips later side effects after an unknown delivery (scheduler=false)
+    ok 10 - skips later side effects after an unknown delivery (scheduler=false)
+      ---
+      duration_ms: 136.678
+      type: 'test'
+      ...
+    # Subtest: rejects a conflicting send+stay_silent batch before side effects (scheduler=true)
+    ok 11 - rejects a conflicting send+stay_silent batch before side effects (scheduler=true)
+      ---
+      duration_ms: 121.7914
+      type: 'test'
+      ...
+    # Subtest: blocks stay_silent after an earlier tool error with the scheduler=true
+    ok 12 - blocks stay_silent after an earlier tool error with the scheduler=true
+      ---
+      duration_ms: 119.5617
+      type: 'test'
+      ...
+    # Subtest: skips later side effects after an unknown delivery (scheduler=true)
+    ok 13 - skips later side effects after an unknown delivery (scheduler=true)
+      ---
+      duration_ms: 120.9477
+      type: 'test'
+      ...
+    # Subtest: does not start a model call in observe mode or in an unapproved chat
+    ok 14 - does not start a model call in observe mode or in an unapproved chat
+      ---
+      duration_ms: 90.5038
+      type: 'test'
+      ...
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+# [orchestrator] group:1 1 条未命中触发条件（概率 0%，未触发），已标记已读、不响应
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+# [follow-up] group:1 发言后没人接话，12 分钟后给它一次补话机会
+    # Subtest: caps a continuously extended debounce window at the first-message deadline
+    ok 15 - caps a continuously extended debounce window at the first-message deadline
+      ---
+      duration_ms: 211.0174
+      type: 'test'
+      ...
+    # Subtest: manual wake bypasses trigger rules and can run from read archive context
+    ok 16 - manual wake bypasses trigger rules and can run from read archive context
+      ---
+      duration_ms: 115.0086
+      type: 'test'
+      ...
+    # Subtest: attaches a waiting lifecycle batch to its existing thread immediately
+    ok 17 - attaches a waiting lifecycle batch to its existing thread immediately
+      ---
+      duration_ms: 703.6915
+      type: 'test'
+      ...
+    # Subtest: cancels a running request and releases the batch for a later attempt
+    ok 18 - cancels a running request and releases the batch for a later attempt
+      ---
+      duration_ms: 95.3917
+      type: 'test'
+      ...
+    # Subtest: commits an explicit finish handoff after a successful batch
+    ok 19 - commits an explicit finish handoff after a successful batch
+      ---
+      duration_ms: 99.1547
+      type: 'test'
+      ...
+    # Subtest: creates a conservative handoff when a successful reply ends without finish
+    ok 20 - creates a conservative handoff when a successful reply ends without finish
+      ---
+      duration_ms: 101.4205
+      type: 'test'
+      ...
+    # Subtest: injects the previous run handoff into the next stateless session
+    ok 21 - injects the previous run handoff into the next stateless session
+      ---
+      duration_ms: 121.0376
+      type: 'test'
+      ...
+    # Subtest: passes provider reasoning content into the next tool round
+    ok 22 - passes provider reasoning content into the next tool round
+      ---
+      duration_ms: 107.365
+      type: 'test'
+      ...
+    # Subtest: exposes and executes the unified person lookup only while the pilot is active
+    ok 23 - exposes and executes the unified person lookup only while the pilot is active
+      ---
+      duration_ms: 110.2516
+      type: 'test'
+      ...
+    # Subtest: exposes friend proposals only when the nested pilot switch is enabled
+    ok 24 - exposes friend proposals only when the nested pilot switch is enabled
+      ---
+      duration_ms: 105.8115
+      type: 'test'
+      ...
+    # Subtest: removes friend proposal prompt and tool from ordinary triggered-mode chat
+    ok 25 - removes friend proposal prompt and tool from ordinary triggered-mode chat
+      ---
+      duration_ms: 115.1655
+      type: 'test'
+      ...
+    # Subtest: keeps slang injection retired even with legacy config and slang assets
+    ok 26 - keeps slang injection retired even with legacy config and slang assets
+      ---
+      duration_ms: 113.9598
+      type: 'test'
+      ...
+    # Subtest: deterministically wakes the same participant inside the threaded continuation window
+    ok 27 - deterministically wakes the same participant inside the threaded continuation window
+      ---
+      duration_ms: 165.8684
+      type: 'test'
+      ...
+    # Subtest: deterministically wakes a reply to the bot without an existing thread
+    ok 28 - deterministically wakes a reply to the bot without an existing thread
+      ---
+      duration_ms: 117.8326
+      type: 'test'
+      ...
+    # Subtest: supports per-group lifecycle mode and reuses the append-only DeepSeek transcript
+    ok 29 - supports per-group lifecycle mode and reuses the append-only DeepSeek transcript
+      ---
+      duration_ms: 146.3493
+      type: 'test'
+      ...
+    # Subtest: rolls a lifecycle generation before the next request when actual input reaches 32K
+    ok 30 - rolls a lifecycle generation before the next request when actual input reaches 32K
+      ---
+      duration_ms: 152.5116
+      type: 'test'
+      ...
+    # Subtest: stops safely before a projected 160K run without holding confirmed sends
+    ok 31 - stops safely before a projected 160K run without holding confirmed sends
+      ---
+      duration_ms: 125.0596
+      type: 'test'
+      ...
+    # Subtest: consumes rollover-armed state with the next arbitrary message
+    ok 32 - consumes rollover-armed state with the next arbitrary message
+      ---
+      duration_ms: 130.3514
+      type: 'test'
+      ...
+    # Subtest: honors an explicit active lifecycle disposition even without sending
+    ok 33 - honors an explicit active lifecycle disposition even without sending
+      ---
+      duration_ms: 118.4836
+      type: 'test'
+      ...
+    # Subtest: clears handoff memory without closing a listening lifecycle
+    ok 34 - clears handoff memory without closing a listening lifecycle
+      ---
+      duration_ms: 114.9512
+      type: 'test'
+      ...
+    # Subtest: keeps the lifecycle thread id on the Session that closes it
+    ok 35 - keeps the lifecycle thread id on the Session that closes it
+      ---
+      duration_ms: 138.6649
+      type: 'test'
+      ...
+    # Subtest: does not drop a previously claimed retry when the trigger state changes
+    ok 36 - does not drop a previously claimed retry when the trigger state changes
+      ---
+      duration_ms: 121.125
+      type: 'test'
+      ...
+    # Subtest: does not recreate a lifecycle after its mode is changed during a run
+    ok 37 - does not recreate a lifecycle after its mode is changed during a run
+      ---
+      duration_ms: 120.105
+      type: 'test'
+      ...
+    1..37
+ok 10 - Orchestrator
+  ---
+  duration_ms: 4803.7283
+  type: 'suite'
+  ...
+# Subtest: stay_silent validates strictly and only records a pending request
+ok 11 - stay_silent validates strictly and only records a pending request
+  ---
+  duration_ms: 2.1753
+  type: 'test'
+  ...
+# Subtest: terminal batch preflight is independent of scheduler enablement
+ok 12 - terminal batch preflight is independent of scheduler enablement
+  ---
+  duration_ms: 1.6762
+  type: 'test'
+  ...
+# Subtest: stay_silent commits explicit silence only with zero outbound effects
+ok 13 - stay_silent commits explicit silence only with zero outbound effects
+  ---
+  duration_ms: 0.5261
+  type: 'test'
+  ...
+# Subtest: stay_silent accepts the boundary reason length and rejects malformed enums
+ok 14 - stay_silent accepts the boundary reason length and rejects malformed enums
+  ---
+  duration_ms: 0.1222
+  type: 'test'
+  ...
+# Subtest: inline and native tool calls share the same terminal preflight
+ok 15 - inline and native tool calls share the same terminal preflight
+  ---
+  duration_ms: 1.0095
+  type: 'test'
+  ...
+# Subtest: participation policy is present once and exposes explicit silence without role-text edits
+ok 16 - participation policy is present once and exposes explicit silence without role-text edits
+  ---
+  duration_ms: 3.9039
+  type: 'test'
+  ...
+# (node:86500) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: ChatStore
+    # Subtest: deduplicates replayed messages and preserves pagination order
+    ok 1 - deduplicates replayed messages and preserves pagination order
+      ---
+      duration_ms: 76.2178
+      type: 'test'
+      ...
+    # Subtest: claims a snapshot without acknowledging it and keeps later messages pending
+    ok 2 - claims a snapshot without acknowledging it and keeps later messages pending
+      ---
+      duration_ms: 86.9564
+      type: 'test'
+      ...
+    # Subtest: returns failed unsent batches to pending and stops after the attempt budget
+    ok 3 - returns failed unsent batches to pending and stops after the attempt budget
+      ---
+      duration_ms: 95.2684
+      type: 'test'
+      ...
+    # Subtest: recovers expired leases without re-sending uncertain external effects
+    ok 4 - recovers expired leases without re-sending uncertain external effects
+      ---
+      duration_ms: 102.2967
+      type: 'test'
+      ...
+    # Subtest: reconciles unknown operations individually without deleting business history
+    ok 5 - reconciles unknown operations individually without deleting business history
+      ---
+      duration_ms: 99.9093
+      type: 'test'
+      ...
+    # Subtest: persists leases and recovers an interrupted unsent run after reopening
+    ok 6 - persists leases and recovers an interrupted unsent run after reopening
+      ---
+      duration_ms: 99.3175
+      type: 'test'
+      ...
+    # Subtest: bounds each batch and never evicts pending messages for retention
+    ok 7 - bounds each batch and never evicts pending messages for retention
+      ---
+      duration_ms: 96.9988
+      type: 'test'
+      ...
+    # Subtest: imports a legacy JSON once, preserving the original archive
+    ok 8 - imports a legacy JSON once, preserving the original archive
+      ---
+      duration_ms: 88.6622
+      type: 'test'
+      ...
+    # Subtest: updates media without duplication and only marks specified pending IDs read
+    ok 9 - updates media without duplication and only marks specified pending IDs read
+      ---
+      duration_ms: 86.074
+      type: 'test'
+      ...
+    # Subtest: persists conversation threads and append-only checkpoints
+    ok 10 - persists conversation threads and append-only checkpoints
+      ---
+      duration_ms: 98.9348
+      type: 'test'
+      ...
+    # Subtest: restores active threads after reopening and expires them by deadline
+    ok 11 - restores active threads after reopening and expires them by deadline
+      ---
+      duration_ms: 105.4023
+      type: 'test'
+      ...
+    # Subtest: applies lifecycle idle deadlines, hard rollover and one-shot resume state
+    ok 12 - applies lifecycle idle deadlines, hard rollover and one-shot resume state
+      ---
+      duration_ms: 116.9989
+      type: 'test'
+      ...
+    # Subtest: restores lifecycle provider turns after reopening
+    ok 13 - restores lifecycle provider turns after reopening
+      ---
+      duration_ms: 83.1874
+      type: 'test'
+      ...
+    # Subtest: adds lifecycle columns to databases created by the threaded pilot
+    ok 14 - adds lifecycle columns to databases created by the threaded pilot
+      ---
+      duration_ms: 122.844
+      type: 'test'
+      ...
+    # Subtest: atomically rolls back message acknowledgement when lifecycle persistence fails
+    ok 15 - atomically rolls back message acknowledgement when lifecycle persistence fails
+      ---
+      duration_ms: 90.5006
+      type: 'test'
+      ...
+    1..15
+ok 17 - ChatStore
+  ---
+  duration_ms: 1451.4613
+  type: 'suite'
+  ...
+# Subtest: wrapper is a semantic pass-through when experiment is disabled
+ok 18 - wrapper is a semantic pass-through when experiment is disabled
+  ---
+  duration_ms: 5.0439
+  type: 'test'
+  ...
+# Subtest: wrapper prestarts only contiguous read calls and keeps ordered tools lazy
+ok 19 - wrapper prestarts only contiguous read calls and keeps ordered tools lazy
+  ---
+  duration_ms: 32.9913
+  type: 'test'
+  ...
+# Subtest: wrapper blocks finish after a prior tool error
+ok 20 - wrapper blocks finish after a prior tool error
+  ---
+  duration_ms: 0.4655
+  type: 'test'
+  ...
+# Subtest: wrapper suppresses side effects after finish
+ok 21 - wrapper suppresses side effects after finish
+  ---
+  duration_ms: 0.5317
+  type: 'test'
+  ...
+# Subtest: send tools reject message IDs and unknown users before creating an external write
+ok 22 - send tools reject message IDs and unknown users before creating an external write
+  ---
+  duration_ms: 3.8111
+  type: 'test'
+  ...
+# Subtest: send tools accept a verified current group member
+ok 23 - send tools accept a verified current group member
+  ---
+  duration_ms: 0.4066
+  type: 'test'
+  ...
+# Subtest: get_message_images refreshes an expired stored URL from the source message
+ok 24 - get_message_images refreshes an expired stored URL from the source message
+  ---
+  duration_ms: 1.4975
+  type: 'test'
+  ...
+# Subtest: malformed tool JSON returns actionable correction guidance without execution
+ok 25 - malformed tool JSON returns actionable correction guidance without execution
+  ---
+  duration_ms: 2.285
+  type: 'test'
+  ...
+# Subtest: finish conservatively repairs unescaped quotes inside string values
+ok 26 - finish conservatively repairs unescaped quotes inside string values
+  ---
+  duration_ms: 0.5993
+  type: 'test'
+  ...
+1..26
+# tests 76
+# suites 2
+# pass 76
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5366.2884
+EXIT 02-p3-focused code=0 duration_ms=5498

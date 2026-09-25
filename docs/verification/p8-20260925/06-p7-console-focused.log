@@ -1,0 +1,128 @@
+RUN 06-p7-console-focused: E:\node22\node.exe --test --test-reporter=tap test/p7-console-observability.test.mjs test/layout.test.mjs test/memory-page-separation.test.mjs test/session-persona-label.test.mjs
+TAP version 13
+# Subtest: ROOT 指向仓库根（用自身位置推算的路径不能少退一层）
+ok 1 - ROOT 指向仓库根（用自身位置推算的路径不能少退一层）
+  ---
+  duration_ms: 21.3843
+  type: 'test'
+  ...
+# Subtest: 仓库根的关键文件/目录都在
+ok 2 - 仓库根的关键文件/目录都在
+  ---
+  duration_ms: 3.236
+  type: 'test'
+  ...
+# Subtest: src/ 下所有相对 import 都能解析到真实文件
+ok 3 - src/ 下所有相对 import 都能解析到真实文件
+  ---
+  duration_ms: 128.7702
+  type: 'test'
+  ...
+# Subtest: 按硬编码路径部署/更新的入口文件没被挪走
+ok 4 - 按硬编码路径部署/更新的入口文件没被挪走
+  ---
+  duration_ms: 1.4418
+  type: 'test'
+  ...
+# Subtest: memory navigation exposes independent session and person pages
+ok 5 - memory navigation exposes independent session and person pages
+  ---
+  duration_ms: 2.4825
+  type: 'test'
+  ...
+# Subtest: global person memory renders only inside the dedicated people page
+ok 6 - global person memory renders only inside the dedicated people page
+  ---
+  duration_ms: 0.3313
+  type: 'test'
+  ...
+# Subtest: session memory page suppresses person-memory controls and keeps handoff visible
+ok 7 - session memory page suppresses person-memory controls and keeps handoff visible
+  ---
+  duration_ms: 0.1698
+  type: 'test'
+  ...
+# (node:75828) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: disabled self-evolution serves historical reads without creating a new database or worker
+ok 8 - disabled self-evolution serves historical reads without creating a new database or worker
+  ---
+  duration_ms: 335.5653
+  type: 'test'
+  ...
+# Subtest: write routes require a header/cookie credential and reject query-token auth
+ok 9 - write routes require a header/cookie credential and reject query-token auth
+  ---
+  duration_ms: 83.1477
+  type: 'test'
+  ...
+# Subtest: plugin inventory exposes the P7 read model and restricts runtime control
+ok 10 - plugin inventory exposes the P7 read model and restricts runtime control
+  ---
+  duration_ms: 85.6285
+  type: 'test'
+  ...
+# Subtest: notebook write and archive routes enforce revision CAS
+ok 11 - notebook write and archive routes enforce revision CAS
+  ---
+  duration_ms: 106.0332
+  type: 'test'
+  ...
+# Subtest: reflection review and rollback routes return 409 on revision conflicts
+ok 12 - reflection review and rollback routes return 409 on revision conflicts
+  ---
+  duration_ms: 219.5603
+  type: 'test'
+  ...
+# Subtest: session list and detail expose audit fields with defaults for old files
+ok 13 - session list and detail expose audit fields with defaults for old files
+  ---
+  duration_ms: 56.8414
+  type: 'test'
+  ...
+# Subtest: session detail fingerprint tracks audit fields and audit rendering escapes HTML
+ok 14 - session detail fingerprint tracks audit fields and audit rendering escapes HTML
+  ---
+  duration_ms: 28.7127
+  type: 'test'
+  ...
+# Subtest: 认得内置卡与自定义卡的名字
+ok 15 - 认得内置卡与自定义卡的名字
+  ---
+  duration_ms: 0.907
+  type: 'test'
+  ...
+# Subtest: 卡名后面的副标题不算进名字
+ok 16 - 卡名后面的副标题不算进名字
+  ---
+  duration_ms: 0.1485
+  type: 'test'
+  ...
+# Subtest: 日报/空间互动/好友评估提示词里的卡也认（段头不同，卡正文一样）
+ok 17 - 日报/空间互动/好友评估提示词里的卡也认（段头不同，卡正文一样）
+  ---
+  duration_ms: 0.1196
+  type: 'test'
+  ...
+# Subtest: 没有角色设定段/空提示词：返回空串，不瞎猜
+ok 18 - 没有角色设定段/空提示词：返回空串，不瞎猜
+  ---
+  duration_ms: 0.148
+  type: 'test'
+  ...
+# Subtest: 角色设定里没按约定写「角色卡：」也能容忍
+ok 19 - 角色设定里没按约定写「角色卡：」也能容忍
+  ---
+  duration_ms: 0.0824
+  type: 'test'
+  ...
+1..19
+# tests 19
+# suites 0
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1917.2214
+EXIT 06-p7-console-focused code=0 duration_ms=2054

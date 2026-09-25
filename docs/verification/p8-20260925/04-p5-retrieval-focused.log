@@ -1,0 +1,80 @@
+RUN 04-p5-retrieval-focused: E:\node22\node.exe --test --test-reporter=tap test/retrieval.test.mjs
+TAP version 13
+# (node:82612) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Chinese short terms, mixed terms, and person QQ IDs use deterministic lexical matching
+ok 1 - Chinese short terms, mixed terms, and person QQ IDs use deterministic lexical matching
+  ---
+  duration_ms: 6.2913
+  type: 'test'
+  ...
+# Subtest: permission, scope, status, expiry, dedupe, ranking, and budget are enforced before selection
+ok 2 - permission, scope, status, expiry, dedupe, ranking, and budget are enforced before selection
+  ---
+  duration_ms: 9.9208
+  type: 'test'
+  ...
+# Subtest: FTS5 detection and query escaping never interpolate user text
+ok 3 - FTS5 detection and query escaping never interpolate user text
+  ---
+  duration_ms: 3.4797
+  type: 'test'
+  ...
+# Subtest: FTS5 bm25 ranks are converted to a deterministic bounded fusion score
+ok 4 - FTS5 bm25 ranks are converted to a deterministic bounded fusion score
+  ---
+  duration_ms: 0.8022
+  type: 'test'
+  ...
+# Subtest: embedding metadata is validated and stale responses cannot overwrite newer revisions
+ok 5 - embedding metadata is validated and stale responses cannot overwrite newer revisions
+  ---
+  duration_ms: 1.2278
+  type: 'test'
+  ...
+# Subtest: stale embedding index entries are ignored for a newer note revision
+ok 6 - stale embedding index entries are ignored for a newer note revision
+  ---
+  duration_ms: 0.8508
+  type: 'test'
+  ...
+# Subtest: disabled, unavailable, and failed embedding degrade without blocking lexical retrieval
+ok 7 - disabled, unavailable, and failed embedding degrade without blocking lexical retrieval
+  ---
+  duration_ms: 0.7123
+  type: 'test'
+  ...
+# Subtest: unconfigured and unauthorized embedding paths make zero external calls
+ok 8 - unconfigured and unauthorized embedding paths make zero external calls
+  ---
+  duration_ms: 0.6071
+  type: 'test'
+  ...
+# Subtest: FTS5 unavailable uses pure lexical fallback with an observable degradation reason
+ok 9 - FTS5 unavailable uses pure lexical fallback with an observable degradation reason
+  ---
+  duration_ms: 0.5973
+  type: 'test'
+  ...
+# Subtest: FTS5 query failures fall back to lexical retrieval
+ok 10 - FTS5 query failures fall back to lexical retrieval
+  ---
+  duration_ms: 0.8304
+  type: 'test'
+  ...
+# Subtest: private note embedding requires explicit adapter authorization
+ok 11 - private note embedding requires explicit adapter authorization
+  ---
+  duration_ms: 0.2393
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 191.9276
+EXIT 04-p5-retrieval-focused code=0 duration_ms=343

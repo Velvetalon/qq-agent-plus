@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "unknownDelivery": {
+    "calls": 1,
+    "outboxState": "unknown",
+    "automaticRetryBlocked": true
+  },
+  "definiteRejection": {
+    "calls": 1,
+    "outboxState": "failed",
+    "retryable": true
+  }
+}
+(node:88800) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+exit_code=0

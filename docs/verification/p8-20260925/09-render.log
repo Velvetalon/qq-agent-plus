@@ -1,0 +1,160 @@
+RUN 09-render: E:\node22\node.exe test/render-test.mjs
+=== 实际执行各设置分区渲染函数 ===
+
+  OK    renderSettingsSection  (8543 字符)
+  OK    renderApiSection  (8375 字符)
+  OK    renderSearchSection  (5684 字符)
+  OK    renderMemorySettingsSection  (1065 字符)
+  OK    renderExperimentalSettingsSection  (2412 字符)
+  OK    renderDailyMomentsSection  (4298 字符)
+  OK    renderQzoneInteractionSection  (3057 字符)
+  OK    renderTimeControlSection  (1014 字符)
+  OK    renderPersonaSection  (33409 字符)
+  OK    renderAllowSection  (951 字符)
+  OK    renderChatSection  (12102 字符)
+  OK    renderDesktopSection  (1854 字符)
+  OK    renderOnebotSection  (910 字符)
+  OK    renderPersonaLibrary  (590 字符)
+  OK    renderPersonaGrid  (36 字符)
+  OK    renderHealthCard  (854 字符)
+  OK    renderTokenSaverSection  (858 字符)
+  OK    renderAssetSummary  (558 字符)
+  OK    renderStickerAssets  (38 字符)
+  OK    renderSlangAssets  (44 字符)
+  OK    renderSlangResearch  (40 字符)
+  OK    renderIdentityAssets  (40 字符)
+  OK    renderMemoryAssets  (38 字符)
+  OK    自定义人设同步正文、策略与附加规则
+  OK    修改人设后不错误标记为原模板
+  OK    切回原版时恢复策略并清除模板附加规则
+  OK    自然可靠交流策略正确回显
+  OK   正文解析出分节与卡名
+  OK   示例按"群友/你不要/你可以"分组（含"给我喵一个"的给法）
+  OK   招牌=标签、黑名单=打叉标签、示例=气泡、原则=引用块
+  OK   没分节的正文给出提示而不是空白
+  OK   人设页改版后保留原有 DOM 契约（保存/绑定/删除按钮仍在）
+  OK   卡库渲染出卡片与"内置 · 跟随卡文件"来源标记
+  OK   附加规则给出可点选的例子、正文有全部收起按钮
+  OK   小节记录了自己在原文里的行号区间
+  OK   取单节正文不含标题、不含隔壁小节
+  OK   按节替换只动那一节，其余部分逐字节不变
+  OK   原样写回时正文逐字节不变（可反复编辑）
+  OK   只有被改过的那一节出现「恢复本节」
+  OK   没改过的小节不给"恢复本节"（本来就跟卡文件一致）
+  OK   正在编辑的那节渲染成 textarea + 保存/取消
+  OK   没改过的小节原样写回不落草稿（正文与卡文件保持逐字节相同）
+  OK   改过的小节落回草稿（并去掉行尾空白）
+  OK   收起别的小节前先落草稿（编辑中的字不会丢）
+  OK   印象标记带日期与来源（今年的月-日 / 往年带年份 / 坏时间戳给 ??)
+  OK    运行预算与模型上下文窗口控件完整
+  OK    控制台 Token 更新控件完整且不回显密钥
+  OK    OneBot Token 留空保持且不回显密钥
+  OK    每日动态调度、研究、配图和手动执行控件完整
+  OK    旧配置保留固定时刻模式
+  OK    多个随机范围、跨午夜与每段条数正确回显
+  OK    随机计划显示日期、状态并转义原因
+  OK    固定模式无空计划表
+  OK    动态历史区分手动与定时来源
+  OK    动态互动默认关闭，调度、限额和手动执行控件完整
+  OK    实验页只保留启用与固化动作
+  OK    实验总开关与主动好友候选生成最小配置补丁
+  OK    实验功能支持人物印象与自动好友添加一键上线
+  OK    固化实验功能拥有独立业务页面
+  OK   省 Token 分区：三档选择 + 生效值对照表 + 设置菜单入口
+  OK   身份库没起来时好友页给提示、不去撞 409
+  OK   好友页单个接口报错时只在该列表里显示错误
+  OK    AI 资产观测入口、概览、表情和黑话视图完整
+  OK   确认弹窗取消时四类资产均不发送 DELETE
+  OK   确认弹窗通过后四类资产各发送一次带显式确认的 DELETE
+  OK    服务入口、更新部署与密钥控制视图完整
+  OK    保存白名单不动屏蔽名单
+  OK    旧架构服务未部署时标「未部署」、入口收起，配置过才报不可达
+  OK    更新进度行：运行中显示阶段与耗时、排队优先看 status、探测不写作更新、跑完/终态隐藏
+  OK   进度行每秒刷新本阶段耗时（定时器真的在跑）
+  OK    进度行定时器会停：切走页签、更新跑完都清掉（活动定时器 3）
+  OK    时间控制默认关闭，支持群聊及私聊规则
+  OK    自定义时段、星期与增删控件完整
+  OK    三种对话模式及分群覆盖控件完整
+  OK    模式切换仅显示当前模式的专属参数
+  OK    Session 结束与各模式运行态 UI 已明确区分
+  OK    生命周期 Session 展示触发方式、状态、剩余时间和累计消耗
+  OK    注入对话、完整输入、Token 与模型推理检查器完整
+
+=== 滑条换算（UI 侧）===
+  OK    sliderToTierUI(55) → 档3/55%
+  OK    sliderToTierUI_tierToSlider() → 新 55 / 老位置 55 → 50 / 老 4 档 → 100
+  OK    sliderDesc(55) → 普通消息 <b>55%</b> 概率回（大约每 100 批接 55 批）；<b>被 @ 或命
+
+=== 各滑条位置渲染聊天设置 ===
+  OK    位置   0% → 12095 字符
+  OK    位置   5% → 12098 字符
+  OK    位置  10% → 12102 字符
+  OK    位置  15% → 12102 字符
+  OK    位置  20% → 12102 字符
+  OK    位置  30% → 12102 字符
+  OK    位置  55% → 12102 字符
+  OK    位置  75% → 12102 字符
+  OK    位置  90% → 12102 字符
+  OK    位置  95% → 12102 字符
+  OK    位置 100% → 12071 字符
+
+=== 刻度段高亮（拖动联动）===
+  OK     0% (最左端(0%)) → 高亮第 1 段
+  OK     5% (5%) → 高亮第 2 段
+  OK    10% (10%) → 高亮第 2 段
+  OK    15% (15%) → 高亮第 2 段
+  OK    20% (20%) → 高亮第 2 段
+  OK    30% (30%) → 高亮第 2 段
+  OK    55% (55%) → 高亮第 3 段
+  OK    75% (75%) → 高亮第 3 段
+  OK    90% (90%) → 高亮第 3 段
+  OK    99% (99%) → 高亮第 3 段
+  OK   100% (最右端(100%)) → 高亮第 4 段
+  OK     0% 只亮 1 段
+  OK    10% 只亮 1 段
+  OK    30% 只亮 1 段
+  OK    55% 只亮 1 段
+  OK    90% 只亮 1 段
+  OK    99% 只亮 1 段
+  OK   100% 只亮 1 段
+  OK   四段都能被点亮
+  OK     0% 参数高亮 [1,2]
+  OK     5% 参数高亮 [1,2,3]
+  OK    30% 参数高亮 [1,2,3]
+  OK    99% 参数高亮 [1,2,3]
+  OK   100% 参数高亮 [1,2,4]
+
+=== 调用明细弹窗 ===
+  OK   弹窗渲染（含未知工具兜底）  5729 字符
+  OK   六个分类齐全
+  OK   一句话小结正确
+  OK   空数据给出友好提示
+
+=== 用量页加载（loadUsageView）===
+  OK   加载后页面有内容  4841 字符
+  OK   数值已填充  成本=¥3.96 调用=149 搜索=46
+  OK   骨架屏已被替换（不是一直转圈）
+  OK   轮询(force=false)不重建 DOM
+  OK   二次进入直接显示旧数据（不闪骨架）
+(node:81028) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+  OK   真实接口可用 /api/usage/stats?range=7 → HTTP 200
+  OK   真实接口可用 /api/status → HTTP 200
+  OK   不存在的接口确实 404（/api/usage/prices）
+  OK   切换 range 会重新渲染（不误用旧区间数据）
+
+=== 会话详情 SSE 实时推送 ===
+  OK   工具卡片实时出现（send_message）
+  OK   已发送徽标实时出现（不等轮询/手动刷新）
+  OK   session-end 后详情自动刷出最终 sent（不用手动刷新）
+  OK   新 Session 不抢占当前查看窗口
+
+=== 批量自定义价格编辑弹窗 ===
+  OK   左列展示供应商列表
+  OK   目录外已自定义模型归入虚拟供应商
+  OK   右列展示选中供应商的模型
+  OK   官方价不占列（太挤，改走占位符/悬停）
+  OK   官方价仍在占位符与悬停提示里
+
+ALL PASSED 138
+EXIT 09-render code=0 duration_ms=4428

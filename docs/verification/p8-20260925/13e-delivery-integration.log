@@ -1,0 +1,96 @@
+RUN 13e-delivery-integration: E:\node22\node.exe --test --test-reporter=tap test/delivery-integration.test.mjs
+TAP version 13
+# [follow-up] group:1 发言后没人接话，10 分钟后给它一次补话机会
+# (node:84696) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: holds uncertain deliveries and does not automatically send again on new input
+ok 1 - holds uncertain deliveries and does not automatically send again on new input
+  ---
+  duration_ms: 125.8829
+  type: 'test'
+  ...
+# Subtest: also blocks a chat after an uncertain proactive send with no input lease
+ok 2 - also blocks a chat after an uncertain proactive send with no input lease
+  ---
+  duration_ms: 86.68
+  type: 'test'
+  ...
+# Subtest: incident pilot quarantines an unknown write without blocking later messages
+not ok 3 - incident pilot quarantines an unknown write without blocking later messages
+  ---
+  duration_ms: 128.4119
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\delivery-integration.test.mjs:88:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-pilot-mEtg3h\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/delivery-integration.test.mjs:90:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: manual incident control blocks model work while preserving unread input
+not ok 4 - manual incident control blocks model work while preserving unread input
+  ---
+  duration_ms: 66.4065
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\delivery-integration.test.mjs:165:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-blocked-ehV5BS\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/delivery-integration.test.mjs:167:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: keeps explicit OneBot business rejection retryable without holding the chat
+not ok 5 - keeps explicit OneBot business rejection retryable without holding the chat
+  ---
+  duration_ms: 94.2761
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\delivery-integration.test.mjs:216:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-definite-hE85b9\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/delivery-integration.test.mjs:218:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: classifies a parsed OneBot retcode as failed but keeps malformed responses unknown
+ok 6 - classifies a parsed OneBot retcode as failed but keeps malformed responses unknown
+  ---
+  duration_ms: 2.4183
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 3
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 849.0527
+EXIT 13e-delivery-integration code=1

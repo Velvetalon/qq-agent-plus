@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "sourceDir": "C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-p8-backup-rehearsal-UUXA09\\source",
+  "restoreDir": "C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-p8-backup-rehearsal-UUXA09\\restore",
+  "copied": [
+    {
+      "file": "messages.sqlite",
+      "bytes": 4096,
+      "sha256": "2fb9e76bc8b8bb820a77e21342abe7b079f687749503315e13c0cf95106675e0",
+      "restoredSha256": "2fb9e76bc8b8bb820a77e21342abe7b079f687749503315e13c0cf95106675e0"
+    },
+    {
+      "file": "messages.sqlite-wal",
+      "bytes": 238992,
+      "sha256": "e72ff10e4f312706795cbd8ee7dbdf4fc9128a021e03a950538ad03c5525c111",
+      "restoredSha256": "e72ff10e4f312706795cbd8ee7dbdf4fc9128a021e03a950538ad03c5525c111"
+    },
+    {
+      "file": "messages.sqlite-shm",
+      "bytes": 32768,
+      "sha256": "6740e05ca4cecb87ac9e739275854d04f8a977325f9e5c28044a6eda0b22ed1a",
+      "restoredSha256": "6740e05ca4cecb87ac9e739275854d04f8a977325f9e5c28044a6eda0b22ed1a"
+    }
+  ],
+  "sourceIntegrity": "ok",
+  "restoredIntegrity": "ok",
+  "restoredMessageCount": 2
+}
+(node:82096) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+exit_code=0

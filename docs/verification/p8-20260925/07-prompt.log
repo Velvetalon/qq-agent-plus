@@ -1,0 +1,5 @@
+RUN 07-prompt: E:\node22\node.exe test/test-prompt.mjs
+✓ 提示词自测全部通过
+(node:88920) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+EXIT 07-prompt code=0 duration_ms=608

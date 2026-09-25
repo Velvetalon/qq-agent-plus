@@ -1,0 +1,1502 @@
+RUN 13-deployment-integration: E:\node22\node.exe --test --test-reporter=tap test/deployment-scripts.test.mjs test/deploy-all-preflight.test.mjs test/deploy-image-mirror.test.mjs test/linux-integration.test.mjs test/delivery-integration.test.mjs
+TAP version 13
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+# (node:86704) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: holds uncertain deliveries and does not automatically send again on new input
+ok 1 - holds uncertain deliveries and does not automatically send again on new input
+  ---
+  duration_ms: 135.3929
+  type: 'test'
+  ...
+# Subtest: also blocks a chat after an uncertain proactive send with no input lease
+ok 2 - also blocks a chat after an uncertain proactive send with no input lease
+  ---
+  duration_ms: 96.8862
+  type: 'test'
+  ...
+# Subtest: incident pilot quarantines an unknown write without blocking later messages
+not ok 3 - incident pilot quarantines an unknown write without blocking later messages
+  ---
+  duration_ms: 128.4815
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\delivery-integration.test.mjs:88:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-pilot-UJtwOz\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/delivery-integration.test.mjs:90:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: manual incident control blocks model work while preserving unread input
+not ok 4 - manual incident control blocks model work while preserving unread input
+  ---
+  duration_ms: 79.4249
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\delivery-integration.test.mjs:165:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-blocked-IaFUiR\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/delivery-integration.test.mjs:167:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: keeps explicit OneBot business rejection retryable without holding the chat
+not ok 5 - keeps explicit OneBot business rejection retryable without holding the chat
+  ---
+  duration_ms: 114.3002
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\delivery-integration.test.mjs:216:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-definite-LsIgFC\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/delivery-integration.test.mjs:218:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: classifies a parsed OneBot retcode as failed but keeps malformed responses unknown
+ok 6 - classifies a parsed OneBot retcode as failed but keeps malformed responses unknown
+  ---
+  duration_ms: 2.903
+  type: 'test'
+  ...
+# Subtest: legacy production state is refused before credentials, dependencies or services change
+not ok 7 - legacy production state is refused before credentials, dependencies or services change
+  ---
+  duration_ms: 48.1079
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:183:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:190:3)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.start (node:internal/test_runner/test:944:17)
+    +     at startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-kZaKZv\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-kZaKZv\\stack',
+    +     '--yes',
+    +     '--rotate-credentials',
+    +     '--skip-model-config'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:190:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:190:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: a lone .env never implies a managed installation
+not ok 8 - a lone .env never implies a managed installation
+  ---
+  duration_ms: 35.5085
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:194:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:197:3)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-okWq1n\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-okWq1n\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:197:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:197:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: leftover QQ login data is protected even without any Agent configuration
+not ok 9 - leftover QQ login data is protected even without any Agent configuration
+  ---
+  duration_ms: 38.2395
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:200:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:203:3)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-NpDPLU\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-NpDPLU\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:203:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:203:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: fresh preflight succeeds without creating the stack or asking for model credentials
+not ok 10 - fresh preflight succeeds without creating the stack or asking for model credentials
+  ---
+  duration_ms: 30.1281
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:206:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:209:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: pre-created empty data directories do not count as an existing installation
+not ok 11 - pre-created empty data directories do not count as an existing installation
+  ---
+  duration_ms: 33.366
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:214:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:219:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a not-found service reported with nonzero exit still permits fresh installation
+not ok 12 - a not-found service reported with nonzero exit still permits fresh installation
+  ---
+  duration_ms: 29.4658
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:224:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:228:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a managed stack may be checked repeatedly with all of its own ports occupied
+not ok 13 - a managed stack may be checked repeatedly with all of its own ports occupied
+  ---
+  duration_ms: 43.0531
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:233:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:239:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: ordinary managed update does not attempt password rotation and preserves Agent configuration
+not ok 14 - ordinary managed update does not attempt password rotation and preserves Agent configuration
+  ---
+  duration_ms: 44.7867
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:245:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:252:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a managed stack with a stopped container and Agent can be updated
+not ok 15 - a managed stack with a stopped container and Agent can be updated
+  ---
+  duration_ms: 39.4958
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:258:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:266:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects external SnowLuma at another root
+not ok 16 - preflight protects external SnowLuma at another root
+  ---
+  duration_ms: 26.5808
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-oph43p\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-oph43p\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects pre-existing Agent service
+not ok 17 - preflight protects pre-existing Agent service
+  ---
+  duration_ms: 28.1472
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-bZaCO6\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-bZaCO6\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects Nginx on the selected WebUI port
+not ok 18 - preflight protects Nginx on the selected WebUI port
+  ---
+  duration_ms: 22.74
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-LkEVES\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-LkEVES\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects failed Docker inventory
+not ok 19 - preflight protects failed Docker inventory
+  ---
+  duration_ms: 30.6606
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-yysHWq\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-yysHWq\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects inaccessible Docker daemon
+not ok 20 - preflight protects inaccessible Docker daemon
+  ---
+  duration_ms: 26.1658
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-z2Vwt6\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-z2Vwt6\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects failed service inspection
+not ok 21 - preflight protects failed service inspection
+  ---
+  duration_ms: 29.0247
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-P1ROIm\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-P1ROIm\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects unavailable port inventory
+not ok 22 - preflight protects unavailable port inventory
+  ---
+  duration_ms: 26.6239
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-baW9qb\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-baW9qb\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched service directory without writing
+not ok 23 - managed preflight refuses mismatched service directory without writing
+  ---
+  duration_ms: 38.0593
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-g7DCHI\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-g7DCHI\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched container project without writing
+not ok 24 - managed preflight refuses mismatched container project without writing
+  ---
+  duration_ms: 36.0887
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-SbEta5\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-SbEta5\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched container volumes without writing
+not ok 25 - managed preflight refuses mismatched container volumes without writing
+  ---
+  duration_ms: 43.4538
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-yr7s4E\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-yr7s4E\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched unrelated Compose services without writing
+not ok 26 - managed preflight refuses mismatched unrelated Compose services without writing
+  ---
+  duration_ms: 42.9773
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-HRCuVk\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-HRCuVk\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched Compose volume source without writing
+not ok 27 - managed preflight refuses mismatched Compose volume source without writing
+  ---
+  duration_ms: 36.7321
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-drdioD\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-drdioD\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched changed live Token without writing
+not ok 28 - managed preflight refuses mismatched changed live Token without writing
+  ---
+  duration_ms: 39.362
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-8mgyFY\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-8mgyFY\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched production OneBot endpoints without writing
+not ok 29 - managed preflight refuses mismatched production OneBot endpoints without writing
+  ---
+  duration_ms: 37.6488
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-hd2ttf\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-hd2ttf\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched corrupt configuration without writing
+not ok 30 - managed preflight refuses mismatched corrupt configuration without writing
+  ---
+  duration_ms: 38.215
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-ltxQgp\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-ltxQgp\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: 直连失败时按顺序试镜像站，成功后把 .env 里的引用一起改掉
+ok 31 - 直连失败时按顺序试镜像站，成功后把 .env 里的引用一起改掉
+  ---
+  duration_ms: 298.3423
+  type: 'test'
+  ...
+# Subtest: 直连成功就不碰镜像站
+ok 32 - 直连成功就不碰镜像站
+  ---
+  duration_ms: 115.7811
+  type: 'test'
+  ...
+# Subtest: 全都拉不到时打指引再退出（含三种办法与"镜像站是第三方"）
+ok 33 - 全都拉不到时打指引再退出（含三种办法与"镜像站是第三方"）
+  ---
+  duration_ms: 179.6039
+  type: 'test'
+  ...
+# Subtest: deploy script verifies and rolls back the update service and timer
+ok 34 - deploy script verifies and rolls back the update service and timer
+  ---
+  duration_ms: 1.882
+  type: 'test'
+  ...
+# Subtest: deploy-all retries through a user-specified image mirror and never picks one itself
+ok 35 - deploy-all retries through a user-specified image mirror and never picks one itself
+  ---
+  duration_ms: 1.022
+  type: 'test'
+  ...
+# Subtest: deploy-all 现读现用凭据，模型 Key 走 0600 文件而不是子进程环境
+ok 36 - deploy-all 现读现用凭据，模型 Key 走 0600 文件而不是子进程环境
+  ---
+  duration_ms: 0.8776
+  type: 'test'
+  ...
+# Subtest: configure-linux creates observe config and preserves runtime mode on update
+not ok 37 - configure-linux creates observe config and preserves runtime mode on update
+  ---
+  duration_ms: 561.0035
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deployment-scripts.test.mjs:84:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    54 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 54
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deployment-scripts.test.mjs:102:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: configure-linux accepts full-stack credentials and OneBot endpoints
+ok 38 - configure-linux accepts full-stack credentials and OneBot endpoints
+  ---
+  duration_ms: 579.6896
+  type: 'test'
+  ...
+# Subtest: 模型 Key 也可以走 QQ_AGENT_MODEL_KEY_FILE（不留在子进程环境里）
+ok 39 - 模型 Key 也可以走 QQ_AGENT_MODEL_KEY_FILE（不留在子进程环境里）
+  ---
+  duration_ms: 707.737
+  type: 'test'
+  ...
+# Subtest: configure-snowluma synchronizes global and per-account server tokens
+ok 40 - configure-snowluma synchronizes global and per-account server tokens
+  ---
+  duration_ms: 127.2809
+  type: 'test'
+  ...
+# Subtest: installed manage launcher uses the exact deployed Node runtime
+not ok 41 - installed manage launcher uses the exact deployed Node runtime
+  ---
+  duration_ms: 142.4771
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deployment-scripts.test.mjs:221:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    54 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 54
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deployment-scripts.test.mjs:247:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# (node:89936) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: protects console APIs, redacts credentials and blocks all sending in observe mode
+not ok 42 - protects console APIs, redacts credentials and blocks all sending in observe mode
+  ---
+  duration_ms: 366.6987
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\linux-integration.test.mjs:23:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    438 !== 384
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 384
+  actual: 438
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/linux-integration.test.mjs:92:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: persists mode, starts headless and exits cleanly on SIGTERM
+not ok 43 - persists mode, starts headless and exits cleanly on SIGTERM
+  ---
+  duration_ms: 589.7789
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\linux-integration.test.mjs:95:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    'SIGTERM' !== null
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'SIGTERM'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/linux-integration.test.mjs:115:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..43
+# tests 43
+# suites 0
+# pass 12
+# fail 31
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2417.4179
+EXIT 13-deployment-integration code=1 duration_ms=2543

@@ -1,0 +1,100 @@
+RUN 13a-deployment-scripts: E:\node22\node.exe --test --test-reporter=tap test/deployment-scripts.test.mjs
+TAP version 13
+# Subtest: deploy script verifies and rolls back the update service and timer
+ok 1 - deploy script verifies and rolls back the update service and timer
+  ---
+  duration_ms: 1.534
+  type: 'test'
+  ...
+# Subtest: deploy-all retries through a user-specified image mirror and never picks one itself
+ok 2 - deploy-all retries through a user-specified image mirror and never picks one itself
+  ---
+  duration_ms: 0.8096
+  type: 'test'
+  ...
+# Subtest: deploy-all 现读现用凭据，模型 Key 走 0600 文件而不是子进程环境
+ok 3 - deploy-all 现读现用凭据，模型 Key 走 0600 文件而不是子进程环境
+  ---
+  duration_ms: 0.5031
+  type: 'test'
+  ...
+# Subtest: configure-linux creates observe config and preserves runtime mode on update
+not ok 4 - configure-linux creates observe config and preserves runtime mode on update
+  ---
+  duration_ms: 521.9634
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deployment-scripts.test.mjs:84:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    54 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 54
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deployment-scripts.test.mjs:102:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: configure-linux accepts full-stack credentials and OneBot endpoints
+ok 5 - configure-linux accepts full-stack credentials and OneBot endpoints
+  ---
+  duration_ms: 512.6398
+  type: 'test'
+  ...
+# Subtest: 模型 Key 也可以走 QQ_AGENT_MODEL_KEY_FILE（不留在子进程环境里）
+ok 6 - 模型 Key 也可以走 QQ_AGENT_MODEL_KEY_FILE（不留在子进程环境里）
+  ---
+  duration_ms: 612.9841
+  type: 'test'
+  ...
+# Subtest: configure-snowluma synchronizes global and per-account server tokens
+ok 7 - configure-snowluma synchronizes global and per-account server tokens
+  ---
+  duration_ms: 102.3335
+  type: 'test'
+  ...
+# Subtest: installed manage launcher uses the exact deployed Node runtime
+not ok 8 - installed manage launcher uses the exact deployed Node runtime
+  ---
+  duration_ms: 95.3186
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p8\\test\\deployment-scripts.test.mjs:221:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    54 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 54
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p8/test/deployment-scripts.test.mjs:247:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 6
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1962.0512
+EXIT 13a-deployment-scripts code=1

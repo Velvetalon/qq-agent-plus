@@ -1,0 +1,25 @@
+node=E:\node22\node.exe
+cwd=E:\Code\qq-agent-plus-p8
+NODE_OPTIONS=<cleared>
+started=2026-09-25T14:24:59.0457805+08:00
+
+01-p2-focused|exit=0|duration_ms=2431|E:\node22\node.exe --test --test-reporter=tap test/plugin-tool-context.test.mjs test/plugin-lifecycle.test.mjs test/plugin-registry.test.mjs test/plugin-app-start.test.mjs
+02-p3-focused|exit=0|duration_ms=5498|E:\node22\node.exe --test --test-reporter=tap test/p3-active-silence.test.mjs test/orchestrator.test.mjs test/tools.test.mjs test/tool-scheduler-wrapper.test.mjs test/experimental-tool-scheduler.test.mjs test/store.test.mjs
+03-p4-notebook-focused|exit=0|duration_ms=921|E:\node22\node.exe --test --test-reporter=tap test/self-evolution-notebook.test.mjs
+04-p5-retrieval-focused|exit=0|duration_ms=343|E:\node22\node.exe --test --test-reporter=tap test/retrieval.test.mjs
+05-p6-reflection-focused|exit=0|duration_ms=2423|E:\node22\node.exe --test --test-reporter=tap test/self-evolution-reflection.test.mjs
+06-p7-console-focused|exit=0|duration_ms=2054|E:\node22\node.exe --test --test-reporter=tap test/p7-console-observability.test.mjs test/layout.test.mjs test/memory-page-separation.test.mjs test/session-persona-label.test.mjs
+07-prompt|exit=0|duration_ms=608|E:\node22\node.exe test/test-prompt.mjs
+08-local|exit=0|duration_ms=5849|E:\node22\node.exe test/local/run.mjs
+09-render|exit=0|duration_ms=4428|E:\node22\node.exe test/render-test.mjs
+10-scroll|exit=0|duration_ms=2688|E:\node22\node.exe test/scroll-test.mjs
+11-usage|exit=0|duration_ms=1618|E:\node22\node.exe test/usage-e2e.mjs
+12-full-unit|exit=1|duration_ms=47452|E:\node22\node.exe --test --test-reporter=tap test/*.test.mjs
+13-deployment-integration|exit=1|duration_ms=2543|E:\node22\node.exe --test --test-reporter=tap test/deployment-scripts.test.mjs test/deploy-all-preflight.test.mjs test/deploy-image-mirror.test.mjs test/linux-integration.test.mjs test/delivery-integration.test.mjs
+14-fault-injection-boundaries|exit=1|duration_ms=2830|E:\node22\node.exe --test --test-reporter=tap test/plugin-lifecycle.test.mjs test/plugin-app-start.test.mjs test/self-evolution-notebook.test.mjs test/retrieval.test.mjs test/self-evolution-reflection.test.mjs test/p3-active-silence.test.mjs test/delivery-integration.test.mjs test/p7-console-observability.test.mjs
+finished=2026-09-25T14:26:20.8067841+08:00
+13a-deployment-scripts|exit=1|E:\node22\node.exe --test --test-reporter=tap test/deployment-scripts.test.mjs
+13b-deploy-all-preflight|exit=1|E:\node22\node.exe --test --test-reporter=tap test/deploy-all-preflight.test.mjs
+13c-deploy-image-mirror|exit=0|E:\node22\node.exe --test --test-reporter=tap test/deploy-image-mirror.test.mjs
+13d-linux-integration|exit=1|E:\node22\node.exe --test --test-reporter=tap test/linux-integration.test.mjs
+13e-delivery-integration|exit=1|E:\node22\node.exe --test --test-reporter=tap test/delivery-integration.test.mjs

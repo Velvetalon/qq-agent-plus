@@ -1,0 +1,307 @@
+RUN 08-local: E:\node22\node.exe test/local/run.mjs
+=== T1 解析器本身（4 种格式 + 反例）===
+PASS 格式1 Hermes XML
+PASS 格式2 包裹 JSON
+PASS 格式3 首行函数名
+PASS 格式4 裸 name-JSON
+PASS 反例：普通文本不误判
+PASS 反例：没有 name 的 JSON 不误判
+PASS 原生 tool_calls 优先
+PASS 输出统一成 OpenAI 结构
+
+=== T2 三个模块的解析函数（内联文本应该能取到决定）===
+PASS 关系评估：不再报"未提交唯一"  （解析通过）
+PASS 身份评估(core)：不再报"未提交唯一"  （改为:好友评估 decision 必须是 propose 或 skip）
+PASS 身份评估(manual)：不再报"未提交唯一"  （改为:好友评估 decision 必须是 propose 或 skip）
+
+=== T3 空间互动：模型用内联文本提交计划，能不能真的执行 ===
+    [stub] 模型用内联文本提交：feedActions 点赞 feed-1
+PASS 空间互动：内联计划被采纳并执行点赞  run.status=undefined actions=undefined 接口=get_qzone_feeds,like_qzone
+
+结果：12 通过 / 0 失败
+PASS test-inline-fallback.mjs
+[sender] 发送失败（可确认未送达），1.5 秒后重试一次（fetch failed）
+用例1（fetch failed 后重试）: 调用次数=2 结果=[{"text":"网络抖动测试","messageId":999,"at":"14:25:15"}]
+用例2（非网络错误）: 调用次数=1 报错=第1条「限频不该重试」：发送频率超限（每分钟最多 80 条），请等一会再发
+[sender] 发送失败（可确认未送达），1.5 秒后重试一次（fetch failed）
+用例3（连续网络失败）: 调用次数=2 报错=第1条「一直失败」：fetch failed
+用例4（超时=结果未知）: 调用次数=1（应为 1）
+用例5（5xx=结果未知）: 调用次数=1（应为 1）
+PASS 可确认未送达的错误重试一次; PASS 非网络错误不重试; PASS 最多重试一次; PASS 超时（结果未知）不自动重发; PASS 5xx（结果未知）不自动重发
+PASS test-sender-retry.mjs
+PASS 启动后先等 15 秒再巡检 —— 排了 15000ms
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 1 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+PASS 首轮失败会重试一次（共 2 次请求，不是刷屏） —— feedAttempts=2
+PASS 失败轮仍然检查了评论回复 —— replyAttempts=1
+PASS 失败后退避到 2 分钟 —— 实际 120s
+PASS 第 1 次失败不发异常通知 —— notifications=0
+PASS failStreak 记为 1 —— failStreak=1
+PASS 没读到动态就不算建立基线（免得旧动态被当新内容） —— feedInitializedAt=0
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 2 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+PASS 第二轮仍只尝试 2 次 —— feedAttempts=4
+PASS 连续失败退避翻倍到 4 分钟 —— 实际 4 分钟
+PASS 第 2 次失败仍不发异常通知 —— notifications=0
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+PASS 第三轮仍只尝试 2 次 —— feedAttempts=6
+PASS 第 3 次连续失败应该上报一条异常通知 —— notifications=1
+PASS 上报文案带上了原因 —— [qzone-interactions] run failed: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+PASS 连续失败退避到 8 分钟 —— 实际 8 分钟
+PASS failStreak 记为 3 —— failStreak=3
+PASS 运行记录标明本轮动态没取到 —— status=partial-feed-error feedError=OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 4 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+PASS 第 4 次失败不重复上报 —— notifications=1
+PASS 退避继续翻倍到 16 分钟 —— 实际 16 分钟
+PASS 恢复后 failStreak 清零 —— failStreak=0
+PASS 恢复后这一轮建立了动态基线 —— feedInitializedAt=1789785000000
+PASS 恢复后按正常回复间隔排期（5 分钟） —— 实际 5 分钟
+PASS 下一轮恢复正常状态（idle，无降级标记） —— status=idle feedError=无
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 1 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 2 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 4 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 5 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+  （24 小时持续失败：60 轮、共 159 次请求、最少间隔 120 秒；回复检查本身按配置的 5 分钟一轮，失败时还被退避拖慢）
+PASS 持续失败时一轮最多 3 次外部请求（动态重试 2 次 + 评论列表 1 次） —— 实测最多 3 次/轮
+PASS 持续失败时任意两轮间隔不少于 2 分钟（事故时是 1.4 秒一轮） —— 实测最小间隔 120 秒
+PASS 24 小时持续失败的总请求数在两百次以内（事故时 3 分钟 191 次） —— 24 小时共 159 次（60 轮）
+PASS 连续失败期间只在第 3 次上报一条，之后不再补报 —— 本轮失败新增 1 条
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次:
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: 好友动态接口调用失败（无错误信息）
+[qzone-interactions] run failed（连续 6 次，退避重试中）: 好友动态抓取失败（已重试一次）: 好友动态接口调用失败（无错误信息）
+PASS 空错误信息也按失败处理：下一轮仍按退避排（分钟级，不是 1 秒） —— 实际 1800 秒
+PASS 运行记录里的失败原因不为空 —— feedError="好友动态接口调用失败（无错误信息）"
+
+退避用例: 28/28 通过
+PASS test-qzone-backoff.mjs
+PASS 启动后先等 15 秒再巡检（不抢启动带宽） —— 排了 15000ms
+PASS 首轮跑了好友动态 + 回复各一次 —— feed=1 reply=1
+PASS 首轮之后下一次排在 120 分钟（取较近的回复间隔） —— 实际 120 分钟
+PASS 回复到点时只跑回复，不碰好友动态接口 —— 本轮 feed+0 reply+1
+PASS 回复轮之后仍排在 120 分钟 —— 实际 120 分钟
+PASS 好友动态还差 1 分钟时只跑回复，且下一次排 1 分钟 —— feed+0，下一次 1 分钟
+PASS 满 24 小时跑好友动态 —— feed+1
+PASS 该轮回复未到点，不重复跑回复 —— reply+0
+PASS 没有新内容时一轮不调模型（0 token） —— modelCalls=0 logs=0
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+[qzone-interactions] run failed（连续 1 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+PASS 失败轮先重试一次（共 2 次请求，不刷屏） —— 本轮尝试 2 次
+PASS 失败后退避到 2 分钟 —— 实际 2 分钟
+PASS failStreak 记为 1 —— failStreak=1
+PASS 这一轮不是"执行失败"，而是标明动态没取到 —— status=partial-feed-error
+PASS 前两次失败都不上报异常通知 —— logs=0
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+[qzone-interactions] run failed（连续 2 次，退避重试中）: 好友动态抓取失败（已重试一次）: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+PASS 再次失败退避翻倍到 4 分钟 —— 实际 4 分钟
+PASS 第 2 次失败仍不上报 —— logs=0
+[qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 使用人数过多，请稍后再试
+PASS 第 3 次连续失败才上报一条异常通知 —— logs=1
+PASS 连续失败退避到 8 分钟 —— 实际 8 分钟
+PASS 活跃时段外不调用接口 —— feed=8 reply=4
+PASS 静默段排到 07:00 再检查（约 5 小时） —— 实际 300 分钟
+
+动态互动节奏用例: 20/20 通过
+PASS test-qzone-intervals.mjs
+PASS 主接口仍会先尝试一次 —— attempts=1
+PASS 限流时整轮不失败（run.status=done） —— status=done error=无
+PASS 兜底改用详情接口拉评论树（两条已关注说说各一次） —— tidA=1 tidB=1
+PASS 新评论被发现并完成回复 —— status=replied
+PASS 回复真实发出一次 —— [{"ownerUin":"10000001","tid":"tidA","content":"哈哈谢谢"}]
+PASS 扫描水位与关注状态回写 —— scanned=2 active=true
+PASS 限流不累计 failStreak —— failStreak=undefined
+PASS 下一轮按正常回复间隔排期 —— 实际 120 分钟
+PASS 安静说说接口恢复后不再拉详情（仅限流轮兜底拉过一次） —— tidB 详情 1 次
+PASS 活跃会话按节奏复查详情，无新评论不调模型 —— tidA 详情 2 次，modelCalls=1
+PASS 该轮空跑记为 idle —— status=idle
+
+回复兜底用例: 11/11 通过
+PASS test-qzone-reply-fallback.mjs
+PASS 完整 id 传入「collected_1」→ collected_1
+PASS 备注原文 传入「躺平猫」→ collected_1
+PASS 备注半句 传入「催人/怼人」→ collected_2
+PASS 模糊词命中唯一 传入「小博美」→ collected_2
+PASS 多个都不匹配 传入「不存在的图」→ null
+PASS 空串 传入「」→ null
+结果: 6/6
+PASS test-sticker-lookup.mjs
+ ok  send_message {"messages":["测试一条"],"replyToMessageId":"#-123456"} → {  "sent": 1,  "messageIds": [   null  ],  "note": "已发送。不要输出\"已发送\"类汇报，继续思考下一步或直接结束。" }
+ ok  send_message {"messages":["@测试"],"atUserId":"12345"} → {  "sent": 1,  "messageIds": [   null  ],  "note": "已发送。不要输出\"已发送\"类汇报，继续思考下一步或直接结束。" }
+ ok  send_sticker {"stickerId":"st1","replyToMessageId":"#123456"} → {  "sent": true,  "messageId": 42,  "note": "表情已发送。" }
+ ok  send_face {"name":"微笑","replyToMessageId":"#123456"} → 错误：找不到表情「微笑」。常用：微笑、得意、流泪、害羞、酷、白眼、玫瑰、爱心、强、抱拳、打call、汪汪
+ ok  send_poke {"userId":"12345"} → 错误：群聊拍一拍必须传 targetUserId（数字 QQ 号）。请从当前会话成员里选一个 QQ 号填进去： - 测试：12345
+--- 实际传给 sender 的引用 id ---
+  sendTextBatch → replyToMessageId = "-123456"
+  sendTextBatch → replyToMessageId = null
+  sendSticker → replyToMessageId = "123456"
+TEST_OK
+PASS test-send-tools.mjs
+[llm] 思考模式不接受强制 tool_choice，已降级为 auto（每种工具只提示一次）： submit_sticker_pick
+PASS 思考开启 + 强制 tool_choice → 降级 auto
+PASS 思考关闭 + 强制 tool_choice → 原样保留
+PASS 默认 auto 不受影响
+结果: 3/3
+PASS test-thinking-toolchoice.mjs
+[onebot] 未能解析的卡片样本： {不是合法 json
+PASS 自己的空间卡片（json）
+PASS 别人的空间卡片（json）
+PASS xml 卡片
+PASS 损坏卡片兜底
+PASS 与文字混排
+结果: 5/5
+PASS test-card-segments.mjs
+
+本地回归结果: 9/9 通过
+EXIT 08-local code=0 duration_ms=5849
