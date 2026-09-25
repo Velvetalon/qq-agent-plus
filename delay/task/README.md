@@ -1,25 +1,23 @@
-# vNext 任务卡目录
+# Self-Evolution 闭环修复任务卡
 
-规划原文：[`plan_doc/2026-09-24-little-w-vnext-development-plan.md`](../../plan_doc/2026-09-24-little-w-vnext-development-plan.md)
+规划基线：[`../plan/2026-09-25-self-evolution-closure.md`](../plan/2026-09-25-self-evolution-closure.md)
 
-这些任务卡是给后续普通 Agent 调度开发使用的执行边界，不是实施结果。按 `P0` 到 `P8` 的顺序推进；只有任务卡明确写出可并行部分时才允许并行。
+目标：只修复 Notebook、Retrieval、Reflection、Learned Self 之间已有的断链，不扩大权限，不改变 Base Persona、安全规则、工具权限、Sender/Outbox、lease/ack 或 unknown 外发语义。
 
-## 顺序与合并门槛
+## 顺序与依赖
 
 | 顺序 | 任务卡 | 交付重点 |
 |---|---|---|
-| 1 | `P0-baseline.md` | 固定源码、运行基线、建立可比较证据 |
-| 2 | `P1-plugin-registry.md` | Registry、Legacy Adapter、Run 快照，行为不变 |
-| 3 | `P2-plugin-lifecycle.md` | 生命周期、扩展点、可靠完成事件、迁出基础工具 |
-| 4 | `P3-active-silence.md` | `stay_silent`、终止屏障、参与审计，可独立发布 |
-| 5 | `P4-notebook.md` | 自由 Notebook 的持久化与管理端最小闭环 |
-| 6 | `P5-retrieval.md` | 中文召回、动态上下文、可选 embedding 与失效 |
-| 7 | `P6-reflection.md` | Reflection、Learned Self、Capability Gap、回滚 |
-| 8 | `P7-console-observability.md` | 管理端、审批、预算、可观测性与文档 |
-| 9 | `P8-release-validation.md` | 故障注入、真实模型评估、灰度、发布/回退 |
+| 1 | `P0-account-namespace.md` | 统一 accountId 来源与 source 校验 |
+| 2 | `P1-notebook-scope.md` | 修复 chat/global scope 边界 |
+| 3 | `P2-retrieval-context.md` | Retrieval ContextProvider 与动态 user prompt 接入 |
+| 4 | `P3-learned-self-revision.md` | Reflection 读取真实 Learned Self revision |
+| 5 | `P4-reflection-scheduling.md` | 预算阻塞、观察门槛、证据过滤 |
+| 6 | `P5-notebook-prompt.md` | Notebook 能力说明与安全边界提示 |
+| 7 | `P6-closure-verification.md` | 跨账号、跨 scope、重启、召回、反思、回滚闭环验收 |
 
-P4/P5 的纯存储、检索和独立页面工作，可在 P2 契约冻结后由不同 Agent 并行；共享 `Orchestrator`、`ChatStore`、配置 facade、`tools.js`、`ui/app.js` 的改动必须由一个集成负责人合并。
+P0/P1 的纯调查和局部测试可以并行；涉及 `src/plugins/context.js`、`src/core/orchestrator.js`、`src/llm/prompt.js`、`src/plugins/self-evolution/index.js` 的写入必须由一个集成负责人串行合并。P2 必须在 P0/P1 契约冻结后实现，P3/P4 可并行开发但只能在 P6 汇合验收。
 
 ## 通用交付规则
 
-每张卡完成时必须返回：变更文件、执行命令及退出码、测试结果、已验证事实、`NOT_RUN`/`BLOCKED` 项、数据/代码回退步骤。不得修改管理员保存的 `persona.roleText`，不得绕过 Sender/Outbox、lease/ack、lifecycle 原子提交、实验调度包装或认证体系。
+每张卡完成时必须返回：变更文件、执行命令及退出码、测试结果、已验证事实、`NOT_RUN`/`BLOCKED` 项、回退步骤。所有测试使用 `E:\node22\node.exe`。不得修改 `persona.roleText`，不得让模型自行指定 `accountId`，不得把 tags 当 scope 权限，不得删除历史 Notebook/Reflection 数据。
