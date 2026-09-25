@@ -445,6 +445,34 @@ export class ChatStore {
     return !!this.db.prepare("SELECT 1 FROM outbox WHERE run_id=? AND state IN ('sending','sent','unknown') LIMIT 1").get(id);
   }
 
+  listRunEffects(id) {
+    const rows = this.db.prepare(`SELECT id,state,payload,message_id,error
+      FROM outbox WHERE run_id=? ORDER BY rowid`).all(String(id || ''));
+    return rows.map((row) => {
+      let payload = {};
+      try { payload = JSON.parse(row.payload || '{}'); } catch { /* keep empty */ }
+      return {
+        id: row.id,
+        state: row.state,
+        type: payload?.type || 'unknown',
+        payload,
+        messageId: row.message_id ?? null,
+        error: row.error || ''
+      };
+    });
+  }
+
+  listHeldEffects(id) {
+    return this.db.prepare(`SELECT id,mid,event_kind
+      FROM messages WHERE lease_id=? AND state='held' ORDER BY id`).all(String(id || ''))
+      .map((row) => ({
+        id: `held:${row.id}`,
+        state: 'held',
+        type: row.event_kind || 'message',
+        messageId: row.mid ?? null
+      }));
+  }
+
   hasUncertainEffects(id) {
     return !!this.db.prepare("SELECT 1 FROM outbox WHERE run_id=? AND state IN ('sending','unknown') LIMIT 1").get(id);
   }

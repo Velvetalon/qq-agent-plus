@@ -21,7 +21,7 @@ const LOCAL_WRITE_TOOLS = new Set([
 function legacyEffect(name) {
   if (EXTERNAL_WRITE_TOOLS.has(name)) return 'external-write';
   if (LOCAL_WRITE_TOOLS.has(name)) return 'local-write';
-  if (name === 'finish') return 'control';
+  if (name === 'finish' || name === 'stay_silent') return 'control';
   return 'read';
 }
 

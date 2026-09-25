@@ -45,7 +45,7 @@ const MEMORY_TOOLS = new Set([
   'person_memory_lookup',
   'memory_remove'
 ]);
-const RUNTIME_CONTROL_TOOLS = new Set(['schedule_wake', 'finish']);
+const RUNTIME_CONTROL_TOOLS = new Set(['schedule_wake', 'finish', 'stay_silent']);
 
 function snapshotPluginContextMetadata(pluginContext) {
   if (!pluginContext || typeof pluginContext !== 'object') return Object.freeze({});
@@ -184,7 +184,7 @@ function runtimeSessionFacade(hostCtx) {
     id: String(session.id || ''),
     leaseId: String(session.leaseId || session.id || '')
   };
-  for (const key of ['finishReason', 'handoffDraft', 'threadDisposition']) {
+  for (const key of ['finishReason', 'handoffDraft', 'threadDisposition', 'pendingTerminationRequest']) {
     Object.defineProperty(facade, key, {
       enumerable: true,
       get: () => session[key],

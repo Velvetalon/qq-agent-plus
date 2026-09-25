@@ -28,6 +28,7 @@ export const EXPERIMENTAL_ORDERED_READ_TOOLS = new Set([
   'get_message_images'
 ]);
 
+export const EXPERIMENTAL_TERMINAL_TOOLS = new Set(['finish', 'stay_silent']);
 export const EXPERIMENTAL_TERMINAL_TOOL = 'finish';
 
 // 这些工具的副作用必须保持宿主原有顺序，但当动作在模型调用前就已经全部确定时，
@@ -60,7 +61,7 @@ export function experimentalToolSchedulerEnabled(cfg = {}) {
 
 export function experimentalToolEffect(name) {
   const tool = String(name || '');
-  if (tool === EXPERIMENTAL_TERMINAL_TOOL) return 'terminal';
+  if (EXPERIMENTAL_TERMINAL_TOOLS.has(tool)) return 'terminal';
   if (EXPERIMENTAL_READ_ONLY_TOOLS.has(tool)) return 'read';
   return 'ordered';
 }
@@ -72,7 +73,7 @@ export function experimentalToolEffect(name) {
  */
 export function experimentalToolClass(name) {
   const tool = String(name || '');
-  if (tool === EXPERIMENTAL_TERMINAL_TOOL) return 'terminal';
+  if (EXPERIMENTAL_TERMINAL_TOOLS.has(tool)) return 'terminal';
   if (EXPERIMENTAL_READ_ONLY_TOOLS.has(tool)) return 'parallel-read';
   if (EXPERIMENTAL_ORDERED_READ_TOOLS.has(tool)) return 'ordered-read';
   if (EXPERIMENTAL_SAME_ROUND_ACTION_TOOLS.has(tool)) return 'ordered-action';
@@ -122,7 +123,7 @@ export function annotateExperimentalToolSchemas(tools, cfg = {}) {
     const fn = next?.function;
     const name = String(fn?.name || '');
     if (!fn) return next;
-    if (name === EXPERIMENTAL_TERMINAL_TOOL) {
+    if (EXPERIMENTAL_TERMINAL_TOOLS.has(name)) {
       fn.description = `${fn.description || ''} ${FINISH_STRONG_RULE}`;
     } else if (EXPERIMENTAL_READ_ONLY_TOOLS.has(name)) {
       fn.description = `${fn.description || ''} ${READ_PARALLEL_RULE}`;
@@ -251,7 +252,7 @@ export class ExperimentalToolBatch {
       return {
         handled: true,
         result: experimentalSkippedResult(
-          '未执行：finish 已形成本轮终止边界，之后的工具不能再产生副作用。',
+          `未执行：${this.calls[index - 1]?.function?.name || '终止工具'} 已形成本轮终止边界，之后的工具不能再产生副作用。`,
           'SKIPPED_AFTER_FINISH_BARRIER'
         )
       };

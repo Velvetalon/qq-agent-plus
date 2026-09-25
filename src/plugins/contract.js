@@ -1,7 +1,7 @@
 const ID_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 const EFFECTS = new Set(['read', 'local-write', 'external-write', 'control']);
-const RESERVED_TOOLS = new Set(['finish']);
+const RESERVED_TOOLS = new Set(['finish', 'stay_silent']);
 const TERMINAL_OWNER = 'runtime-control';
 const LEGACY_OWNER = 'legacy-tools';
 
@@ -67,6 +67,9 @@ export function validateToolRegistration(tool, pluginId = '') {
   }
   if (name === 'finish' && ![TERMINAL_OWNER, LEGACY_OWNER].includes(ownerPluginId)) {
     fail(`tool(${name})`, `reserved tool name may only be owned by ${TERMINAL_OWNER} or ${LEGACY_OWNER}`);
+  }
+  if (name === 'stay_silent' && ownerPluginId !== TERMINAL_OWNER) {
+    fail(`tool(${name})`, `reserved tool name may only be owned by ${TERMINAL_OWNER}`);
   }
   if (tool.availability !== undefined && typeof tool.availability !== 'function') {
     fail(`tool(${name}).availability`, 'must be a function when provided');

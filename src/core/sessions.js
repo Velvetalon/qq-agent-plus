@@ -94,7 +94,10 @@ export class SessionRegistry {
       promptLayout: s.promptLayout ?? '',
       persona: personaLabelOfPrompt(s.systemPrompt),
       lifecycleContinuation: s.lifecycleContinuation === true,
-      callUsage: s.callUsage ?? []
+      callUsage: s.callUsage ?? [],
+      participation: s.participation ?? null,
+      termination: s.termination ?? null,
+      outbound: s.outbound ?? null
     };
   }
 
@@ -129,6 +132,29 @@ export class SessionRegistry {
       feedbacks: [],
       finishReason: null,
       error: null,
+      participation: {
+        mode: 'undecided',
+        decision: 'undecided',
+        reasonCode: '',
+        reason: ''
+      },
+      termination: {
+        kind: '',
+        reasonCode: '',
+        reason: '',
+        threadDisposition: '',
+        terminalToolCallId: '',
+        blocked: false
+      },
+      outbound: {
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        unknown: 0,
+        held: 0,
+        effects: []
+      },
+      pendingTerminationRequest: null,
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, calls: 0 }
     };
     this.current.set(session.id, session);

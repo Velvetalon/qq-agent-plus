@@ -189,7 +189,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             sent: s.sent ?? [],
             finishReason: s.finishReason ?? null,
             error: s.error ?? null,
-            endedAt: s.endedAt ?? null
+            endedAt: s.endedAt ?? null,
+            participation: s.participation ?? null,
+            termination: s.termination ?? null,
+            outbound: s.outbound ?? null
           })}\n\n`;
         }
       } catch { /* 失败就退回原 payload */ }

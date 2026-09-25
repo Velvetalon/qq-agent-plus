@@ -107,6 +107,12 @@ import { createLegacyToolsPlugin } from '../plugins/builtin/legacy-tools.js';
 import { runtimeControlPlugin } from '../plugins/builtin/runtime-control.js';
 import { messagingPlugin } from '../plugins/builtin/messaging.js';
 import { memoryToolsPlugin } from '../plugins/builtin/memory-tools.js';
+import {
+  preflightToolCalls,
+  commitStaySilent,
+  recordOutboundObservation,
+  summarizeOutbound
+} from './action-control.js';
 
 function handoffParticipantIds(triggerEntries) {
   return [...new Set((triggerEntries || [])
@@ -788,7 +794,15 @@ export class Orchestrator {
         this.#applyWaitingConversation(session, predicted, chatKey);
         this.sessions.update(session.id);
         this.pendingSessions.set(chatKey, session.id);
-        this.emit('session-start', { sessionId: session.id, chatKey, status: 'waiting', triggerSummary: summary });
+        this.emit('session-start', {
+          sessionId: session.id,
+          chatKey,
+          status: 'waiting',
+          triggerSummary: summary,
+          participation: session.participation,
+          termination: session.termination,
+          outbound: session.outbound
+        });
       }
       this.emit('chat-update', chatKey);
       }
@@ -1052,7 +1066,10 @@ export class Orchestrator {
         chatKey,
         triggerSummary,
         triggerKind: session.triggerKind,
-        triggerReason: session.triggerReason
+        triggerReason: session.triggerReason,
+        participation: session.participation,
+        termination: session.termination,
+        outbound: session.outbound
       });
     } else {
       this.emit('session-update', session.id);
@@ -1069,18 +1086,29 @@ export class Orchestrator {
       const runResult = await this.#runAgent(session, { kind, chatId, chatKey, triggerEntries, proactive, wakeNote, paced, seq,
         manual, contextLimit: tierResult.count, tierInfo: tierResult, conversation, signal: controller.signal });
       controller.signal.throwIfAborted();
-      const status = session.sent.length > 0 ? 'done' : 'noreply';
+      session.outbound = summarizeOutbound(session, this.store);
+      const explicitSilence = session.termination?.kind === 'explicit_silence'
+        && session.outbound.attempted === 0
+        && session.outbound.succeeded === 0
+        && session.outbound.failed === 0
+        && session.outbound.unknown === 0
+        && session.outbound.held === 0;
+      const status = explicitSilence ? 'noreply' : (session.sent.length > 0 ? 'done' : 'noreply');
+      const resultClass = explicitSilence ? 'explicit_silence' : status;
       const runSnapshot = this.pluginRunSnapshots.get(session.id);
       const completionEvents = this.pluginManager.buildCompletionEvents(runSnapshot, {
         accountId: this.onebot.selfId,
         sessionId: session.id,
         runId: session.leaseId,
         chatKey,
-        resultClass: status,
+        resultClass,
         actionSummary: {
           sentCount: session.sent.length,
           finishReason: session.finishReason,
-          outboundAttempted: session.sent.length > 0
+          outboundAttempted: session.outbound.attempted > 0,
+          participation: session.participation,
+          termination: session.termination,
+          outbound: session.outbound
         },
         sourceMessageIds: triggerEntries.map((entry) => entry.id)
       });
@@ -1100,7 +1128,11 @@ export class Orchestrator {
       }
       this.sessions.finish(session.id, status);
       this.emit('session-end', { sessionId: session.id, chatKey, status,
-        sent: session.sent.length, finishReason: session.finishReason, usage: session.usage });
+        resultClass,
+        sent: session.sent.length, finishReason: session.finishReason, usage: session.usage,
+        participation: session.participation,
+        termination: session.termination,
+        outbound: session.outbound });
       if (!manual && !proactive && triggerEntries.length > 0) {
         const identityPilot = this.getIdentityPilot();
         identityPilot?.handleSuccessfulTurn?.({
@@ -1115,6 +1147,7 @@ export class Orchestrator {
       }
     } catch (error) {
       session.error = String(error?.message ?? error);
+      session.outbound = summarizeOutbound(session, this.store);
       const timeClosed = error?.code === 'TIME_CONTROL_INACTIVE' || !isTimeActive(chatKey);
       if (!/Delivery uncertain; batch held/.test(session.error)) {
         this.getIncidentPilot()?.capture(error, {
@@ -1139,7 +1172,15 @@ export class Orchestrator {
       }
       const status = timeClosed ? 'aborted' : 'error';
       this.sessions.finish(session.id, status);
-      this.emit('session-end', { sessionId: session.id, chatKey, status, error: session.error });
+      this.emit('session-end', {
+        sessionId: session.id,
+        chatKey,
+        status,
+        error: session.error,
+        participation: session.participation,
+        termination: session.termination,
+        outbound: session.outbound
+      });
     } finally {
       releaseTimeGuard();
       clearTimeout(runTimer);
@@ -1740,15 +1781,18 @@ export class Orchestrator {
         break;
       }
 
+      const batchPlan = preflightToolCalls(toolCalls, toolDefs);
       const toolResults = [];
       const imageUserMessages = [];
+      let uncertainEffectsDetected = false;
       // 流式响应结束后，把 assistant 条目的 tool_calls 也同步到会话消息流（一次）
       const liveTool = this.sessions.current.get(session.id);
       const lastAssistantUi = liveTool?.messages?.[liveTool.messages.length - 1];
       if (lastAssistantUi?.role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length) {
         if (!lastAssistantUi.tool_calls) lastAssistantUi.tool_calls = structuredClone(toolCalls);
       }
-      for (const call of toolCalls) {
+      for (let callIndex = 0; callIndex < toolCalls.length; callIndex += 1) {
+        const call = toolCalls[callIndex];
         signal.throwIfAborted();
         if (!canRun(chatKey)) throw new Error('Run cancelled');
         const name = call?.function?.name ?? '';
@@ -1756,7 +1800,16 @@ export class Orchestrator {
         if (name === 'web_search' || name === 'web_fetch') webSearchCount += 1;
         session.webSearchCount = webSearchCount;
         markActivity(`正在调用 ${name}…`);
-        const result = await executeTool(toolDefs, ctx, name, argsRaw);
+        const planned = batchPlan.calls[callIndex];
+        const result = planned?.execute
+          ? await executeTool(toolDefs, ctx, name, argsRaw)
+          : planned?.result || {
+              content: `错误：工具 ${name} 未执行`,
+              isError: true,
+              errorCode: 'TERMINAL_BATCH_BLOCKED',
+              reportIncident: false
+            };
+        if (planned?.execute) recordOutboundObservation(session, name, result, call?.id || '');
         if (
           result.isError
           && result.incidentCaptured !== true
@@ -1785,10 +1838,13 @@ export class Orchestrator {
         toolResults.push({ role: 'tool', tool_call_id: call.id, name, content: contentStr, isError: !!result.isError });
         session.messages.push({
           toolCall: {
+            id: call?.id || '',
             name,
             args: result.parsedArgs ?? safeParse(argsRaw),
             result: contentStr.slice(0, 2000),
             isError: !!result.isError,
+            skipped: result.skipped === true,
+            terminalBlocked: result.terminalBlocked === true,
             ...(result.errorCode ? { errorCode: result.errorCode } : {}),
             ...(result.argumentsRepaired ? { argumentsRepaired: true } : {})
           }
@@ -1806,13 +1862,35 @@ export class Orchestrator {
         this.sessions.update(session.id);
         this.emit('session-update', session.id);
         if (this.store.hasUncertainEffects(session.leaseId)) {
-          throw new Error('Delivery uncertain; batch held for operator review');
+          // Finish the current assistant batch so every tool_call has an
+          // auditable result; the run is held only after the batch is recorded.
+          uncertainEffectsDetected = true;
         }
-        if (name === 'finish' && !result.isError) finish = true;
+        if (name === 'finish' && !result.isError && planned?.execute) finish = true;
+      }
+      const pending = session.pendingTerminationRequest;
+      if (
+        pending
+        && batchPlan.validTerminal
+        && batchPlan.firstTerminalIndex === toolCalls.length - 1
+        && toolCalls.at(-1)?.function?.name === 'stay_silent'
+      ) {
+        session.outbound = summarizeOutbound(session, this.store);
+        const committed = commitStaySilent(session, pending, {
+          terminalToolCallId: toolCalls.at(-1)?.id || '',
+          outbound: session.outbound
+        });
+        session.pendingTerminationRequest = null;
+        if (committed.committed) finish = true;
+      } else if (pending) {
+        session.pendingTerminationRequest = null;
       }
       messages.push(...toolResults.map(({ role, tool_call_id, name, content }) => ({ role, tool_call_id, content, name })));
       // 图片消息跟随在全部 tool 结果之后（OpenAI 校验要求每个 tool_call 都有对应 tool 消息）
       messages.push(...imageUserMessages);
+      if (uncertainEffectsDetected) {
+        throw new Error('Delivery uncertain; batch held for operator review');
+      }
       // 给 UI 的简化消息流（跳过纯 tool 结果的重复展示）
     }
 

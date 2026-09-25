@@ -297,7 +297,16 @@ export class PluginManager {
         actionSummary: {
           sentCount: Number(actionSummary.sentCount) || 0,
           finishReason: String(actionSummary.finishReason || '').slice(0, 300),
-          outboundAttempted: actionSummary.outboundAttempted === true
+          outboundAttempted: actionSummary.outboundAttempted === true,
+          participation: actionSummary.participation && typeof actionSummary.participation === 'object'
+            ? structuredClone(actionSummary.participation)
+            : null,
+          termination: actionSummary.termination && typeof actionSummary.termination === 'object'
+            ? structuredClone(actionSummary.termination)
+            : null,
+          outbound: actionSummary.outbound && typeof actionSummary.outbound === 'object'
+            ? structuredClone(actionSummary.outbound)
+            : null
         },
         sourceMessageIds: (Array.isArray(sourceMessageIds) ? sourceMessageIds : []).map(String).slice(0, 32),
         completedAt: Number(completedAt) || Date.now()
