@@ -1,0 +1,35 @@
+CHECK src/core/action-control.js
+OK src/core/action-control.js
+CHECK src/core/orchestrator.js
+OK src/core/orchestrator.js
+CHECK src/core/sessions.js
+OK src/core/sessions.js
+CHECK src/core/store.js
+OK src/core/store.js
+CHECK src/console/app.js
+OK src/console/app.js
+CHECK src/llm/participation-policy.js
+OK src/llm/participation-policy.js
+CHECK src/llm/prompt.js
+OK src/llm/prompt.js
+CHECK src/pilots/experimental-tool-scheduler.js
+OK src/pilots/experimental-tool-scheduler.js
+CHECK src/plugins/builtin/legacy-tools.js
+OK src/plugins/builtin/legacy-tools.js
+CHECK src/plugins/builtin/runtime-control-tools.js
+OK src/plugins/builtin/runtime-control-tools.js
+CHECK src/plugins/builtin/runtime-control.js
+OK src/plugins/builtin/runtime-control.js
+CHECK src/plugins/context.js
+OK src/plugins/context.js
+CHECK src/plugins/contract.js
+OK src/plugins/contract.js
+CHECK src/plugins/manager.js
+OK src/plugins/manager.js
+CHECK test/p3-active-silence.test.mjs
+OK test/p3-active-silence.test.mjs
+CHECK test/orchestrator.test.mjs
+OK test/orchestrator.test.mjs
+CHECK git diff --check
+OK git diff --check
+STATIC_OK

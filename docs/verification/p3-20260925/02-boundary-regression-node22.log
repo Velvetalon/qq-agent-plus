@@ -1,0 +1,653 @@
+TAP version 13
+# Subtest: disabled experiment preserves tool schema object and defaults to old path
+ok 1 - disabled experiment preserves tool schema object and defaults to old path
+  ---
+  duration_ms: 1.8788
+  type: 'test'
+  ...
+# Subtest: current base tool inventory has an explicit scheduler classification
+ok 2 - current base tool inventory has an explicit scheduler classification
+  ---
+  duration_ms: 0.8755
+  type: 'test'
+  ...
+# Subtest: enabled experiment strongly guides same-round finish without mutating base schemas
+ok 3 - enabled experiment strongly guides same-round finish without mutating base schemas
+  ---
+  duration_ms: 0.6861
+  type: 'test'
+  ...
+# Subtest: consecutive read tools execute concurrently but are returned in host order
+ok 4 - consecutive read tools execute concurrently but are returned in host order
+  ---
+  duration_ms: 35.5035
+  type: 'test'
+  ...
+# Subtest: ordered image reads stay serial and are never prestarted as a read wave
+ok 5 - ordered image reads stay serial and are never prestarted as a read wave
+  ---
+  duration_ms: 9.9124
+  type: 'test'
+  ...
+# Subtest: parallel read concurrency respects configured limit
+ok 6 - parallel read concurrency respects configured limit
+  ---
+  duration_ms: 22.2466
+  type: 'test'
+  ...
+# Subtest: failed earlier tool blocks finish instead of committing terminal state
+ok 7 - failed earlier tool blocks finish instead of committing terminal state
+  ---
+  duration_ms: 0.5528
+  type: 'test'
+  ...
+# Subtest: finish is a hard barrier and tools after it never execute
+ok 8 - finish is a hard barrier and tools after it never execute
+  ---
+  duration_ms: 0.3938
+  type: 'test'
+  ...
+# Subtest: batch mismatch fails closed to caller fallback instead of guessing call identity
+ok 9 - batch mismatch fails closed to caller fallback instead of guessing call identity
+  ---
+  duration_ms: 0.414
+  type: 'test'
+  ...
+# (node:83332) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Orchestrator
+    # Subtest: draws the debounce delay inside the configured range
+    ok 1 - draws the debounce delay inside the configured range
+      ---
+      duration_ms: 1.5734
+      type: 'test'
+      ...
+    # Subtest: classifies persisted Session trigger kinds without parsing display text
+    ok 2 - classifies persisted Session trigger kinds without parsing display text
+      ---
+      duration_ms: 0.3991
+      type: 'test'
+      ...
+    # Subtest: omits inline image bytes from next-round Token estimation
+    ok 3 - omits inline image bytes from next-round Token estimation
+      ---
+      duration_ms: 38.5749
+      type: 'test'
+      ...
+    # Subtest: only acknowledges the claimed batch after successful model processing
+    ok 4 - only acknowledges the claimed batch after successful model processing
+      ---
+      duration_ms: 138.6068
+      type: 'test'
+      ...
+    # Subtest: preserves failed input and recorded token usage without clearing a run
+    ok 5 - preserves failed input and recorded token usage without clearing a run
+      ---
+      duration_ms: 128.9173
+      type: 'test'
+      ...
+    # Subtest: does not escalate model-correctable malformed tool arguments to incidents
+    ok 6 - does not escalate model-correctable malformed tool arguments to incidents
+      ---
+      duration_ms: 111.1504
+      type: 'test'
+      ...
+    # Subtest: records explicit silence with zero outbound side effects
+    ok 7 - records explicit silence with zero outbound side effects
+      ---
+      duration_ms: 113.5021
+      type: 'test'
+      ...
+    # Subtest: rejects a conflicting send+stay_silent batch before side effects (scheduler=false)
+    ok 8 - rejects a conflicting send+stay_silent batch before side effects (scheduler=false)
+      ---
+      duration_ms: 109.6462
+      type: 'test'
+      ...
+    # Subtest: blocks stay_silent after an earlier tool error with the scheduler=false
+    ok 9 - blocks stay_silent after an earlier tool error with the scheduler=false
+      ---
+      duration_ms: 108.6595
+      type: 'test'
+      ...
+    # Subtest: skips later side effects after an unknown delivery (scheduler=false)
+    ok 10 - skips later side effects after an unknown delivery (scheduler=false)
+      ---
+      duration_ms: 115.4728
+      type: 'test'
+      ...
+    # Subtest: rejects a conflicting send+stay_silent batch before side effects (scheduler=true)
+    ok 11 - rejects a conflicting send+stay_silent batch before side effects (scheduler=true)
+      ---
+      duration_ms: 111.6636
+      type: 'test'
+      ...
+    # Subtest: blocks stay_silent after an earlier tool error with the scheduler=true
+    ok 12 - blocks stay_silent after an earlier tool error with the scheduler=true
+      ---
+      duration_ms: 111.5076
+      type: 'test'
+      ...
+    # Subtest: skips later side effects after an unknown delivery (scheduler=true)
+    ok 13 - skips later side effects after an unknown delivery (scheduler=true)
+      ---
+      duration_ms: 114.7795
+      type: 'test'
+      ...
+    # Subtest: does not start a model call in observe mode or in an unapproved chat
+    ok 14 - does not start a model call in observe mode or in an unapproved chat
+      ---
+      duration_ms: 753.9392
+      type: 'test'
+      ...
+# [follow-up] group:1 发言后没人接话，10 分钟后给它一次补话机会
+# [follow-up] group:1 发言后没人接话，12 分钟后给它一次补话机会
+# [orchestrator] group:1 1 条未命中触发条件（概率 0%，未触发），已标记已读、不响应
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+    # Subtest: caps a continuously extended debounce window at the first-message deadline
+    ok 15 - caps a continuously extended debounce window at the first-message deadline
+      ---
+      duration_ms: 224.4816
+      type: 'test'
+      ...
+    # Subtest: manual wake bypasses trigger rules and can run from read archive context
+    ok 16 - manual wake bypasses trigger rules and can run from read archive context
+      ---
+      duration_ms: 98.7091
+      type: 'test'
+      ...
+    # Subtest: attaches a waiting lifecycle batch to its existing thread immediately
+    ok 17 - attaches a waiting lifecycle batch to its existing thread immediately
+      ---
+      duration_ms: 81.9225
+      type: 'test'
+      ...
+    # Subtest: cancels a running request and releases the batch for a later attempt
+    ok 18 - cancels a running request and releases the batch for a later attempt
+      ---
+      duration_ms: 83.9075
+      type: 'test'
+      ...
+    # Subtest: commits an explicit finish handoff after a successful batch
+    ok 19 - commits an explicit finish handoff after a successful batch
+      ---
+      duration_ms: 101.2964
+      type: 'test'
+      ...
+    # Subtest: creates a conservative handoff when a successful reply ends without finish
+    ok 20 - creates a conservative handoff when a successful reply ends without finish
+      ---
+      duration_ms: 92.7687
+      type: 'test'
+      ...
+    # Subtest: injects the previous run handoff into the next stateless session
+    ok 21 - injects the previous run handoff into the next stateless session
+      ---
+      duration_ms: 112.2229
+      type: 'test'
+      ...
+    # Subtest: passes provider reasoning content into the next tool round
+    ok 22 - passes provider reasoning content into the next tool round
+      ---
+      duration_ms: 90.8029
+      type: 'test'
+      ...
+    # Subtest: exposes and executes the unified person lookup only while the pilot is active
+    ok 23 - exposes and executes the unified person lookup only while the pilot is active
+      ---
+      duration_ms: 98.1602
+      type: 'test'
+      ...
+    # Subtest: exposes friend proposals only when the nested pilot switch is enabled
+    ok 24 - exposes friend proposals only when the nested pilot switch is enabled
+      ---
+      duration_ms: 91.7689
+      type: 'test'
+      ...
+    # Subtest: removes friend proposal prompt and tool from ordinary triggered-mode chat
+    ok 25 - removes friend proposal prompt and tool from ordinary triggered-mode chat
+      ---
+      duration_ms: 106.7204
+      type: 'test'
+      ...
+    # Subtest: keeps slang injection retired even with legacy config and slang assets
+    ok 26 - keeps slang injection retired even with legacy config and slang assets
+      ---
+      duration_ms: 102.4851
+      type: 'test'
+      ...
+    # Subtest: deterministically wakes the same participant inside the threaded continuation window
+    ok 27 - deterministically wakes the same participant inside the threaded continuation window
+      ---
+      duration_ms: 126.9871
+      type: 'test'
+      ...
+    # Subtest: deterministically wakes a reply to the bot without an existing thread
+    ok 28 - deterministically wakes a reply to the bot without an existing thread
+      ---
+      duration_ms: 99.2692
+      type: 'test'
+      ...
+    # Subtest: supports per-group lifecycle mode and reuses the append-only DeepSeek transcript
+    ok 29 - supports per-group lifecycle mode and reuses the append-only DeepSeek transcript
+      ---
+      duration_ms: 129.9641
+      type: 'test'
+      ...
+    # Subtest: rolls a lifecycle generation before the next request when actual input reaches 32K
+    ok 30 - rolls a lifecycle generation before the next request when actual input reaches 32K
+      ---
+      duration_ms: 126.5929
+      type: 'test'
+      ...
+    # Subtest: stops safely before a projected 160K run without holding confirmed sends
+    ok 31 - stops safely before a projected 160K run without holding confirmed sends
+      ---
+      duration_ms: 110.4566
+      type: 'test'
+      ...
+    # Subtest: consumes rollover-armed state with the next arbitrary message
+    ok 32 - consumes rollover-armed state with the next arbitrary message
+      ---
+      duration_ms: 105.4969
+      type: 'test'
+      ...
+    # Subtest: honors an explicit active lifecycle disposition even without sending
+    ok 33 - honors an explicit active lifecycle disposition even without sending
+      ---
+      duration_ms: 101.6436
+      type: 'test'
+      ...
+    # Subtest: clears handoff memory without closing a listening lifecycle
+    ok 34 - clears handoff memory without closing a listening lifecycle
+      ---
+      duration_ms: 104.4111
+      type: 'test'
+      ...
+    # Subtest: keeps the lifecycle thread id on the Session that closes it
+    ok 35 - keeps the lifecycle thread id on the Session that closes it
+      ---
+      duration_ms: 119.253
+      type: 'test'
+      ...
+    # Subtest: does not drop a previously claimed retry when the trigger state changes
+    ok 36 - does not drop a previously claimed retry when the trigger state changes
+      ---
+      duration_ms: 108.4541
+      type: 'test'
+      ...
+    # Subtest: does not recreate a lifecycle after its mode is changed during a run
+    ok 37 - does not recreate a lifecycle after its mode is changed during a run
+      ---
+      duration_ms: 110.5367
+      type: 'test'
+      ...
+    1..37
+ok 10 - Orchestrator
+  ---
+  duration_ms: 4489.6898
+  type: 'suite'
+  ...
+# Subtest: stay_silent validates strictly and only records a pending request
+ok 11 - stay_silent validates strictly and only records a pending request
+  ---
+  duration_ms: 3.4466
+  type: 'test'
+  ...
+# Subtest: terminal batch preflight is independent of scheduler enablement
+ok 12 - terminal batch preflight is independent of scheduler enablement
+  ---
+  duration_ms: 1.1871
+  type: 'test'
+  ...
+# Subtest: stay_silent commits explicit silence only with zero outbound effects
+ok 13 - stay_silent commits explicit silence only with zero outbound effects
+  ---
+  duration_ms: 0.4904
+  type: 'test'
+  ...
+# Subtest: stay_silent accepts the boundary reason length and rejects malformed enums
+ok 14 - stay_silent accepts the boundary reason length and rejects malformed enums
+  ---
+  duration_ms: 0.1057
+  type: 'test'
+  ...
+# Subtest: inline and native tool calls share the same terminal preflight
+ok 15 - inline and native tool calls share the same terminal preflight
+  ---
+  duration_ms: 1.3045
+  type: 'test'
+  ...
+# Subtest: participation policy is present once and exposes explicit silence without role-text edits
+ok 16 - participation policy is present once and exposes explicit silence without role-text edits
+  ---
+  duration_ms: 2.339
+  type: 'test'
+  ...
+# (node:84860) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: disabled plugin has no start, context, timer, or tool side effects
+ok 17 - disabled plugin has no start, context, timer, or tool side effects
+  ---
+  duration_ms: 3.8564
+  type: 'test'
+  ...
+# Subtest: start failure removes the staged plugin and does not leave runtime state
+ok 18 - start failure removes the staged plugin and does not leave runtime state
+  ---
+  duration_ms: 1.2856
+  type: 'test'
+  ...
+# Subtest: startAll failure atomically rolls back every plugin started by that call
+ok 19 - startAll failure atomically rolls back every plugin started by that call
+  ---
+  duration_ms: 1.0912
+  type: 'test'
+  ...
+# Subtest: startAll failure preserves plugins that were already running
+ok 20 - startAll failure preserves plugins that were already running
+  ---
+  duration_ms: 0.8255
+  type: 'test'
+  ...
+# Subtest: provider failure degrades without failing the run context
+ok 21 - provider failure degrades without failing the run context
+  ---
+  duration_ms: 0.9445
+  type: 'test'
+  ...
+# Subtest: provider timeout aborts the provider and preserves the shared run context
+ok 22 - provider timeout aborts the provider and preserves the shared run context
+  ---
+  duration_ms: 6.0014
+  type: 'test'
+  ...
+# Subtest: stop invalidates snapshots before plugin cleanup and clears plugin timers
+ok 23 - stop invalidates snapshots before plugin cleanup and clears plugin timers
+  ---
+  duration_ms: 151.7463
+  type: 'test'
+  ...
+# Subtest: config-based enablement is evaluated when the manager starts
+ok 24 - config-based enablement is evaluated when the manager starts
+  ---
+  duration_ms: 0.6488
+  type: 'test'
+  ...
+# Subtest: startAll explicit config controls dynamic plugin enablement
+ok 25 - startAll explicit config controls dynamic plugin enablement
+  ---
+  duration_ms: 0.3869
+  type: 'test'
+  ...
+# Subtest: hard disable rejects a late tool result from an old run snapshot
+ok 26 - hard disable rejects a late tool result from an old run snapshot
+  ---
+  duration_ms: 2.6277
+  type: 'test'
+  ...
+# Subtest: ChatStore completion events are transactional, at-least-once, and retryable
+ok 27 - ChatStore completion events are transactional, at-least-once, and retryable
+  ---
+  duration_ms: 109.3772
+  type: 'test'
+  ...
+# Subtest: enabled observer delivery is at-least-once and delivered events are not replayed
+ok 28 - enabled observer delivery is at-least-once and delivered events are not replayed
+  ---
+  duration_ms: 100.719
+  type: 'test'
+  ...
+# Subtest: hung observers time out as retryable failures and do not block stopAll
+ok 29 - hung observers time out as retryable failures and do not block stopAll
+  ---
+  duration_ms: 1485.1294
+  type: 'test'
+  ...
+# Subtest: Orchestrator composition accepts a probe manager through the real constructor path
+ok 30 - Orchestrator composition accepts a probe manager through the real constructor path
+  ---
+  duration_ms: 2.598
+  type: 'test'
+  ...
+# Subtest: legacy adapter preserves the 23 tool names, order, and OpenAI schemas
+ok 31 - legacy adapter preserves the 23 tool names, order, and OpenAI schemas
+  ---
+  duration_ms: 2.9352
+  type: 'test'
+  ...
+# Subtest: registry stages atomically and rejects duplicate owners, tools, invalid schemas, and reserved names
+ok 32 - registry stages atomically and rejects duplicate owners, tools, invalid schemas, and reserved names
+  ---
+  duration_ms: 0.8526
+  type: 'test'
+  ...
+# Subtest: published registrations have stable plugin/tool ordering independent of registration order
+ok 33 - published registrations have stable plugin/tool ordering independent of registration order
+  ---
+  duration_ms: 0.2289
+  type: 'test'
+  ...
+# Subtest: manager snapshots freeze config, plugin enablement, generations, and tool handles per run
+ok 34 - manager snapshots freeze config, plugin enablement, generations, and tool handles per run
+  ---
+  duration_ms: 1.1559
+  type: 'test'
+  ...
+# Subtest: generic plugin tool callbacks receive only the safe base context
+ok 35 - generic plugin tool callbacks receive only the safe base context
+  ---
+  duration_ms: 2.6508
+  type: 'test'
+  ...
+# Subtest: ownerless tool definitions receive the restricted generic context
+ok 36 - ownerless tool definitions receive the restricted generic context
+  ---
+  duration_ms: 0.3729
+  type: 'test'
+  ...
+# Subtest: ExperimentalToolBatch prestart uses the restricted tool callback context
+ok 37 - ExperimentalToolBatch prestart uses the restricted tool callback context
+  ---
+  duration_ms: 0.895
+  type: 'test'
+  ...
+# Subtest: legacy owner still receives the raw host context
+ok 38 - legacy owner still receives the raw host context
+  ---
+  duration_ms: 0.1855
+  type: 'test'
+  ...
+# Subtest: legacy buildToolDefs wrapper marks core definitions for raw compatibility
+ok 39 - legacy buildToolDefs wrapper marks core definitions for raw compatibility
+  ---
+  duration_ms: 15.7368
+  type: 'test'
+  ...
+# Subtest: trusted owner facades require both owner id and built-in tool name
+ok 40 - trusted owner facades require both owner id and built-in tool name
+  ---
+  duration_ms: 0.2635
+  type: 'test'
+  ...
+# Subtest: messaging facade remains functional and binds chat, run, signal, and session
+ok 41 - messaging facade remains functional and binds chat, run, signal, and session
+  ---
+  duration_ms: 3.2062
+  type: 'test'
+  ...
+# Subtest: memory and runtime-control facades bind current chat, run, and signal
+ok 42 - memory and runtime-control facades bind current chat, run, and signal
+  ---
+  duration_ms: 2.0293
+  type: 'test'
+  ...
+# Subtest: snapshotPluginConfig redacts auth material and token-shaped values
+ok 43 - snapshotPluginConfig redacts auth material and token-shaped values
+  ---
+  duration_ms: 0.9688
+  type: 'test'
+  ...
+# (node:74172) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: ChatStore
+    # Subtest: deduplicates replayed messages and preserves pagination order
+    ok 1 - deduplicates replayed messages and preserves pagination order
+      ---
+      duration_ms: 91.627
+      type: 'test'
+      ...
+    # Subtest: claims a snapshot without acknowledging it and keeps later messages pending
+    ok 2 - claims a snapshot without acknowledging it and keeps later messages pending
+      ---
+      duration_ms: 84.7576
+      type: 'test'
+      ...
+    # Subtest: returns failed unsent batches to pending and stops after the attempt budget
+    ok 3 - returns failed unsent batches to pending and stops after the attempt budget
+      ---
+      duration_ms: 118.8779
+      type: 'test'
+      ...
+    # Subtest: recovers expired leases without re-sending uncertain external effects
+    ok 4 - recovers expired leases without re-sending uncertain external effects
+      ---
+      duration_ms: 107.5259
+      type: 'test'
+      ...
+    # Subtest: reconciles unknown operations individually without deleting business history
+    ok 5 - reconciles unknown operations individually without deleting business history
+      ---
+      duration_ms: 125.6607
+      type: 'test'
+      ...
+    # Subtest: persists leases and recovers an interrupted unsent run after reopening
+    ok 6 - persists leases and recovers an interrupted unsent run after reopening
+      ---
+      duration_ms: 104.9207
+      type: 'test'
+      ...
+    # Subtest: bounds each batch and never evicts pending messages for retention
+    ok 7 - bounds each batch and never evicts pending messages for retention
+      ---
+      duration_ms: 98.3038
+      type: 'test'
+      ...
+    # Subtest: imports a legacy JSON once, preserving the original archive
+    ok 8 - imports a legacy JSON once, preserving the original archive
+      ---
+      duration_ms: 90.6729
+      type: 'test'
+      ...
+    # Subtest: updates media without duplication and only marks specified pending IDs read
+    ok 9 - updates media without duplication and only marks specified pending IDs read
+      ---
+      duration_ms: 96.0378
+      type: 'test'
+      ...
+    # Subtest: persists conversation threads and append-only checkpoints
+    ok 10 - persists conversation threads and append-only checkpoints
+      ---
+      duration_ms: 86.9656
+      type: 'test'
+      ...
+    # Subtest: restores active threads after reopening and expires them by deadline
+    ok 11 - restores active threads after reopening and expires them by deadline
+      ---
+      duration_ms: 91.1016
+      type: 'test'
+      ...
+    # Subtest: applies lifecycle idle deadlines, hard rollover and one-shot resume state
+    ok 12 - applies lifecycle idle deadlines, hard rollover and one-shot resume state
+      ---
+      duration_ms: 108.7917
+      type: 'test'
+      ...
+    # Subtest: restores lifecycle provider turns after reopening
+    ok 13 - restores lifecycle provider turns after reopening
+      ---
+      duration_ms: 760.0886
+      type: 'test'
+      ...
+    # Subtest: adds lifecycle columns to databases created by the threaded pilot
+    ok 14 - adds lifecycle columns to databases created by the threaded pilot
+      ---
+      duration_ms: 108.4828
+      type: 'test'
+      ...
+    # Subtest: atomically rolls back message acknowledgement when lifecycle persistence fails
+    ok 15 - atomically rolls back message acknowledgement when lifecycle persistence fails
+      ---
+      duration_ms: 61.701
+      type: 'test'
+      ...
+    1..15
+ok 44 - ChatStore
+  ---
+  duration_ms: 2137.6215
+  type: 'suite'
+  ...
+# Subtest: wrapper is a semantic pass-through when experiment is disabled
+ok 45 - wrapper is a semantic pass-through when experiment is disabled
+  ---
+  duration_ms: 2.1811
+  type: 'test'
+  ...
+# Subtest: wrapper prestarts only contiguous read calls and keeps ordered tools lazy
+ok 46 - wrapper prestarts only contiguous read calls and keeps ordered tools lazy
+  ---
+  duration_ms: 32.0149
+  type: 'test'
+  ...
+# Subtest: wrapper blocks finish after a prior tool error
+ok 47 - wrapper blocks finish after a prior tool error
+  ---
+  duration_ms: 0.4665
+  type: 'test'
+  ...
+# Subtest: wrapper suppresses side effects after finish
+ok 48 - wrapper suppresses side effects after finish
+  ---
+  duration_ms: 0.4948
+  type: 'test'
+  ...
+# Subtest: send tools reject message IDs and unknown users before creating an external write
+ok 49 - send tools reject message IDs and unknown users before creating an external write
+  ---
+  duration_ms: 3.1273
+  type: 'test'
+  ...
+# Subtest: send tools accept a verified current group member
+ok 50 - send tools accept a verified current group member
+  ---
+  duration_ms: 0.3768
+  type: 'test'
+  ...
+# Subtest: get_message_images refreshes an expired stored URL from the source message
+ok 51 - get_message_images refreshes an expired stored URL from the source message
+  ---
+  duration_ms: 0.9909
+  type: 'test'
+  ...
+# Subtest: malformed tool JSON returns actionable correction guidance without execution
+ok 52 - malformed tool JSON returns actionable correction guidance without execution
+  ---
+  duration_ms: 1.4755
+  type: 'test'
+  ...
+# Subtest: finish conservatively repairs unescaped quotes inside string values
+ok 53 - finish conservatively repairs unescaped quotes inside string values
+  ---
+  duration_ms: 0.5454
+  type: 'test'
+  ...
+1..53
+# tests 103
+# suites 2
+# pass 103
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4928.817

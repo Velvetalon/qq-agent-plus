@@ -199,6 +199,265 @@ describe('Orchestrator', () => {
     assert.equal(toolCall.toolCall.errorCode, 'INVALID_TOOL_ARGUMENTS');
   });
 
+  it('records explicit silence with zero outbound side effects', async (t) => {
+    const { runner, store, sessions, append } = fixture(t);
+    let sends = 0;
+    runner.sender = {
+      sendTextBatch: async () => {
+        sends += 1;
+        return { sent: [], failed: [] };
+      }
+    };
+    const endEvents = [];
+    const emit = runner.emit;
+    runner.emit = (type, payload) => {
+      if (type === 'session-end') endEvents.push(payload);
+      return emit(type, payload);
+    };
+    globalThis.fetch = async () => Response.json({
+      choices: [{
+        message: {
+          tool_calls: [{
+            id: 'silent',
+            type: 'function',
+            function: {
+              name: 'stay_silent',
+              arguments: JSON.stringify({
+                reasonCode: 'no_new_value',
+                reason: 'nothing new',
+                threadDisposition: 'listening'
+              })
+            }
+          }]
+        }
+      }],
+      usage: { prompt_tokens: 50, total_tokens: 60 }
+    });
+
+    append(1, '@bot 不用回复');
+    await runner.wake('group:1');
+
+    assert.equal(sends, 0);
+    assert.equal(store.findByMid('group:1', 1).state, 'acked');
+    const summary = sessions.listSummaries(1)[0];
+    assert.equal(summary.status, 'noreply');
+    assert.equal(summary.participation.decision, 'stay_silent');
+    assert.equal(summary.termination.kind, 'explicit_silence');
+    assert.equal(summary.outbound.attempted, 0);
+    assert.equal(endEvents.at(-1)?.resultClass, 'explicit_silence');
+    const session = sessions.get(summary.id);
+    assert.equal(session.termination.reasonCode, 'no_new_value');
+    assert.equal(session.threadDisposition, 'listening');
+  });
+
+  for (const schedulerEnabled of [false, true]) {
+    it(`rejects a conflicting send+stay_silent batch before side effects (scheduler=${schedulerEnabled})`, async (t) => {
+      const { cfg, runner, sessions, append } = fixture(t);
+      cfg.toolSchedulerPilot ||= {};
+      cfg.toolSchedulerPilot.enabled = schedulerEnabled;
+      let sends = 0;
+      runner.sender = {
+        sendTextBatch: async () => {
+          sends += 1;
+          return { sent: [{ text: 'must not send', messageId: 1 }], failed: [] };
+        }
+      };
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls += 1;
+        if (calls === 1) {
+          return Response.json({
+            choices: [{
+              message: {
+                tool_calls: [
+                  {
+                    id: 'send',
+                    type: 'function',
+                    function: {
+                      name: 'send_message',
+                      arguments: JSON.stringify({ messages: 'must not send' })
+                    }
+                  },
+                  {
+                    id: 'silent',
+                    type: 'function',
+                    function: {
+                      name: 'stay_silent',
+                      arguments: JSON.stringify({
+                        reasonCode: 'already_answered',
+                        threadDisposition: 'active'
+                      })
+                    }
+                  }
+                ]
+              }
+            }],
+            usage: { prompt_tokens: 50, total_tokens: 60 }
+          });
+        }
+        return Response.json({
+          choices: [{
+            message: {
+              tool_calls: [{
+                id: 'finish',
+                type: 'function',
+                function: {
+                  name: 'finish',
+                  arguments: JSON.stringify({ summary: 'invalid batch handled' })
+                }
+              }]
+            }
+          }],
+          usage: { prompt_tokens: 60, total_tokens: 70 }
+        });
+      };
+
+      append(1, '@bot conflict');
+      await runner.wake('group:1');
+
+      assert.equal(sends, 0);
+      const summary = sessions.listSummaries(1)[0];
+      const session = sessions.get(summary.id);
+      const callsByName = new Map(session.messages
+        .filter((message) => message.toolCall)
+        .map((message) => [message.toolCall.name, message.toolCall]));
+      assert.equal(callsByName.get('send_message').errorCode, 'TERMINAL_BATCH_BLOCKED');
+      assert.equal(callsByName.get('stay_silent').errorCode, 'TERMINAL_BATCH_BLOCKED');
+      assert.equal(callsByName.get('stay_silent').terminalBlocked, true);
+    });
+
+    it(`blocks stay_silent after an earlier tool error with the scheduler=${schedulerEnabled}`, async (t) => {
+      const { cfg, runner, sessions, append } = fixture(t);
+      cfg.toolSchedulerPilot ||= {};
+      cfg.toolSchedulerPilot.enabled = schedulerEnabled;
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls += 1;
+        if (calls === 1) {
+          return Response.json({
+            choices: [{
+              message: {
+                tool_calls: [
+                  {
+                    id: 'missing',
+                    type: 'function',
+                    function: {
+                      name: 'get_message_detail',
+                      arguments: JSON.stringify({ messageId: 999 })
+                    }
+                  },
+                  {
+                    id: 'silent',
+                    type: 'function',
+                    function: {
+                      name: 'stay_silent',
+                      arguments: JSON.stringify({
+                        reasonCode: 'no_new_value',
+                        threadDisposition: 'active'
+                      })
+                    }
+                  }
+                ]
+              }
+            }],
+            usage: { prompt_tokens: 50, total_tokens: 60 }
+          });
+        }
+        return Response.json({
+          choices: [{
+            message: {
+              tool_calls: [{
+                id: 'finish',
+                type: 'function',
+                function: {
+                  name: 'finish',
+                  arguments: JSON.stringify({ summary: 'error observed' })
+                }
+              }]
+            }
+          }],
+          usage: { prompt_tokens: 60, total_tokens: 70 }
+        });
+      };
+
+      append(1, '@bot inspect missing message');
+      await runner.wake('group:1');
+
+      const summary = sessions.listSummaries(1)[0];
+      const session = sessions.get(summary.id);
+      const silent = session.messages.find((message) =>
+        message.toolCall?.name === 'stay_silent')?.toolCall;
+      assert.equal(silent.errorCode, 'FINISH_BARRIER_BLOCKED');
+      assert.equal(session.termination.kind, '');
+    });
+
+    it(`skips later side effects after an unknown delivery (scheduler=${schedulerEnabled})`, async (t) => {
+      const { cfg, runner, store, sessions, append } = fixture(t);
+      cfg.toolSchedulerPilot ||= {};
+      cfg.toolSchedulerPilot.enabled = schedulerEnabled;
+      let stickerSends = 0;
+      runner.sender = {
+        sendTextBatch: async (_chatKey, _messages, options) => {
+          const id = store.beginSend('group:1', options.runId, { type: 'text', text: 'unknown' });
+          store.finishSend(id, { error: 'socket hang up', outcome: 'unknown' });
+          throw new Error('socket hang up');
+        },
+        sendSticker: async () => {
+          stickerSends += 1;
+          return { message_id: 2 };
+        }
+      };
+      globalThis.fetch = async () => Response.json({
+        choices: [{
+          message: {
+            tool_calls: [
+              {
+                id: 'send',
+                type: 'function',
+                function: {
+                  name: 'send_message',
+                  arguments: JSON.stringify({ messages: 'unknown' })
+                }
+              },
+              {
+                id: 'sticker',
+                type: 'function',
+                function: {
+                  name: 'send_sticker',
+                  arguments: JSON.stringify({ stickerId: 'must-not-send' })
+                }
+              },
+              {
+                id: 'finish',
+                type: 'function',
+                function: {
+                  name: 'finish',
+                  arguments: JSON.stringify({ summary: 'must not commit' })
+                }
+              }
+            ]
+          }
+        }],
+        usage: { prompt_tokens: 50, total_tokens: 60 }
+      });
+
+      append(1, '@bot uncertain send');
+      await runner.wake('group:1');
+
+      assert.equal(stickerSends, 0);
+      const summary = sessions.listSummaries(1)[0];
+      assert.equal(summary.status, 'error');
+      const session = sessions.get(summary.id);
+      const sticker = session.messages.find((message) =>
+        message.toolCall?.name === 'send_sticker')?.toolCall;
+      const finish = session.messages.find((message) =>
+        message.toolCall?.name === 'finish')?.toolCall;
+      assert.equal(sticker.errorCode, 'SKIPPED_AFTER_UNCERTAIN_EFFECT');
+      assert.equal(finish.errorCode, 'SKIPPED_AFTER_UNCERTAIN_EFFECT');
+      assert.equal(session.outbound.unknown, 1);
+    });
+  }
+
   it('does not start a model call in observe mode or in an unapproved chat', async (t) => {
     const { cfg, runner, append } = fixture(t);
     cfg.runtime.mode = 'observe';

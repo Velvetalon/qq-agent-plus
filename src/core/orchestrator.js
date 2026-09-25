@@ -111,7 +111,11 @@ import {
   preflightToolCalls,
   commitStaySilent,
   recordOutboundObservation,
-  summarizeOutbound
+  summarizeOutbound,
+  hasOutboundEffects,
+  isTerminalTool,
+  skippedToolResult,
+  blockedTerminalResult
 } from './action-control.js';
 
 function handoffParticipantIds(triggerEntries) {
@@ -1088,11 +1092,7 @@ export class Orchestrator {
       controller.signal.throwIfAborted();
       session.outbound = summarizeOutbound(session, this.store);
       const explicitSilence = session.termination?.kind === 'explicit_silence'
-        && session.outbound.attempted === 0
-        && session.outbound.succeeded === 0
-        && session.outbound.failed === 0
-        && session.outbound.unknown === 0
-        && session.outbound.held === 0;
+        && !hasOutboundEffects(session.outbound);
       const status = explicitSilence ? 'noreply' : (session.sent.length > 0 ? 'done' : 'noreply');
       const resultClass = explicitSilence ? 'explicit_silence' : status;
       const runSnapshot = this.pluginRunSnapshots.get(session.id);
@@ -1785,6 +1785,8 @@ export class Orchestrator {
       const toolResults = [];
       const imageUserMessages = [];
       let uncertainEffectsDetected = false;
+      let uncertainEffectTool = '';
+      let priorToolFailure = false;
       // 流式响应结束后，把 assistant 条目的 tool_calls 也同步到会话消息流（一次）
       const liveTool = this.sessions.current.get(session.id);
       const lastAssistantUi = liveTool?.messages?.[liveTool.messages.length - 1];
@@ -1801,15 +1803,30 @@ export class Orchestrator {
         session.webSearchCount = webSearchCount;
         markActivity(`正在调用 ${name}…`);
         const planned = batchPlan.calls[callIndex];
-        const result = planned?.execute
-          ? await executeTool(toolDefs, ctx, name, argsRaw)
-          : planned?.result || {
+        let executed = false;
+        let result;
+        if (!planned?.execute) {
+          result = planned?.result || {
               content: `错误：工具 ${name} 未执行`,
               isError: true,
               errorCode: 'TERMINAL_BATCH_BLOCKED',
               reportIncident: false
             };
-        if (planned?.execute) recordOutboundObservation(session, name, result, call?.id || '');
+        } else if (uncertainEffectsDetected) {
+          result = skippedToolResult(
+            `未执行：${uncertainEffectTool || '前一个外部动作'} 的投递结果未知，必须先人工核对。`,
+            'SKIPPED_AFTER_UNCERTAIN_EFFECT'
+          );
+        } else if (priorToolFailure && isTerminalTool(name)) {
+          result = blockedTerminalResult(
+            '终止工具未执行：本轮前置工具有失败项，需要先查看错误并重新决定。',
+            'FINISH_BARRIER_BLOCKED'
+          );
+        } else {
+          executed = true;
+          result = await executeTool(toolDefs, ctx, name, argsRaw);
+        }
+        if (executed) recordOutboundObservation(session, name, result, call?.id || '');
         if (
           result.isError
           && result.incidentCaptured !== true
@@ -1863,10 +1880,12 @@ export class Orchestrator {
         this.emit('session-update', session.id);
         if (this.store.hasUncertainEffects(session.leaseId)) {
           // Finish the current assistant batch so every tool_call has an
-          // auditable result; the run is held only after the batch is recorded.
+          // auditable result, but do not execute more side effects.
           uncertainEffectsDetected = true;
+          uncertainEffectTool = name || '工具';
         }
-        if (name === 'finish' && !result.isError && planned?.execute) finish = true;
+        priorToolFailure ||= result.isError === true;
+        if (name === 'finish' && !result.isError && executed) finish = true;
       }
       const pending = session.pendingTerminationRequest;
       if (

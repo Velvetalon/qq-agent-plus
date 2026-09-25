@@ -1,0 +1,5115 @@
+TAP version 13
+# (node:84860) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 整理门槛：一条印象都没有时要允许跑第一次（否则永远不触发）
+ok 1 - 整理门槛：一条印象都没有时要允许跑第一次（否则永远不触发）
+  ---
+  duration_ms: 0.6297
+  type: 'test'
+  ...
+# Subtest: 整理门槛：有印象时按阈值
+ok 2 - 整理门槛：有印象时按阈值
+  ---
+  duration_ms: 0.1426
+  type: 'test'
+  ...
+# Subtest: 管理员身份要写进系统提示词（角色卡里的"管理员/主人"才有指向）
+ok 3 - 管理员身份要写进系统提示词（角色卡里的"管理员/主人"才有指向）
+  ---
+  duration_ms: 7.7519
+  type: 'test'
+  ...
+# Subtest: 角色设定的优先级要写给模型看（否则人设正文排在平台块前面，等于白改）
+ok 4 - 角色设定的优先级要写给模型看（否则人设正文排在平台块前面，等于白改）
+  ---
+  duration_ms: 4.9815
+  type: 'test'
+  ...
+# Subtest: 管理员的发言会带 [管理员] 标记，其他人没有
+ok 5 - 管理员的发言会带 [管理员] 标记，其他人没有
+  ---
+  duration_ms: 11.2069
+  type: 'test'
+  ...
+# (node:82896) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: builds an inventory for stickers, slang, memory, and identities without mutating on read
+ok 6 - builds an inventory for stickers, slang, memory, and identities without mutating on read
+  ---
+  duration_ms: 128.7374
+  type: 'test'
+  ...
+# Subtest: reports an absent slang library without creating one
+ok 7 - reports an absent slang library without creating one
+  ---
+  duration_ms: 2.6146
+  type: 'test'
+  ...
+# Subtest: injects only confirmed slang visible to the current chat
+ok 8 - injects only confirmed slang visible to the current chat
+  ---
+  duration_ms: 4.7926
+  type: 'test'
+  ...
+# Subtest: creates, updates, and deletes managed AI assets
+ok 9 - creates, updates, and deletes managed AI assets
+  ---
+  duration_ms: 282.4168
+  type: 'test'
+  ...
+# Subtest: 人物记忆统计读全局布局（memory/people/<QQ>.json），不重复计算旧布局残留
+ok 10 - 人物记忆统计读全局布局（memory/people/<QQ>.json），不重复计算旧布局残留
+  ---
+  duration_ms: 16.6917
+  type: 'test'
+  ...
+# (node:81532) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: console routes updater administrator aliases into global admin
+ok 11 - console routes updater administrator aliases into global admin
+  ---
+  duration_ms: 1204.2995
+  type: 'test'
+  ...
+# Subtest: scheduled updater uses the persistent Git cache and records no-update
+not ok 12 - scheduled updater uses the persistent Git cache and records no-update
+  ---
+  duration_ms: 10326.8328
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\auto-update-runner.test.mjs:160:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-runner-AQZPDb\data\update-repository.git'
+    [auto-update] git --git-dir failed: fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-runner-AQZPDb\data\update-repository.git'
+
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/auto-update-runner.test.mjs:207:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: no published release means the updater never fetches or deploys
+not ok 13 - no published release means the updater never fetches or deploys
+  ---
+  duration_ms: 10259.5763
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\auto-update-runner.test.mjs:221:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-no-release-gBZDEh\data\update-repository.git'
+    [auto-update] git --git-dir failed: fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-no-release-gBZDEh\data\update-repository.git'
+
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/auto-update-runner.test.mjs:268:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: updater tests a checkout and delegates deployment with the exact revision
+not ok 14 - updater tests a checkout and delegates deployment with the exact revision
+  ---
+  duration_ms: 15183.5999
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\auto-update-runner.test.mjs:279:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-deploy-Fgkkyo\data\update-repository.git'
+    [auto-update] git --git-dir failed: fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-deploy-Fgkkyo\data\update-repository.git'
+
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/auto-update-runner.test.mjs:365:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: transient GitHub TLS failures are retried before fetch
+not ok 15 - transient GitHub TLS failures are retried before fetch
+  ---
+  duration_ms: 10158.9209
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\auto-update-runner.test.mjs:378:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-retry-iWCuxK\data\update-repository.git'
+    [auto-update] git --git-dir failed: fatal: not a git repository: 'C:\Users\LXN\AppData\Local\Temp\qq-update-retry-iWCuxK\data\update-repository.git'
+
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/auto-update-runner.test.mjs:433:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: probe request checks repository and branch without fetching or deploying
+not ok 16 - probe request checks repository and branch without fetching or deploying
+  ---
+  duration_ms: 191.1162
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\auto-update-runner.test.mjs:442:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    'failed' !== 'ok'
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'ok'
+  actual: 'failed'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/auto-update-runner.test.mjs:484:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: runner failure disables future automatic updates by default and preserves a pending notice
+ok 17 - runner failure disables future automatic updates by default and preserves a pending notice
+  ---
+  duration_ms: 134.292
+  type: 'test'
+  ...
+# Subtest: runner failure can preserve automatic updates when disableOnFailure is false
+ok 18 - runner failure can preserve automatic updates when disableOnFailure is false
+  ---
+  duration_ms: 128.6513
+  type: 'test'
+  ...
+# Subtest: git 通道不通时改用 API + codeload 源码包完成部署
+ok 19 - git 通道不通时改用 API + codeload 源码包完成部署 # SKIP 更新器只在 Linux 上运行（需要 /bin/bash、tar 与 systemd）
+  ---
+  duration_ms: 0.2799
+  type: 'test'
+  ...
+# Subtest: API 通道取源码失败时回退 git，并先 fetch 再 checkout
+ok 20 - API 通道取源码失败时回退 git，并先 fetch 再 checkout # SKIP 更新器只在 Linux 上运行（需要 /bin/bash、tar 与 systemd）
+  ---
+  duration_ms: 0.2623
+  type: 'test'
+  ...
+# Subtest: API 解析 tag 遇到瞬时 5xx 会按配置重试（不再一次抖动就放弃）
+ok 21 - API 解析 tag 遇到瞬时 5xx 会按配置重试（不再一次抖动就放弃） # SKIP 更新器只在 Linux 上运行（需要 /bin/bash、tar 与 systemd）
+  ---
+  duration_ms: 0.2619
+  type: 'test'
+  ...
+# Subtest: updater launch failure disables automation and queues an administrator notice
+ok 22 - updater launch failure disables automation and queues an administrator notice
+  ---
+  duration_ms: 46.5588
+  type: 'test'
+  ...
+# Subtest: launch failure can keep automatic updates enabled by policy
+ok 23 - launch failure can keep automatic updates enabled by policy
+  ---
+  duration_ms: 37.6095
+  type: 'test'
+  ...
+# Subtest: manual update queues the independent systemd updater
+ok 24 - manual update queues the independent systemd updater
+  ---
+  duration_ms: 30.8581
+  type: 'test'
+  ...
+# Subtest: 已提交未跑完的更新要能被认出来（控制台据此不再重复弹提示）
+ok 25 - 已提交未跑完的更新要能被认出来（控制台据此不再重复弹提示）
+  ---
+  duration_ms: 55.8734
+  type: 'test'
+  ...
+# Subtest: connectivity probe is one-shot, does not require an administrator and never changes enable state
+ok 26 - connectivity probe is one-shot, does not require an administrator and never changes enable state
+  ---
+  duration_ms: 25.5233
+  type: 'test'
+  ...
+# Subtest: status exposes normalized network policy
+ok 27 - status exposes normalized network policy
+  ---
+  duration_ms: 7.8936
+  type: 'test'
+  ...
+# Subtest: resume and pause persist automatic update state through global admin
+ok 28 - resume and pause persist automatic update state through global admin
+  ---
+  duration_ms: 25.3833
+  type: 'test'
+  ...
+# Subtest: pending deployment failure disables automatic updates and notifies once
+ok 29 - pending deployment failure disables automatic updates and notifies once
+  ---
+  duration_ms: 24.9109
+  type: 'test'
+  ...
+# Subtest: 更新失败通知：结果未知只记录不重发，确定没发出才保留 pending
+ok 30 - 更新失败通知：结果未知只记录不重发，确定没发出才保留 pending
+  ---
+  duration_ms: 54.509
+  type: 'test'
+  ...
+# Subtest: pending failure respects keep-enabled policy and still notifies once
+ok 31 - pending failure respects keep-enabled policy and still notifies once
+  ---
+  duration_ms: 26.1446
+  type: 'test'
+  ...
+# [config] 读取 config.json 失败，原文件已备份成 config.json.broken-*： Expected double-quoted property name in JSON at position 30 (line 1 column 31)
+# Subtest: 老四段式滑条：1/2 档迁移成 0%，3 档保留概率，4 档迁移成 100%
+ok 32 - 老四段式滑条：1/2 档迁移成 0%，3 档保留概率，4 档迁移成 100%
+  ---
+  duration_ms: 2630.9286
+  type: 'test'
+  ...
+# Subtest: 老配置连滑条位置都没有：按老档位换算，不能被当成"没填=全响应"
+ok 33 - 老配置连滑条位置都没有：按老档位换算，不能被当成"没填=全响应"
+  ---
+  duration_ms: 2183.4209
+  type: 'test'
+  ...
+# Subtest: 分群表也换算；新语义原样保留；写回后再加载不漂移
+ok 34 - 分群表也换算；新语义原样保留；写回后再加载不漂移
+  ---
+  duration_ms: 2002.3706
+  type: 'test'
+  ...
+# Subtest: 只有 randomPercent、没有 tier/位置的老配置：按概率本身读，别变成全响应
+ok 35 - 只有 randomPercent、没有 tier/位置的老配置：按概率本身读，别变成全响应
+  ---
+  duration_ms: 1792.1717
+  type: 'test'
+  ...
+# Subtest: 子段被手改成标量：其余配置不许被整份退回默认值
+ok 36 - 子段被手改成标量：其余配置不许被整份退回默认值
+  ---
+  duration_ms: 532.882
+  type: 'test'
+  ...
+# Subtest: config.json 解析不了：退回默认值，但先把原件留一份
+ok 37 - config.json 解析不了：退回默认值，但先把原件留一份
+  ---
+  duration_ms: 537.5113
+  type: 'test'
+  ...
+# Subtest: 整个 config.json 是个标量：按空配置恢复，不抛错
+ok 38 - 整个 config.json 是个标量：按空配置恢复，不抛错
+  ---
+  duration_ms: 608.5145
+  type: 'test'
+  ...
+# Subtest: 省 Token：老配置缺键补 off、坏值不许带崩整份配置
+ok 39 - 省 Token：老配置缺键补 off、坏值不许带崩整份配置
+  ---
+  duration_ms: 2154.4513
+  type: 'test'
+  ...
+# Subtest: promoted capabilities share one admin and retired slang config is purged
+ok 40 - promoted capabilities share one admin and retired slang config is purged
+  ---
+  duration_ms: 522.0638
+  type: 'test'
+  ...
+# Subtest: 响应滑条：滑条值就是概率；updateConfig 的兜底分支按老口径换算
+ok 41 - 响应滑条：滑条值就是概率；updateConfig 的兜底分支按老口径换算
+  ---
+  duration_ms: 53.5088
+  type: 'test'
+  ...
+# Subtest: 分群响应概率：单独设过的群按它算，别的群与私聊跟全局（0 也是合法值）
+ok 42 - 分群响应概率：单独设过的群按它算，别的群与私聊跟全局（0 也是合法值）
+  ---
+  duration_ms: 8.4983
+  type: 'test'
+  ...
+# Subtest: 保存白名单不会清掉屏蔽名单（界面没有 deny 控件，靠服务端保留现状）
+ok 43 - 保存白名单不会清掉屏蔽名单（界面没有 deny 控件，靠服务端保留现状）
+  ---
+  duration_ms: 13.3176
+  type: 'test'
+  ...
+# Subtest: 100% = 全响应：任何消息都回
+ok 44 - 100% = 全响应：任何消息都回
+  ---
+  duration_ms: 2.4104
+  type: 'test'
+  ...
+# Subtest: 0% = 只回 @ 和关键词
+ok 45 - 0% = 只回 @ 和关键词
+  ---
+  duration_ms: 0.4375
+  type: 'test'
+  ...
+# Subtest: 中间概率：掷骰子决定，边界由注入的 roll 钉死
+ok 46 - 中间概率：掷骰子决定，边界由注入的 roll 钉死
+  ---
+  duration_ms: 0.7222
+  type: 'test'
+  ...
+# Subtest: 被 @ 或命中关键词一定回，不受概率影响
+ok 47 - 被 @ 或命中关键词一定回，不受概率影响
+  ---
+  duration_ms: 0.2929
+  type: 'test'
+  ...
+# Subtest: @ 的判定：文本认得出，也认存档里的 mentionsSelf
+ok 48 - @ 的判定：文本认得出，也认存档里的 mentionsSelf
+  ---
+  duration_ms: 0.2877
+  type: 'test'
+  ...
+# Subtest: 读多少条已读：由触发原因决定，各条数互相独立
+ok 49 - 读多少条已读：由触发原因决定，各条数互相独立
+  ---
+  duration_ms: 0.2738
+  type: 'test'
+  ...
+# Subtest: 概率没填时按全响应处理（老配置里这字段可能是 0 或缺失）
+ok 50 - 概率没填时按全响应处理（老配置里这字段可能是 0 或缺失）
+  ---
+  duration_ms: 0.2078
+  type: 'test'
+  ...
+# Subtest: calculates the next daily run from the Shanghai wall clock
+ok 51 - calculates the next daily run from the Shanghai wall clock
+  ---
+  duration_ms: 1.5392
+  type: 'test'
+  ...
+# Subtest: daily moment interval anchors on the last successful publish
+ok 52 - daily moment interval anchors on the last successful publish
+  ---
+  duration_ms: 0.6637
+  type: 'test'
+  ...
+# Subtest: summarizes once, publishes an optional refreshed image, and prevents duplicate daily runs
+ok 53 - summarizes once, publishes an optional refreshed image, and prevents duplicate daily runs
+  ---
+  duration_ms: 29.2076
+  type: 'test'
+  ...
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+# (node:64620) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: holds uncertain deliveries and does not automatically send again on new input
+ok 54 - holds uncertain deliveries and does not automatically send again on new input
+  ---
+  duration_ms: 163.6997
+  type: 'test'
+  ...
+# Subtest: also blocks a chat after an uncertain proactive send with no input lease
+ok 55 - also blocks a chat after an uncertain proactive send with no input lease
+  ---
+  duration_ms: 791.4114
+  type: 'test'
+  ...
+# Subtest: incident pilot quarantines an unknown write without blocking later messages
+not ok 56 - incident pilot quarantines an unknown write without blocking later messages
+  ---
+  duration_ms: 287.8372
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\delivery-integration.test.mjs:88:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-pilot-Fb14Yd\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/delivery-integration.test.mjs:90:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: manual incident control blocks model work while preserving unread input
+not ok 57 - manual incident control blocks model work while preserving unread input
+  ---
+  duration_ms: 191.4161
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\delivery-integration.test.mjs:165:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-blocked-oB7yxk\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/delivery-integration.test.mjs:167:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: keeps explicit OneBot business rejection retryable without holding the chat
+not ok 58 - keeps explicit OneBot business rejection retryable without holding the chat
+  ---
+  duration_ms: 170.9833
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\delivery-integration.test.mjs:216:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-delivery-definite-oZc0Jn\\messages.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/delivery-integration.test.mjs:218:20)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: classifies a parsed OneBot retcode as failed but keeps malformed responses unknown
+ok 59 - classifies a parsed OneBot retcode as failed but keeps malformed responses unknown
+  ---
+  duration_ms: 3.8862
+  type: 'test'
+  ...
+# Subtest: legacy production state is refused before credentials, dependencies or services change
+not ok 60 - legacy production state is refused before credentials, dependencies or services change
+  ---
+  duration_ms: 62.5178
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:183:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:190:3)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.start (node:internal/test_runner/test:944:17)
+    +     at startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-jORIzl\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-jORIzl\\stack',
+    +     '--yes',
+    +     '--rotate-credentials',
+    +     '--skip-model-config'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:190:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:190:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: a lone .env never implies a managed installation
+not ok 61 - a lone .env never implies a managed installation
+  ---
+  duration_ms: 39.3179
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:194:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:197:3)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-ikW1bD\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-ikW1bD\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:197:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:197:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: leftover QQ login data is protected even without any Agent configuration
+not ok 62 - leftover QQ login data is protected even without any Agent configuration
+  ---
+  duration_ms: 47.0161
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:200:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:203:3)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-1Fdy2w\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-1Fdy2w\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:203:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:203:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: fresh preflight succeeds without creating the stack or asking for model credentials
+not ok 63 - fresh preflight succeeds without creating the stack or asking for model credentials
+  ---
+  duration_ms: 34.5197
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:206:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:209:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: pre-created empty data directories do not count as an existing installation
+not ok 64 - pre-created empty data directories do not count as an existing installation
+  ---
+  duration_ms: 52.9781
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:214:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:219:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a not-found service reported with nonzero exit still permits fresh installation
+not ok 65 - a not-found service reported with nonzero exit still permits fresh installation
+  ---
+  duration_ms: 35.9006
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:224:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:228:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a managed stack may be checked repeatedly with all of its own ports occupied
+not ok 66 - a managed stack may be checked repeatedly with all of its own ports occupied
+  ---
+  duration_ms: 62.7778
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:233:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:239:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: ordinary managed update does not attempt password rotation and preserves Agent configuration
+not ok 67 - ordinary managed update does not attempt password rotation and preserves Agent configuration
+  ---
+  duration_ms: 59.8061
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:245:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:252:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a managed stack with a stopped container and Agent can be updated
+not ok 68 - a managed stack with a stopped container and Agent can be updated
+  ---
+  duration_ms: 61.2748
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:258:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    null !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:266:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects external SnowLuma at another root
+not ok 69 - preflight protects external SnowLuma at another root
+  ---
+  duration_ms: 694.0932
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-BZH8YZ\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-BZH8YZ\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects pre-existing Agent service
+not ok 70 - preflight protects pre-existing Agent service
+  ---
+  duration_ms: 63.1253
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-6Y6Pi0\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-6Y6Pi0\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects Nginx on the selected WebUI port
+not ok 71 - preflight protects Nginx on the selected WebUI port
+  ---
+  duration_ms: 87.6752
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-5oSXk0\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-5oSXk0\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects failed Docker inventory
+not ok 72 - preflight protects failed Docker inventory
+  ---
+  duration_ms: 112.6361
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-LBjkzk\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-LBjkzk\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects inaccessible Docker daemon
+not ok 73 - preflight protects inaccessible Docker daemon
+  ---
+  duration_ms: 119.9791
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-m0THzP\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-m0THzP\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects failed service inspection
+not ok 74 - preflight protects failed service inspection
+  ---
+  duration_ms: 52.5769
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-bot4PO\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-bot4PO\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: preflight protects unavailable port inventory
+not ok 75 - preflight protects unavailable port inventory
+  ---
+  duration_ms: 48.6856
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:284:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-4mdHrQ\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-4mdHrQ\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:287:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched service directory without writing
+not ok 76 - managed preflight refuses mismatched service directory without writing
+  ---
+  duration_ms: 76.9824
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-noFXhD\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-noFXhD\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched container project without writing
+not ok 77 - managed preflight refuses mismatched container project without writing
+  ---
+  duration_ms: 82.3324
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-YxKU84\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-YxKU84\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched container volumes without writing
+not ok 78 - managed preflight refuses mismatched container volumes without writing
+  ---
+  duration_ms: 97.9241
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-Ui5uxw\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-Ui5uxw\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched unrelated Compose services without writing
+not ok 79 - managed preflight refuses mismatched unrelated Compose services without writing
+  ---
+  duration_ms: 77.8876
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-3QP4L5\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-3QP4L5\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched Compose volume source without writing
+not ok 80 - managed preflight refuses mismatched Compose volume source without writing
+  ---
+  duration_ms: 55.8978
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-1vYFIL\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-1vYFIL\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched changed live Token without writing
+not ok 81 - managed preflight refuses mismatched changed live Token without writing
+  ---
+  duration_ms: 58.9107
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-vbBEsP\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-vbBEsP\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched production OneBot endpoints without writing
+not ok 82 - managed preflight refuses mismatched production OneBot endpoints without writing
+  ---
+  duration_ms: 61.7179
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-RsSDUz\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-RsSDUz\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: managed preflight refuses mismatched corrupt configuration without writing
+not ok 83 - managed preflight refuses mismatched corrupt configuration without writing
+  ---
+  duration_ms: 59.9181
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deploy-all-preflight.test.mjs:317:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+
+    + Error: spawnSync /bin/bash ENOENT
+    +     at Object.spawnSync (node:internal/child_process:1120:20)
+    +     at spawnSync (node:child_process:902:24)
+    +     at Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    +     at protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    +     at TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    +     at Test.runInAsyncScope (node:async_hooks:214:14)
+    +     at Test.run (node:internal/test_runner/test:1047:25)
+    +     at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    +     at Test.postRun (node:internal/test_runner/test:1173:19)
+    +     at Test.run (node:internal/test_runner/test:1101:12) {
+    +   code: 'ENOENT',
+    +   errno: -4058,
+    +   path: '/bin/bash',
+    +   spawnargs: [
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-W9WoSM\\source\\deploy-all.sh',
+    +     '--root-dir',
+    +     'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-stack-preflight-W9WoSM\\stack',
+    +     '--check-only'
+    +   ],
+    +   syscall: 'spawnSync /bin/bash'
+    + }
+    - undefined
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'spawnSync /bin/bash ENOENT'
+  stack: |-
+    Object.spawnSync (node:internal/child_process:1120:20)
+    spawnSync (node:child_process:902:24)
+    Object.run (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:80:12)
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:169:20)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  operator: 'strictEqual'
+  stack: |-
+    protectedRun (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:170:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deploy-all-preflight.test.mjs:321:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: 直连失败时按顺序试镜像站，成功后把 .env 里的引用一起改掉
+ok 84 - 直连失败时按顺序试镜像站，成功后把 .env 里的引用一起改掉
+  ---
+  duration_ms: 1095.3301
+  type: 'test'
+  ...
+# Subtest: 直连成功就不碰镜像站
+ok 85 - 直连成功就不碰镜像站
+  ---
+  duration_ms: 177.3022
+  type: 'test'
+  ...
+# Subtest: 全都拉不到时打指引再退出（含三种办法与"镜像站是第三方"）
+ok 86 - 全都拉不到时打指引再退出（含三种办法与"镜像站是第三方"）
+  ---
+  duration_ms: 254.5042
+  type: 'test'
+  ...
+# Subtest: deploy script verifies and rolls back the update service and timer
+ok 87 - deploy script verifies and rolls back the update service and timer
+  ---
+  duration_ms: 3.5314
+  type: 'test'
+  ...
+# Subtest: deploy-all retries through a user-specified image mirror and never picks one itself
+ok 88 - deploy-all retries through a user-specified image mirror and never picks one itself
+  ---
+  duration_ms: 1.3261
+  type: 'test'
+  ...
+# Subtest: deploy-all 现读现用凭据，模型 Key 走 0600 文件而不是子进程环境
+ok 89 - deploy-all 现读现用凭据，模型 Key 走 0600 文件而不是子进程环境
+  ---
+  duration_ms: 1.0418
+  type: 'test'
+  ...
+# Subtest: configure-linux creates observe config and preserves runtime mode on update
+not ok 90 - configure-linux creates observe config and preserves runtime mode on update
+  ---
+  duration_ms: 1066.6336
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deployment-scripts.test.mjs:84:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    54 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 54
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deployment-scripts.test.mjs:102:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: configure-linux accepts full-stack credentials and OneBot endpoints
+ok 91 - configure-linux accepts full-stack credentials and OneBot endpoints
+  ---
+  duration_ms: 695.5331
+  type: 'test'
+  ...
+# Subtest: 模型 Key 也可以走 QQ_AGENT_MODEL_KEY_FILE（不留在子进程环境里）
+ok 92 - 模型 Key 也可以走 QQ_AGENT_MODEL_KEY_FILE（不留在子进程环境里）
+  ---
+  duration_ms: 1553.6495
+  type: 'test'
+  ...
+# Subtest: configure-snowluma synchronizes global and per-account server tokens
+ok 93 - configure-snowluma synchronizes global and per-account server tokens
+  ---
+  duration_ms: 508.55
+  type: 'test'
+  ...
+# Subtest: installed manage launcher uses the exact deployed Node runtime
+not ok 94 - installed manage launcher uses the exact deployed Node runtime
+  ---
+  duration_ms: 207.0502
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\deployment-scripts.test.mjs:221:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    54 !== 0
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 54
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/deployment-scripts.test.mjs:247:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# (node:71476) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: installer is idempotent and disabled multimodal path forwards exact options object
+ok 95 - installer is idempotent and disabled multimodal path forwards exact options object
+  ---
+  duration_ms: 1.0321
+  type: 'test'
+  ...
+# Subtest: enabled installer rewrites only multimodal lifecycle commits
+ok 96 - enabled installer rewrites only multimodal lifecycle commits
+  ---
+  duration_ms: 1.1262
+  type: 'test'
+  ...
+# Subtest: pilot defaults disabled and not graduated
+ok 97 - pilot defaults disabled and not graduated
+  ---
+  duration_ms: 2.3117
+  type: 'test'
+  ...
+# Subtest: disabled mode returns the exact commit object without touching legacy behavior
+ok 98 - disabled mode returns the exact commit object without touching legacy behavior
+  ---
+  duration_ms: 1.2907
+  type: 'test'
+  ...
+# Subtest: non multimodal rollover is untouched even when experiment is enabled
+ok 99 - non multimodal rollover is untouched even when experiment is enabled
+  ---
+  duration_ms: 0.1388
+  type: 'test'
+  ...
+# Subtest: explicit model close remains authoritative
+ok 100 - explicit model close remains authoritative
+  ---
+  duration_ms: 0.158
+  type: 'test'
+  ...
+# Subtest: enabled pilot replaces raw multimodal rollover with a compact text continuation
+ok 101 - enabled pilot replaces raw multimodal rollover with a compact text continuation
+  ---
+  duration_ms: 0.7578
+  type: 'test'
+  ...
+# Subtest: provider prompt tokens below rollover threshold are preserved exactly
+ok 102 - provider prompt tokens below rollover threshold are preserved exactly
+  ---
+  duration_ms: 0.2257
+  type: 'test'
+  ...
+# Subtest: canonical transcript remains valid when source message ids cannot be resolved
+ok 103 - canonical transcript remains valid when source message ids cannot be resolved
+  ---
+  duration_ms: 0.3273
+  type: 'test'
+  ...
+# Subtest: image tool observations are attached to the handoff only when experiment is enabled
+ok 104 - image tool observations are attached to the handoff only when experiment is enabled
+  ---
+  duration_ms: 0.7234
+  type: 'test'
+  ...
+# Subtest: disabled image observation path does not mutate the session
+ok 105 - disabled image observation path does not mutate the session
+  ---
+  duration_ms: 0.4415
+  type: 'test'
+  ...
+# Subtest: disabled experiment preserves tool schema object and defaults to old path
+ok 106 - disabled experiment preserves tool schema object and defaults to old path
+  ---
+  duration_ms: 2.2959
+  type: 'test'
+  ...
+# Subtest: current base tool inventory has an explicit scheduler classification
+ok 107 - current base tool inventory has an explicit scheduler classification
+  ---
+  duration_ms: 0.8188
+  type: 'test'
+  ...
+# Subtest: enabled experiment strongly guides same-round finish without mutating base schemas
+ok 108 - enabled experiment strongly guides same-round finish without mutating base schemas
+  ---
+  duration_ms: 0.4946
+  type: 'test'
+  ...
+# Subtest: consecutive read tools execute concurrently but are returned in host order
+ok 109 - consecutive read tools execute concurrently but are returned in host order
+  ---
+  duration_ms: 35.8437
+  type: 'test'
+  ...
+# Subtest: ordered image reads stay serial and are never prestarted as a read wave
+ok 110 - ordered image reads stay serial and are never prestarted as a read wave
+  ---
+  duration_ms: 10.644
+  type: 'test'
+  ...
+# Subtest: parallel read concurrency respects configured limit
+ok 111 - parallel read concurrency respects configured limit
+  ---
+  duration_ms: 21.7424
+  type: 'test'
+  ...
+# Subtest: failed earlier tool blocks finish instead of committing terminal state
+ok 112 - failed earlier tool blocks finish instead of committing terminal state
+  ---
+  duration_ms: 0.598
+  type: 'test'
+  ...
+# Subtest: finish is a hard barrier and tools after it never execute
+ok 113 - finish is a hard barrier and tools after it never execute
+  ---
+  duration_ms: 0.4292
+  type: 'test'
+  ...
+# Subtest: batch mismatch fails closed to caller fallback instead of guessing call identity
+ok 114 - batch mismatch fails closed to caller fallback instead of guessing call identity
+  ---
+  duration_ms: 0.4992
+  type: 'test'
+  ...
+# Subtest: ingest reads a received resource ID without querying the wrong message_id
+ok 115 - ingest reads a received resource ID without querying the wrong message_id
+  ---
+  duration_ms: 2.2872
+  type: 'test'
+  ...
+# Subtest: tool resolves a fresh resource ID, saves expanded text, then uses the archive
+ok 116 - tool resolves a fresh resource ID, saves expanded text, then uses the archive
+  ---
+  duration_ms: 2.5453
+  type: 'test'
+  ...
+# Subtest: older adapters can fall back to message_id when get_msg is unavailable
+ok 117 - older adapters can fall back to message_id when get_msg is unavailable
+  ---
+  duration_ms: 1.4629
+  type: 'test'
+  ...
+# Subtest: empty or rejected resource lookup has one bounded legacy fallback
+ok 118 - empty or rejected resource lookup has one bounded legacy fallback
+  ---
+  duration_ms: 0.3117
+  type: 'test'
+  ...
+# Subtest: a rejected resource lookup with any other retcode still falls back
+ok 119 - a rejected resource lookup with any other retcode still falls back
+  ---
+  duration_ms: 0.3823
+  type: 'test'
+  ...
+# Subtest: transport or authentication failures are not hidden by fallback
+ok 120 - transport or authentication failures are not hidden by fallback
+  ---
+  duration_ms: 0.8226
+  type: 'test'
+  ...
+# (node:85072) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: failed 候选可重置为 dispatching 并生成新 attempt id，之后照常完成派发
+ok 121 - failed 候选可重置为 dispatching 并生成新 attempt id，之后照常完成派发
+  ---
+  duration_ms: 802.0345
+  type: 'test'
+  ...
+# Subtest: held_unknown 候选同样可以重置重派
+ok 122 - held_unknown 候选同样可以重置重派
+  ---
+  duration_ms: 169.0637
+  type: 'test'
+  ...
+# Subtest: pending 等非终态候选不能重置（防误触把未审批的提案绕过审批）
+ok 123 - pending 等非终态候选不能重置（防误触把未审批的提案绕过审批）
+  ---
+  duration_ms: 224.7339
+  type: 'test'
+  ...
+# Subtest: 不存在的候选报「好友候选不存在」
+ok 124 - 不存在的候选报「好友候选不存在」
+  ---
+  duration_ms: 154.9285
+  type: 'test'
+  ...
+# Subtest: friend request setting uses the verified SnowLuma raw packet action
+ok 125 - friend request setting uses the verified SnowLuma raw packet action
+  ---
+  duration_ms: 5.121
+  type: 'test'
+  ...
+# Subtest: friend request dispatch reports success only for business code zero
+ok 126 - friend request dispatch reports success only for business code zero
+  ---
+  duration_ms: 3.9372
+  type: 'test'
+  ...
+# Subtest: friend request dispatch keeps explicit QQ rejection distinct from unknown outcome
+ok 127 - friend request dispatch keeps explicit QQ rejection distinct from unknown outcome
+  ---
+  duration_ms: 3.4832
+  type: 'test'
+  ...
+# Subtest: friend request dispatch marks a lost write response as unknown
+ok 128 - friend request dispatch marks a lost write response as unknown
+  ---
+  duration_ms: 0.9352
+  type: 'test'
+  ...
+# Subtest: unsupported verification setting fails before the write request
+ok 129 - unsupported verification setting fails before the write request
+  ---
+  duration_ms: 0.8252
+  type: 'test'
+  ...
+# (node:85204) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# TAP version 13
+# \# Subtest: friend review session preserves standard assistant reasoning audit
+# ok 1 - friend review session preserves standard assistant reasoning audit
+#   ---
+#   duration_ms: 1110.141
+#   type: 'test'
+#   ...
+# 1..1
+# \# tests 1
+# \# suites 0
+# \# pass 1
+# \# fail 0
+# \# cancelled 0
+# \# skipped 0
+# \# todo 0
+# \# duration_ms 1117.7686
+# Subtest: test\\friend-review-session.test.mjs
+ok 20 - test\\friend-review-session.test.mjs
+  ---
+  duration_ms: 1611.2828
+  type: 'test'
+  ...
+# (node:85292) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# TAP version 13
+# \# Subtest: triggered friend review creates a proposal through one isolated model request
+# ok 1 - triggered friend review creates a proposal through one isolated model request
+#   ---
+#   duration_ms: 1071.3916
+#   type: 'test'
+#   ...
+# \# Subtest: an existing friend never creates a draw or model review
+# ok 2 - an existing friend never creates a draw or model review
+#   ---
+#   duration_ms: 310.1987
+#   type: 'test'
+#   ...
+# \# Subtest: zero probability persists a miss without calling the model
+# ok 3 - zero probability persists a miss without calling the model
+#   ---
+#   duration_ms: 274.4208
+#   type: 'test'
+#   ...
+# \# Subtest: approval refresh closes a proposal when the user has become a friend
+# ok 4 - approval refresh closes a proposal when the user has become a friend
+#   ---
+#   duration_ms: 290.0162
+#   type: 'test'
+#   ...
+# 1..4
+# \# tests 4
+# \# suites 0
+# \# pass 4
+# \# fail 0
+# \# cancelled 0
+# \# skipped 0
+# \# todo 0
+# \# duration_ms 1953.0197
+# Subtest: test\\friend-trigger.test.mjs
+ok 21 - test\\friend-trigger.test.mjs
+  ---
+  duration_ms: 2647.7339
+  type: 'test'
+  ...
+# Subtest: convertGifToStillStrip：动图 → JPEG 帧条（装了 ffmpeg 才断言）
+ok 132 - convertGifToStillStrip：动图 → JPEG 帧条（装了 ffmpeg 才断言）
+  ---
+  duration_ms: 5.4587
+  type: 'test'
+  ...
+# Subtest: downloadImageAsDataUrl：网络 GIF → data:image/jpeg（不再产出 image/gif）
+ok 133 - downloadImageAsDataUrl：网络 GIF → data:image/jpeg（不再产出 image/gif）
+  ---
+  duration_ms: 0.1612
+  type: 'test'
+  ...
+# Subtest: base64:// 路径的 GIF 同样转 JPEG
+ok 134 - base64:// 路径的 GIF 同样转 JPEG
+  ---
+  duration_ms: 0.0996
+  type: 'test'
+  ...
+# Subtest: ffmpeg 缺失时回退原始 GIF data URL（行为不劣化）
+ok 135 - ffmpeg 缺失时回退原始 GIF data URL（行为不劣化）
+  ---
+  duration_ms: 11.4645
+  type: 'test'
+  ...
+# (node:85476) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: IdentityStore person views consume the single global MemoryStore source
+ok 136 - IdentityStore person views consume the single global MemoryStore source
+  ---
+  duration_ms: 817.2286
+  type: 'test'
+  ...
+# (node:85544) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: global person memory migration and isolation rules
+    # Subtest: merges the same QQ across group and private memory files
+    ok 1 - merges the same QQ across group and private memory files
+      ---
+      duration_ms: 2.163
+      type: 'test'
+      ...
+    # Subtest: injects a person global memory in a chat where it was never created
+    ok 2 - injects a person global memory in a chat where it was never created
+      ---
+      duration_ms: 500.5931
+      type: 'test'
+      ...
+    # Subtest: 管理员本人的印象要点明身份（否则模型会当成外人在试探它）
+    ok 3 - 管理员本人的印象要点明身份（否则模型会当成外人在试探它）
+      ---
+      duration_ms: 10.1661
+      type: 'test'
+      ...
+    # Subtest: 整理写回：内容没变的条目沿用旧时间戳，新条目才用 now
+    ok 4 - 整理写回：内容没变的条目沿用旧时间戳，新条目才用 now
+      ---
+      duration_ms: 36.0002
+      type: 'test'
+      ...
+    # Subtest: 印象来源（origin）：模型记的 / 整理改写 / 手动编辑分得开
+    ok 5 - 印象来源（origin）：模型记的 / 整理改写 / 手动编辑分得开
+      ---
+      duration_ms: 58.9876
+      type: 'test'
+      ...
+    # Subtest: 来源能穿过子类透传到存储层（曾经在 replaceMember 少写形参处静默丢掉）
+    ok 6 - 来源能穿过子类透传到存储层（曾经在 replaceMember 少写形参处静默丢掉）
+      ---
+      duration_ms: 66.0285
+      type: 'test'
+      ...
+    # Subtest: 每条印象带日期（模型才能判断"这是昨天还是两周前"）
+    ok 7 - 每条印象带日期（模型才能判断"这是昨天还是两周前"）
+      ---
+      duration_ms: 0.5244
+      type: 'test'
+      ...
+    # Subtest: 交接里的"已作决定/下一步"只约束同一话题（写进提示词）
+    ok 8 - 交接里的"已作决定/下一步"只约束同一话题（写进提示词）
+      ---
+      duration_ms: 8.3372
+      type: 'test'
+      ...
+    # Subtest: does not erase old global memories when a known person is first consolidated in a new chat
+    ok 9 - does not erase old global memories when a known person is first consolidated in a new chat
+      ---
+      duration_ms: 55.7419
+      type: 'test'
+      ...
+    # Subtest: keeps handoff state isolated by chatKey
+    ok 10 - keeps handoff state isolated by chatKey
+      ---
+      duration_ms: 22.4391
+      type: 'test'
+      ...
+    # Subtest: clearing one source does not erase memories that still belong to another source
+    ok 11 - clearing one source does not erase memories that still belong to another source
+      ---
+      duration_ms: 53.6399
+      type: 'test'
+      ...
+    # Subtest: 只按内容删印象：别的印象还在，会话交接也不动
+    ok 12 - 只按内容删印象：别的印象还在，会话交接也不动
+      ---
+      duration_ms: 61.0797
+      type: 'test'
+      ...
+    # Subtest: 三个都不给才清空本会话的印象，且不再连会话交接一起删
+    ok 13 - 三个都不给才清空本会话的印象，且不再连会话交接一起删
+      ---
+      duration_ms: 66.7689
+      type: 'test'
+      ...
+    # Subtest: 按名字删遇到重名：一条都不删（宁可删不掉，也不能删错人）
+    ok 14 - 按名字删遇到重名：一条都不删（宁可删不掉，也不能删错人）
+      ---
+      duration_ms: 46.7562
+      type: 'test'
+      ...
+    # Subtest: 破坏性删除前留下可回滚快照（快照原来拍在清空之后，等于没备份）
+    ok 15 - 破坏性删除前留下可回滚快照（快照原来拍在清空之后，等于没备份）
+      ---
+      duration_ms: 22.2537
+      type: 'test'
+      ...
+    # Subtest: 整理写回后每条印象的来源如实：按会话删除仍然删得掉
+    ok 16 - 整理写回后每条印象的来源如实：按会话删除仍然删得掉
+      ---
+      duration_ms: 36.6097
+      type: 'test'
+      ...
+    # Subtest: 遗留印象并到本人名下：合并写入，不覆盖已有印象
+    ok 17 - 遗留印象并到本人名下：合并写入，不覆盖已有印象
+      ---
+      duration_ms: 8.8347
+      type: 'test'
+      ...
+    # Subtest: 按内容删只删本会话记的那条：别的会话记的同名内容不受影响
+    ok 18 - 按内容删只删本会话记的那条：别的会话记的同名内容不受影响
+      ---
+      duration_ms: 30.4748
+      type: 'test'
+      ...
+    # Subtest: 清掉一个来源 / 手工编辑印象：都要在动手之前留快照
+    ok 19 - 清掉一个来源 / 手工编辑印象：都要在动手之前留快照
+      ---
+      duration_ms: 47.2593
+      type: 'test'
+      ...
+    # Subtest: 按 QQ 全局删除：所有会话的印象一起清，且留快照
+    ok 20 - 按 QQ 全局删除：所有会话的印象一起清，且留快照
+      ---
+      duration_ms: 23.7472
+      type: 'test'
+      ...
+    # Subtest: 印象与交接里的段头都被弱化（两者都是持久化后每次运行都注入提示词的）
+    ok 21 - 印象与交接里的段头都被弱化（两者都是持久化后每次运行都注入提示词的）
+      ---
+      duration_ms: 15.7705
+      type: 'test'
+      ...
+    1..21
+ok 137 - global person memory migration and isolation rules
+  ---
+  duration_ms: 1476.1051
+  type: 'test'
+  ...
+# (node:85648) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# TAP version 13
+# \# Subtest: identity, automatic friends and incident infrastructure start without an approval owner
+# not ok 1 - identity, automatic friends and incident infrastructure start without an approval owner
+#   ---
+#   duration_ms: 839.387
+#   type: 'test'
+#   location: 'E:\\\\Code\\\\qq-agent-plus-p3-review\\\\test\\\\identity-pilot-nodiff.test.mjs:16:1'
+#   failureType: 'hookFailed'
+#   error: "EBUSY: resource busy or locked, unlink 'C:\\\\Users\\\\LXN\\\\AppData\\\\Local\\\\Temp\\\\qq-stable-infra-drJFA2\\\\identity-pilot.sqlite'"
+#   code: 'EBUSY'
+#   stack: |-
+#     unlinkSync (node:fs:1948:11)
+#     _unlinkSync (node:internal/fs/rimraf:215:14)
+#     rimrafSync (node:internal/fs/rimraf:196:7)
+#     node:internal/fs/rimraf:254:9
+#     Array.forEach (<anonymous>)
+#     _rmdirSync (node:internal/fs/rimraf:251:7)
+#     rimrafSync (node:internal/fs/rimraf:194:7)
+#     Object.rmSync (node:fs:1239:10)
+#     TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-pilot-nodiff.test.mjs:17:20)
+#     TestHook.runInAsyncScope (node:async_hooks:214:14)
+#   ...
+# 1..1
+# \# tests 1
+# \# suites 0
+# \# pass 0
+# \# fail 1
+# \# cancelled 0
+# \# skipped 0
+# \# todo 0
+# \# duration_ms 848.9571
+# Subtest: test\\identity-pilot-nodiff.test.mjs
+not ok 25 - test\\identity-pilot-nodiff.test.mjs
+  ---
+  duration_ms: 1310.1211
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-pilot-nodiff.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# (node:85748) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: identity pilot is promoted: legacy enabled:false no longer gates it
+not ok 139 - identity pilot is promoted: legacy enabled:false no longer gates it
+  ---
+  duration_ms: 350.6105
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:24:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\promoted-Zxw01s\\identity-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:32:8)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: unifies the same QQ across chats and indexes legacy memory without modifying it
+not ok 140 - unifies the same QQ across chats and indexes legacy memory without modifying it
+  ---
+  duration_ms: 341.4781
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:49:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    438 !== 384
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 384
+  actual: 438
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:122:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: legacy memory scanner ignores name-only identities and leaves source bytes untouched
+ok 141 - legacy memory scanner ignores name-only identities and leaves source bytes untouched
+  ---
+  duration_ms: 10.1935
+  type: 'test'
+  ...
+# Subtest: friend proposals require eligibility, deduplicate, cool down, and close on friend_add
+not ok 142 - friend proposals require eligibility, deduplicate, cool down, and close on friend_add
+  ---
+  duration_ms: 320.5176
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:180:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\friend-proposals-VUuTvM\\identity-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:185:8)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: friend proposal validation enforces message threshold and administrator configuration
+not ok 143 - friend proposal validation enforces message threshold and administrator configuration
+  ---
+  duration_ms: 260.7175
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:322:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\friend-proposal-validation-YdFc3a\\identity-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:327:8)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: approved friend proposal dispatches once and waits for friend_add confirmation
+not ok 144 - approved friend proposal dispatches once and waits for friend_add confirmation
+  ---
+  duration_ms: 1493.3645
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:382:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\friend-dispatch-success-RXdrAG\\identity-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:387:8)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: unknown friend request result is held and a crashed dispatch is recovered as unknown
+not ok 145 - unknown friend request result is held and a crashed dispatch is recovered as unknown
+  ---
+  duration_ms: 386.2357
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:467:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\friend-dispatch-unknown-wSAtfw\\identity-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:472:8)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: incoming friend requests notify once, require approval, and add the private whitelist
+not ok 146 - incoming friend requests notify once, require approval, and add the private whitelist
+  ---
+  duration_ms: 299.0402
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:560:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\incoming-friend-request-Ca887L\\identity-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:565:8)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: incoming friend request keeps an unknown result and never retries automatically
+not ok 147 - incoming friend request keeps an unknown result and never retries automatically
+  ---
+  duration_ms: 266.815
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\identity-store.test.mjs:692:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\incoming-friend-request-unknown-97KujT\\identity-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/identity-store.test.mjs:697:8)
+    TestHook.runInAsyncScope (node:async_hooks:214:14)
+  ...
+# Subtest: 台账保留期清理：90 天前已了结的删掉，未决的留着
+ok 148 - 台账保留期清理：90 天前已了结的删掉，未决的留着
+  ---
+  duration_ms: 170.1854
+  type: 'test'
+  ...
+# Subtest: 台账清理的边界：保留期可传参，恰好卡在保留期内的不删
+ok 149 - 台账清理的边界：保留期可传参，恰好卡在保留期内的不删
+  ---
+  duration_ms: 140.5292
+  type: 'test'
+  ...
+# node:internal/fs/rimraf:203
+#       throw err;
+#       ^
+# Error: EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-identity-store-vxWqlN\\friend-dispatch-success-RXdrAG\\identity-pilot.sqlite'
+#     at unlinkSync (node:fs:1948:11)
+#     at _unlinkSync (node:internal/fs/rimraf:215:14)
+#     at rimrafSync (node:internal/fs/rimraf:196:7)
+#     at node:internal/fs/rimraf:254:9
+#     at Array.forEach (<anonymous>)
+#     at _rmdirSync (node:internal/fs/rimraf:251:7)
+#     at rimrafSync (node:internal/fs/rimraf:194:7)
+#     at node:internal/fs/rimraf:254:9
+#     at Array.forEach (<anonymous>)
+#     at _rmdirSync (node:internal/fs/rimraf:251:7) {
+#   errno: -4082,
+#   code: 'EBUSY',
+#   syscall: 'unlink',
+#   path: 'C:\\\\Users\\\\LXN\\\\AppData\\\\Local\\\\Temp\\\\qq-identity-store-vxWqlN\\\\friend-dispatch-success-RXdrAG\\\\identity-pilot.sqlite'
+# }
+# Node.js v22.22.2
+# Subtest: OVERSIZE_LIMIT_RE 精确匹配 safe-fetch 的超限报错形态，不误伤其他错误
+ok 150 - OVERSIZE_LIMIT_RE 精确匹配 safe-fetch 的超限报错形态，不误伤其他错误
+  ---
+  duration_ms: 11.0659
+  type: 'test'
+  ...
+# Subtest: 非图片内容超限：抛回原始超限错误，不会拿去喂 ffmpeg
+ok 151 - 非图片内容超限：抛回原始超限错误，不会拿去喂 ffmpeg
+  ---
+  duration_ms: 275.4386
+  type: 'test'
+  ...
+# Subtest: image/* 超限：交给 ffmpeg 链路，错误形态按环境二选一（未安装 / 降采样失败）
+ok 152 - image/* 超限：交给 ffmpeg 链路，错误形态按环境二选一（未安装 / 降采样失败）
+  ---
+  duration_ms: 0.4445
+  type: 'test'
+  ...
+# Subtest: 非超限错误原样抛回，不做任何重拉
+ok 153 - 非超限错误原样抛回，不做任何重拉
+  ---
+  duration_ms: 0.2993
+  type: 'test'
+  ...
+# Subtest: resolveFfmpeg 探测结果在进程内保持一致（缓存语义）
+ok 154 - resolveFfmpeg 探测结果在进程内保持一致（缓存语义）
+  ---
+  duration_ms: 0.3149
+  type: 'test'
+  ...
+# (node:85880) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: incident infrastructure stays active and versions chat controls
+ok 155 - incident infrastructure stays active and versions chat controls
+  ---
+  duration_ms: 504.9115
+  type: 'test'
+  ...
+# (node:85888) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: disabled incident pilot creates no database and has no runtime effects
+ok 156 - disabled incident pilot creates no database and has no runtime effects
+  ---
+  duration_ms: 11.4652
+  type: 'test'
+  ...
+# Subtest: captures, redacts, deduplicates, notifies, resolves and deletes incidents
+ok 157 - captures, redacts, deduplicates, notifies, resolves and deletes incidents
+  ---
+  duration_ms: 176.6547
+  type: 'test'
+  ...
+# Subtest: pending notifications resume once while unknown notification results never retry
+ok 158 - pending notifications resume once while unknown notification results never retry
+  ---
+  duration_ms: 171.9128
+  type: 'test'
+  ...
+# Subtest: chat controls are versioned and separate unknown writes from chat blocking
+ok 159 - chat controls are versioned and separate unknown writes from chat blocking
+  ---
+  duration_ms: 81.2328
+  type: 'test'
+  ...
+# Subtest: disabled existing pilot remains readable but cannot mutate or capture
+not ok 160 - disabled existing pilot remains readable but cannot mutate or capture
+  ---
+  duration_ms: 97.1032
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\incident-pilot.test.mjs:189:1'
+  failureType: 'hookFailed'
+  error: "EBUSY: resource busy or locked, unlink 'C:\\Users\\LXN\\AppData\\Local\\Temp\\qq-incident-pilot-TlSbO3\\incident-pilot.sqlite'"
+  code: 'EBUSY'
+  stack: |-
+    unlinkSync (node:fs:1948:11)
+    _unlinkSync (node:internal/fs/rimraf:215:14)
+    rimrafSync (node:internal/fs/rimraf:196:7)
+    node:internal/fs/rimraf:254:9
+    Array.forEach (<anonymous>)
+    _rmdirSync (node:internal/fs/rimraf:251:7)
+    rimrafSync (node:internal/fs/rimraf:194:7)
+    Object.rmSync (node:fs:1239:10)
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/incident-pilot.test.mjs:40:8)
+    async TestHook.run (node:internal/test_runner/test:1054:7)
+  ...
+# Subtest: 旧架构服务（DSH / Bridge）没配端点时算"未部署"，不是故障
+ok 161 - 旧架构服务（DSH / Bridge）没配端点时算"未部署"，不是故障
+  ---
+  duration_ms: 2.7408
+  type: 'test'
+  ...
+# Subtest: integrationStatus reports each fixed service independently
+ok 162 - integrationStatus reports each fixed service independently
+  ---
+  duration_ms: 0.6493
+  type: 'test'
+  ...
+# Subtest: updateSnowLumaPassword validates locally before any request
+ok 163 - updateSnowLumaPassword validates locally before any request
+  ---
+  duration_ms: 0.7444
+  type: 'test'
+  ...
+# Subtest: updateSnowLumaPassword performs login and change without returning secrets
+ok 164 - updateSnowLumaPassword performs login and change without returning secrets
+  ---
+  duration_ms: 0.4702
+  type: 'test'
+  ...
+# Subtest: updateSnowLumaPassword requires native SnowLuma flow when TOTP is enabled
+ok 165 - updateSnowLumaPassword requires native SnowLuma flow when TOTP is enabled
+  ---
+  duration_ms: 0.3154
+  type: 'test'
+  ...
+# Subtest: 瑕疵 1：代码围栏（```json … ```）
+ok 166 - 瑕疵 1：代码围栏（```json … ```）
+  ---
+  duration_ms: 2.5385
+  type: 'test'
+  ...
+# Subtest: 瑕疵 2：前后缀文本（只取首尾大括号之间）
+ok 167 - 瑕疵 2：前后缀文本（只取首尾大括号之间）
+  ---
+  duration_ms: 0.3653
+  type: 'test'
+  ...
+# Subtest: 瑕疵 3：尾随逗号（字符串内部的 ",}" 不能被误改）
+ok 168 - 瑕疵 3：尾随逗号（字符串内部的 ",}" 不能被误改）
+  ---
+  duration_ms: 1.7092
+  type: 'test'
+  ...
+# Subtest: 瑕疵 4a：单引号包字符串
+ok 169 - 瑕疵 4a：单引号包字符串
+  ---
+  duration_ms: 0.2828
+  type: 'test'
+  ...
+# Subtest: 瑕疵 4b：字符串内未转义双引号（长输出引用原话时高发）
+ok 170 - 瑕疵 4b：字符串内未转义双引号（长输出引用原话时高发）
+  ---
+  duration_ms: 0.2797
+  type: 'test'
+  ...
+# Subtest: 组合：围栏 + 尾随逗号 + 单引号 + 未转义引号一次修好
+ok 171 - 组合：围栏 + 尾随逗号 + 单引号 + 未转义引号一次修好
+  ---
+  duration_ms: 0.4335
+  type: 'test'
+  ...
+# Subtest: 不可修复：返回 null 而不是编造数据
+ok 172 - 不可修复：返回 null 而不是编造数据
+  ---
+  duration_ms: 0.3
+  type: 'test'
+  ...
+# Subtest: ROOT 指向仓库根（用自身位置推算的路径不能少退一层）
+ok 173 - ROOT 指向仓库根（用自身位置推算的路径不能少退一层）
+  ---
+  duration_ms: 24.7893
+  type: 'test'
+  ...
+# Subtest: 仓库根的关键文件/目录都在
+ok 174 - 仓库根的关键文件/目录都在
+  ---
+  duration_ms: 5.6519
+  type: 'test'
+  ...
+# Subtest: src/ 下所有相对 import 都能解析到真实文件
+ok 175 - src/ 下所有相对 import 都能解析到真实文件
+  ---
+  duration_ms: 241.2454
+  type: 'test'
+  ...
+# Subtest: 按硬编码路径部署/更新的入口文件没被挪走
+ok 176 - 按硬编码路径部署/更新的入口文件没被挪走
+  ---
+  duration_ms: 4.0613
+  type: 'test'
+  ...
+# (node:85928) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: protects console APIs, redacts credentials and blocks all sending in observe mode
+not ok 177 - protects console APIs, redacts credentials and blocks all sending in observe mode
+  ---
+  duration_ms: 503.1675
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\linux-integration.test.mjs:23:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    438 !== 384
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 384
+  actual: 438
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/linux-integration.test.mjs:92:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: persists mode, starts headless and exits cleanly on SIGTERM
+not ok 178 - persists mode, starts headless and exits cleanly on SIGTERM
+  ---
+  duration_ms: 975.9392
+  type: 'test'
+  location: 'E:\\Code\\qq-agent-plus-p3-review\\test\\linux-integration.test.mjs:95:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    'SIGTERM' !== null
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: 'SIGTERM'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///E:/Code/qq-agent-plus-p3-review/test/linux-integration.test.mjs:115:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: LLM client
+    # Subtest: reads cached input tokens from supported provider response shapes
+    ok 1 - reads cached input tokens from supported provider response shapes
+      ---
+      duration_ms: 0.9888
+      type: 'test'
+      ...
+    # Subtest: strips local trace fields but preserves provider reasoning required by tool loops
+    ok 2 - strips local trace fields but preserves provider reasoning required by tool loops
+      ---
+      duration_ms: 6.2334
+      type: 'test'
+      ...
+    # Subtest: adds a cache routing key only for official OpenAI-compatible hosts
+    ok 3 - adds a cache routing key only for official OpenAI-compatible hosts
+      ---
+      duration_ms: 2.145
+      type: 'test'
+      ...
+    # Subtest: cancels while reading a stalled response body after receiving headers
+    ok 4 - cancels while reading a stalled response body after receiving headers
+      ---
+      duration_ms: 172.5747
+      type: 'test'
+      ...
+    # Subtest: does not retry authentication errors or explicitly cancelled requests
+    ok 5 - does not retry authentication errors or explicitly cancelled requests
+      ---
+      duration_ms: 4.9991
+      type: 'test'
+      ...
+    1..5
+ok 179 - LLM client
+  ---
+  duration_ms: 188.6185
+  type: 'suite'
+  ...
+# Subtest: manual friend review accepts provider-decoded object arguments
+ok 180 - manual friend review accepts provider-decoded object arguments
+  ---
+  duration_ms: 2.1184
+  type: 'test'
+  ...
+# Subtest: manual friend review keeps normal JSON string arguments
+ok 181 - manual friend review keeps normal JSON string arguments
+  ---
+  duration_ms: 0.4437
+  type: 'test'
+  ...
+# Subtest: manual friend review unwraps fenced JSON arguments
+ok 182 - manual friend review unwraps fenced JSON arguments
+  ---
+  duration_ms: 0.4688
+  type: 'test'
+  ...
+# Subtest: manual friend review repairs harmless trailing commas
+ok 183 - manual friend review repairs harmless trailing commas
+  ---
+  duration_ms: 0.2613
+  type: 'test'
+  ...
+# (node:85952) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# TAP version 13
+# \# Subtest: manual friend review bypasses automatic trigger gates and creates a proposal
+# ok 1 - manual friend review bypasses automatic trigger gates and creates a proposal
+#   ---
+#   duration_ms: 472.5884
+#   type: 'test'
+#   ...
+# \# Subtest: manual friend review still scores an existing friend without creating or dispatching a request
+# ok 2 - manual friend review still scores an existing friend without creating or dispatching a request
+#   ---
+#   duration_ms: 293.8291
+#   type: 'test'
+#   ...
+# 1..2
+# \# tests 2
+# \# suites 0
+# \# pass 2
+# \# fail 0
+# \# cancelled 0
+# \# skipped 0
+# \# todo 0
+# \# duration_ms 776.3598
+# Subtest: test\\manual-friend-review.test.mjs
+ok 36 - test\\manual-friend-review.test.mjs
+  ---
+  duration_ms: 1795.8675
+  type: 'test'
+  ...
+# (node:85960) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 整理链路：遗留条目并到本人名下、重名不猜、坏时间戳不卡死
+ok 185 - 整理链路：遗留条目并到本人名下、重名不猜、坏时间戳不卡死
+  ---
+  duration_ms: 413.3784
+  type: 'test'
+  ...
+# (node:85968) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: consolidation keeps append-only global history and legacy latest snapshot
+ok 186 - consolidation keeps append-only global history and legacy latest snapshot
+  ---
+  duration_ms: 34.0719
+  type: 'test'
+  ...
+# Subtest: real replaceMember path snapshots same-source destructive writes
+ok 187 - real replaceMember path snapshots same-source destructive writes
+  ---
+  duration_ms: 43.7627
+  type: 'test'
+  ...
+# Subtest: name-only / 非数字 id 成员同样拿到可回滚快照（2026-09-24 审查补的盲区）
+ok 188 - name-only / 非数字 id 成员同样拿到可回滚快照（2026-09-24 审查补的盲区）
+  ---
+  duration_ms: 23.4717
+  type: 'test'
+  ...
+# Subtest: first appearance in a new chat merges without creating a destructive-write backup
+ok 189 - first appearance in a new chat merges without creating a destructive-write backup
+  ---
+  duration_ms: 26.7385
+  type: 'test'
+  ...
+# (node:85976) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 新建模式（从零提炼）不设条数限制
+ok 190 - 新建模式（从零提炼）不设条数限制
+  ---
+  duration_ms: 1.6548
+  type: 'test'
+  ...
+# Subtest: 合并/删减（条数变少或持平）一律采纳
+ok 191 - 合并/删减（条数变少或持平）一律采纳
+  ---
+  duration_ms: 0.4897
+  type: 'test'
+  ...
+# Subtest: 拆开一条（+1 条、字数没膨胀）采纳 —— 今天修好的那个坑
+ok 192 - 拆开一条（+1 条、字数没膨胀）采纳 —— 今天修好的那个坑
+  ---
+  duration_ms: 0.2228
+  type: 'test'
+  ...
+# Subtest: 条数多出两条以上，或字数明显膨胀 → 拒绝（疑似编造）
+ok 193 - 条数多出两条以上，或字数明显膨胀 → 拒绝（疑似编造）
+  ---
+  duration_ms: 0.3544
+  type: 'test'
+  ...
+# Subtest: 短印象的拆分容忍度是 80 字：增量落在 41~80 放行、超过 80 拒绝
+ok 194 - 短印象的拆分容忍度是 80 字：增量落在 41~80 放行、超过 80 拒绝
+  ---
+  duration_ms: 0.7711
+  type: 'test'
+  ...
+# Subtest: 条数没变多、但字数翻倍地涨 → 也拒绝（往里塞新内容）
+ok 195 - 条数没变多、但字数翻倍地涨 → 也拒绝（往里塞新内容）
+  ---
+  duration_ms: 0.4763
+  type: 'test'
+  ...
+# Subtest: 坏结构：结果不是数组、或条目不是字符串 → 拒绝（不能当"无可保留"把印象清空）
+ok 196 - 坏结构：结果不是数组、或条目不是字符串 → 拒绝（不能当"无可保留"把印象清空）
+  ---
+  duration_ms: 0.3104
+  type: 'test'
+  ...
+# Subtest: 空输入不炸
+ok 197 - 空输入不炸
+  ---
+  duration_ms: 0.4532
+  type: 'test'
+  ...
+# (node:85988) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: persists, updates and clears structured session handoff state
+ok 198 - persists, updates and clears structured session handoff state
+  ---
+  duration_ms: 74.1581
+  type: 'test'
+  ...
+# Subtest: does not inject handoff when the feature is disabled
+ok 199 - does not inject handoff when the feature is disabled
+  ---
+  duration_ms: 14.2353
+  type: 'test'
+  ...
+# Subtest: memory navigation exposes independent session and person pages
+ok 200 - memory navigation exposes independent session and person pages
+  ---
+  duration_ms: 2.4577
+  type: 'test'
+  ...
+# Subtest: global person memory renders only inside the dedicated people page
+ok 201 - global person memory renders only inside the dedicated people page
+  ---
+  duration_ms: 0.3248
+  type: 'test'
+  ...
+# Subtest: session memory page suppresses person-memory controls and keeps handoff visible
+ok 202 - session memory page suppresses person-memory controls and keeps handoff visible
+  ---
+  duration_ms: 0.2087
+  type: 'test'
+  ...
+# Subtest: 渠道的点号版本名走别名表（真实案例：deepseek/deepseek-v4.1-flash）
+ok 203 - 渠道的点号版本名走别名表（真实案例：deepseek/deepseek-v4.1-flash）
+  ---
+  duration_ms: 3.0633
+  type: 'test'
+  ...
+# Subtest: 精确命中优先于归一化与别名
+ok 204 - 精确命中优先于归一化与别名
+  ---
+  duration_ms: 0.5368
+  type: 'test'
+  ...
+# Subtest: 去掉叫法后缀与日期快照后缀
+ok 205 - 去掉叫法后缀与日期快照后缀
+  ---
+  duration_ms: 0.6671
+  type: 'test'
+  ...
+# Subtest: 渠道前缀会被剥掉；前缀匹配取最长条目
+ok 206 - 渠道前缀会被剥掉；前缀匹配取最长条目
+  ---
+  duration_ms: 0.5628
+  type: 'test'
+  ...
+# Subtest: 点号归并只作为近似兜底（带 fuzzy 标记）
+ok 207 - 点号归并只作为近似兜底（带 fuzzy 标记）
+  ---
+  duration_ms: 0.4135
+  type: 'test'
+  ...
+# Subtest: 查不到的模型是"未定价"，不是"免费"
+ok 208 - 查不到的模型是"未定价"，不是"免费"
+  ---
+  duration_ms: 2.3907
+  type: 'test'
+  ...
+# Subtest: 渠道价优先于官方表，且不会串到别的渠道
+ok 209 - 渠道价优先于官方表，且不会串到别的渠道
+  ---
+  duration_ms: 1.2462
+  type: 'test'
+  ...
+# Subtest: 自定义价（不分渠道）在官方表之前生效，且对任何渠道都生效
+ok 210 - 自定义价（不分渠道）在官方表之前生效，且对任何渠道都生效
+  ---
+  duration_ms: 0.3289
+  type: 'test'
+  ...
+# Subtest: 关掉官方价格表时才用全局兜底单价（老语义保留）
+ok 211 - 关掉官方价格表时才用全局兜底单价（老语义保留）
+  ---
+  duration_ms: 0.6717
+  type: 'test'
+  ...
+# Subtest: 远程价格表的条目来源标成 remote（口径仍是估算）
+ok 212 - 远程价格表的条目来源标成 remote（口径仍是估算）
+  ---
+  duration_ms: 0.7207
+  type: 'test'
+  ...
+# Subtest: priceKind 把三种口径分开
+ok 213 - priceKind 把三种口径分开
+  ---
+  duration_ms: 0.2889
+  type: 'test'
+  ...
+# Subtest: 包月/订阅条目：不按 token 计价，作为固定支出（实付口径）
+ok 214 - 包月/订阅条目：不按 token 计价，作为固定支出（实付口径）
+  ---
+  duration_ms: 0.3304
+  type: 'test'
+  ...
+# Subtest: 本地/自建条目：只统计 token，不计费
+ok 215 - 本地/自建条目：只统计 token，不计费
+  ---
+  duration_ms: 0.281
+  type: 'test'
+  ...
+# Subtest: billingOf 归一化：大小写/周期/金额
+ok 216 - billingOf 归一化：大小写/周期/金额
+  ---
+  duration_ms: 1.1582
+  type: 'test'
+  ...
+# Subtest: 远程/渠道价目表也能带计费方式
+ok 217 - 远程/渠道价目表也能带计费方式
+  ---
+  duration_ms: 1.0952
+  type: 'test'
+  ...
+# Subtest: 账户口径：渠道倍率（官方价 × 折扣）
+ok 218 - 账户口径：渠道倍率（官方价 × 折扣）
+  ---
+  duration_ms: 0.616
+  type: 'test'
+  ...
+# Subtest: 账户口径：按月付（所有模型都是固定支出，连没听过的模型也不会"未定价"）
+ok 219 - 账户口径：按月付（所有模型都是固定支出，连没听过的模型也不会"未定价"）
+  ---
+  duration_ms: 0.2645
+  type: 'test'
+  ...
+# Subtest: 没有价格的模型：默认按"当前模型"的价估算（可关）
+ok 220 - 没有价格的模型：默认按"当前模型"的价估算（可关）
+  ---
+  duration_ms: 0.9453
+  type: 'test'
+  ...
+# Subtest: 手填的价优先于账户口径
+ok 221 - 手填的价优先于账户口径
+  ---
+  duration_ms: 0.3964
+  type: 'test'
+  ...
+# Subtest: costModeOf 归一化
+ok 222 - costModeOf 归一化
+  ---
+  duration_ms: 0.3652
+  type: 'test'
+  ...
+# Subtest: aliasTargetAt：区间内/区间外/过期/无时间上下文
+ok 223 - aliasTargetAt：区间内/区间外/过期/无时间上下文
+  ---
+  duration_ms: 0.9045
+  type: 'test'
+  ...
+# Subtest: 内置的时间区间别名：deepseek-v4-pro 在 2026-09-14 之后按 Flash 价算
+ok 224 - 内置的时间区间别名：deepseek-v4-pro 在 2026-09-14 之后按 Flash 价算
+  ---
+  duration_ms: 0.9348
+  type: 'test'
+  ...
+# Subtest: 自定义价与全局兜底单价都算"已定价"
+ok 225 - 自定义价与全局兜底单价都算"已定价"
+  ---
+  duration_ms: 2.5527
+  type: 'test'
+  ...
+# Subtest: 远程价格表能带别名，且远程条目优先
+ok 226 - 远程价格表能带别名，且远程条目优先
+  ---
+  duration_ms: 0.9447
+  type: 'test'
+  ...
+# Subtest: 远程价格表载荷支持 aliases，且不会把 aliases 当模型
+ok 227 - 远程价格表载荷支持 aliases，且不会把 aliases 当模型
+  ---
+  duration_ms: 3.9671
+  type: 'test'
+  ...
+# Subtest: 前端用的 matchPriceTable 与后端 resolveOfficialPrice 口径一致
+ok 228 - 前端用的 matchPriceTable 与后端 resolveOfficialPrice 口径一致
+  ---
+  duration_ms: 2.3704
+  type: 'test'
+  ...
+# Subtest: 兜底估算（按当前模型估价）不能拿"现在"的别名规则改写历史
+ok 229 - 兜底估算（按当前模型估价）不能拿"现在"的别名规则改写历史
+  ---
+  duration_ms: 0.4901
+  type: 'test'
+  ...
+# Subtest: 手填全 0 的价 = 明确写出来的免费，不再回落到官方表
+ok 230 - 手填全 0 的价 = 明确写出来的免费，不再回落到官方表
+  ---
+  duration_ms: 0.375
+  type: 'test'
+  ...
+# Subtest: 渠道倍率填 0 = 这个渠道不花钱（不再被当成没填而按原价算）
+ok 231 - 渠道倍率填 0 = 这个渠道不花钱（不再被当成没填而按原价算）
+  ---
+  duration_ms: 0.2571
+  type: 'test'
+  ...
+# Subtest: 别名的时间边界写错：整条别名叫它失效，不按"没有边界"处理
+ok 232 - 别名的时间边界写错：整条别名叫它失效，不按"没有边界"处理
+  ---
+  duration_ms: 0.1959
+  type: 'test'
+  ...
+# [daily-moments] 空间列表读取失败，跳过查重继续发布： login expired
+# (node:85376) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: persona-specific prompt keeps the complete settings and does not append chat protocol
+ok 233 - persona-specific prompt keeps the complete settings and does not append chat protocol
+  ---
+  duration_ms: 5.2506
+  type: 'test'
+  ...
+# Subtest: malformed JSON is returned as a tool error, then a corrected decision publishes
+ok 234 - malformed JSON is returned as a tool error, then a corrected decision publishes
+  ---
+  duration_ms: 50.4051
+  type: 'test'
+  ...
+# Subtest: all decision rounds use auto tool choice for thinking-mode compatibility
+ok 235 - all decision rounds use auto tool choice for thinking-mode compatibility
+  ---
+  duration_ms: 15.6902
+  type: 'test'
+  ...
+# Subtest: empty or invalid submissions never become successful skip decisions
+ok 236 - empty or invalid submissions never become successful skip decisions
+  ---
+  duration_ms: 89.9794
+  type: 'test'
+  ...
+# Subtest: valid skip is explicit and remains a successful non-publication
+ok 237 - valid skip is explicit and remains a successful non-publication
+  ---
+  duration_ms: 9.3559
+  type: 'test'
+  ...
+# Subtest: restart recovers stale preview/generation but holds an uncertain publication
+ok 238 - restart recovers stale preview/generation but holds an uncertain publication
+  ---
+  duration_ms: 28.4249
+  type: 'test'
+  ...
+# Subtest: preview is isolated from publishing, exact draft can publish without another model call
+ok 239 - preview is isolated from publishing, exact draft can publish without another model call
+  ---
+  duration_ms: 26.8899
+  type: 'test'
+  ...
+# Subtest: explicit confirmation allows manual same-day draft publishing and regeneration
+ok 240 - explicit confirmation allows manual same-day draft publishing and regeneration
+  ---
+  duration_ms: 82.3185
+  type: 'test'
+  ...
+# Subtest: concurrent publish requests cannot accidentally return a preview result
+ok 241 - concurrent publish requests cannot accidentally return a preview result
+  ---
+  duration_ms: 17.4633
+  type: 'test'
+  ...
+# Subtest: missing tid or send failure stays uncertain, and cannot be force-retried
+ok 242 - missing tid or send failure stays uncertain, and cannot be force-retried
+  ---
+  duration_ms: 43.667
+  type: 'test'
+  ...
+# Subtest: stale persona, revoked source permission, and paused runtime block draft publishing
+ok 243 - stale persona, revoked source permission, and paused runtime block draft publishing
+  ---
+  duration_ms: 60.009
+  type: 'test'
+  ...
+# Subtest: failed duplicate lookup skips dedup and still publishes
+ok 244 - failed duplicate lookup skips dedup and still publishes
+  ---
+  duration_ms: 15.555
+  type: 'test'
+  ...
+# Subtest: unknown publish can be reconciled by exact content without another send
+ok 245 - unknown publish can be reconciled by exact content without another send
+  ---
+  duration_ms: 22.8472
+  type: 'test'
+  ...
+# Subtest: failed model output retains consumed usage in the Session and daily record
+ok 246 - failed model output retains consumed usage in the Session and daily record
+  ---
+  duration_ms: 26.5701
+  type: 'test'
+  ...
+# Subtest: current persona self-reference survives public name redaction
+ok 247 - current persona self-reference survives public name redaction
+  ---
+  duration_ms: 10.3684
+  type: 'test'
+  ...
+# Subtest: manual and scheduled publication scopes do not consume each other
+ok 248 - manual and scheduled publication scopes do not consume each other
+  ---
+  duration_ms: 45.9172
+  type: 'test'
+  ...
+# Subtest: publishing a saved manual draft does not block the automatic task
+ok 249 - publishing a saved manual draft does not block the automatic task
+  ---
+  duration_ms: 25.5175
+  type: 'test'
+  ...
+# Subtest: unresolved manual sends hold automatic work without a second external write
+ok 250 - unresolved manual sends hold automatic work without a second external write
+  ---
+  duration_ms: 12.1472
+  type: 'test'
+  ...
+# Subtest: random scheduler persists independent slots, publishes twice and survives restart
+ok 251 - random scheduler persists independent slots, publishes twice and survives restart
+  ---
+  duration_ms: 66.3359
+  type: 'test'
+  ...
+# Subtest: pause and time-control gates defer only until the allowed window expires
+ok 252 - pause and time-control gates defer only until the allowed window expires
+  ---
+  duration_ms: 18.8047
+  type: 'test'
+  ...
+# Subtest: no catchup starts no late fixed-time task after deployment
+ok 253 - no catchup starts no late fixed-time task after deployment
+  ---
+  duration_ms: 7.3717
+  type: 'test'
+  ...
+# Subtest: unknown slot publication prevents retries and later slots wait for reconciliation
+ok 254 - unknown slot publication prevents retries and later slots wait for reconciliation
+  ---
+  duration_ms: 30.0538
+  type: 'test'
+  ...
+# Subtest: expiry while generating prevents an out-of-window send
+ok 255 - expiry while generating prevents an out-of-window send
+  ---
+  duration_ms: 28.9934
+  type: 'test'
+  ...
+# Subtest: a restarted claimed slot is interrupted instead of automatically retried
+ok 256 - a restarted claimed slot is interrupted instead of automatically retried
+  ---
+  duration_ms: 14.3377
+  type: 'test'
+  ...
+# Subtest: live configuration saves preserve overdue waiting slots without startup catchup
+ok 257 - live configuration saves preserve overdue waiting slots without startup catchup
+  ---
+  duration_ms: 29.7208
+  type: 'test'
+  ...
+# Subtest: changing an in-flight window cancels its send without replacing the new timer
+ok 258 - changing an in-flight window cancels its send without replacing the new timer
+  ---
+  duration_ms: 47.3484
+  type: 'test'
+  ...
+# Subtest: normalizes multiple windows and rejects invalid schedules
+ok 259 - normalizes multiple windows and rejects invalid schedules
+  ---
+  duration_ms: 7.5622
+  type: 'test'
+  ...
+# Subtest: creates bounded separated random slots once and does not redraw on restart
+ok 260 - creates bounded separated random slots once and does not redraw on restart
+  ---
+  duration_ms: 2.2412
+  type: 'test'
+  ...
+# Subtest: cross-midnight slots remain associated with their starting date
+ok 261 - cross-midnight slots remain associated with their starting date
+  ---
+  duration_ms: 0.7294
+  type: 'test'
+  ...
+# Subtest: catchup stays inside the window and disabled catchup skips overdue startup slots
+ok 262 - catchup stays inside the window and disabled catchup skips overdue startup slots
+  ---
+  duration_ms: 0.5442
+  type: 'test'
+  ...
+# Subtest: editing quotas cancels only pending work and never rearms cancelled or finished slots
+ok 263 - editing quotas cancels only pending work and never rearms cancelled or finished slots
+  ---
+  duration_ms: 0.3603
+  type: 'test'
+  ...
+# (node:86088) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Orchestrator
+    # Subtest: draws the debounce delay inside the configured range
+    ok 1 - draws the debounce delay inside the configured range
+      ---
+      duration_ms: 1.6744
+      type: 'test'
+      ...
+    # Subtest: classifies persisted Session trigger kinds without parsing display text
+    ok 2 - classifies persisted Session trigger kinds without parsing display text
+      ---
+      duration_ms: 0.373
+      type: 'test'
+      ...
+    # Subtest: omits inline image bytes from next-round Token estimation
+    ok 3 - omits inline image bytes from next-round Token estimation
+      ---
+      duration_ms: 62.4727
+      type: 'test'
+      ...
+    # Subtest: only acknowledges the claimed batch after successful model processing
+    ok 4 - only acknowledges the claimed batch after successful model processing
+      ---
+      duration_ms: 191.6444
+      type: 'test'
+      ...
+    # Subtest: preserves failed input and recorded token usage without clearing a run
+    ok 5 - preserves failed input and recorded token usage without clearing a run
+      ---
+      duration_ms: 164.4548
+      type: 'test'
+      ...
+    # Subtest: does not escalate model-correctable malformed tool arguments to incidents
+    ok 6 - does not escalate model-correctable malformed tool arguments to incidents
+      ---
+      duration_ms: 146.0696
+      type: 'test'
+      ...
+    # Subtest: records explicit silence with zero outbound side effects
+    ok 7 - records explicit silence with zero outbound side effects
+      ---
+      duration_ms: 155.0491
+      type: 'test'
+      ...
+    # Subtest: rejects a conflicting send+stay_silent batch before side effects (scheduler=false)
+    ok 8 - rejects a conflicting send+stay_silent batch before side effects (scheduler=false)
+      ---
+      duration_ms: 1038.8076
+      type: 'test'
+      ...
+    # Subtest: blocks stay_silent after an earlier tool error with the scheduler=false
+    ok 9 - blocks stay_silent after an earlier tool error with the scheduler=false
+      ---
+      duration_ms: 537.7509
+      type: 'test'
+      ...
+    # Subtest: skips later side effects after an unknown delivery (scheduler=false)
+    ok 10 - skips later side effects after an unknown delivery (scheduler=false)
+      ---
+      duration_ms: 148.4082
+      type: 'test'
+      ...
+    # Subtest: rejects a conflicting send+stay_silent batch before side effects (scheduler=true)
+    ok 11 - rejects a conflicting send+stay_silent batch before side effects (scheduler=true)
+      ---
+      duration_ms: 137.4229
+      type: 'test'
+      ...
+    # Subtest: blocks stay_silent after an earlier tool error with the scheduler=true
+    ok 12 - blocks stay_silent after an earlier tool error with the scheduler=true
+      ---
+      duration_ms: 133.8638
+      type: 'test'
+      ...
+    # Subtest: skips later side effects after an unknown delivery (scheduler=true)
+    ok 13 - skips later side effects after an unknown delivery (scheduler=true)
+      ---
+      duration_ms: 139.3853
+      type: 'test'
+      ...
+    # Subtest: does not start a model call in observe mode or in an unapproved chat
+    ok 14 - does not start a model call in observe mode or in an unapproved chat
+      ---
+      duration_ms: 117.2222
+      type: 'test'
+      ...
+# [follow-up] group:1 发言后没人接话，12 分钟后给它一次补话机会
+# [follow-up] group:1 发言后没人接话，12 分钟后给它一次补话机会
+# [orchestrator] group:1 1 条未命中触发条件（概率 0%，未触发），已标记已读、不响应
+# [follow-up] group:1 发言后没人接话，11 分钟后给它一次补话机会
+# [follow-up] group:1 发言后没人接话，10 分钟后给它一次补话机会
+    # Subtest: caps a continuously extended debounce window at the first-message deadline
+    ok 15 - caps a continuously extended debounce window at the first-message deadline
+      ---
+      duration_ms: 226.6855
+      type: 'test'
+      ...
+    # Subtest: manual wake bypasses trigger rules and can run from read archive context
+    ok 16 - manual wake bypasses trigger rules and can run from read archive context
+      ---
+      duration_ms: 140.9039
+      type: 'test'
+      ...
+    # Subtest: attaches a waiting lifecycle batch to its existing thread immediately
+    ok 17 - attaches a waiting lifecycle batch to its existing thread immediately
+      ---
+      duration_ms: 125.0948
+      type: 'test'
+      ...
+    # Subtest: cancels a running request and releases the batch for a later attempt
+    ok 18 - cancels a running request and releases the batch for a later attempt
+      ---
+      duration_ms: 117.1285
+      type: 'test'
+      ...
+    # Subtest: commits an explicit finish handoff after a successful batch
+    ok 19 - commits an explicit finish handoff after a successful batch
+      ---
+      duration_ms: 111.5657
+      type: 'test'
+      ...
+    # Subtest: creates a conservative handoff when a successful reply ends without finish
+    ok 20 - creates a conservative handoff when a successful reply ends without finish
+      ---
+      duration_ms: 118.3613
+      type: 'test'
+      ...
+    # Subtest: injects the previous run handoff into the next stateless session
+    ok 21 - injects the previous run handoff into the next stateless session
+      ---
+      duration_ms: 135.1219
+      type: 'test'
+      ...
+    # Subtest: passes provider reasoning content into the next tool round
+    ok 22 - passes provider reasoning content into the next tool round
+      ---
+      duration_ms: 91.8161
+      type: 'test'
+      ...
+    # Subtest: exposes and executes the unified person lookup only while the pilot is active
+    ok 23 - exposes and executes the unified person lookup only while the pilot is active
+      ---
+      duration_ms: 94.2276
+      type: 'test'
+      ...
+    # Subtest: exposes friend proposals only when the nested pilot switch is enabled
+    ok 24 - exposes friend proposals only when the nested pilot switch is enabled
+      ---
+      duration_ms: 883.3056
+      type: 'test'
+      ...
+    # Subtest: removes friend proposal prompt and tool from ordinary triggered-mode chat
+    ok 25 - removes friend proposal prompt and tool from ordinary triggered-mode chat
+      ---
+      duration_ms: 106.1886
+      type: 'test'
+      ...
+    # Subtest: keeps slang injection retired even with legacy config and slang assets
+    ok 26 - keeps slang injection retired even with legacy config and slang assets
+      ---
+      duration_ms: 93.2653
+      type: 'test'
+      ...
+    # Subtest: deterministically wakes the same participant inside the threaded continuation window
+    ok 27 - deterministically wakes the same participant inside the threaded continuation window
+      ---
+      duration_ms: 138.1511
+      type: 'test'
+      ...
+    # Subtest: deterministically wakes a reply to the bot without an existing thread
+    ok 28 - deterministically wakes a reply to the bot without an existing thread
+      ---
+      duration_ms: 100.9689
+      type: 'test'
+      ...
+    # Subtest: supports per-group lifecycle mode and reuses the append-only DeepSeek transcript
+    ok 29 - supports per-group lifecycle mode and reuses the append-only DeepSeek transcript
+      ---
+      duration_ms: 124.8662
+      type: 'test'
+      ...
+    # Subtest: rolls a lifecycle generation before the next request when actual input reaches 32K
+    ok 30 - rolls a lifecycle generation before the next request when actual input reaches 32K
+      ---
+      duration_ms: 127.2929
+      type: 'test'
+      ...
+    # Subtest: stops safely before a projected 160K run without holding confirmed sends
+    ok 31 - stops safely before a projected 160K run without holding confirmed sends
+      ---
+      duration_ms: 325.6687
+      type: 'test'
+      ...
+    # Subtest: consumes rollover-armed state with the next arbitrary message
+    ok 32 - consumes rollover-armed state with the next arbitrary message
+      ---
+      duration_ms: 113.2389
+      type: 'test'
+      ...
+    # Subtest: honors an explicit active lifecycle disposition even without sending
+    ok 33 - honors an explicit active lifecycle disposition even without sending
+      ---
+      duration_ms: 105.7494
+      type: 'test'
+      ...
+    # Subtest: clears handoff memory without closing a listening lifecycle
+    ok 34 - clears handoff memory without closing a listening lifecycle
+      ---
+      duration_ms: 114.946
+      type: 'test'
+      ...
+    # Subtest: keeps the lifecycle thread id on the Session that closes it
+    ok 35 - keeps the lifecycle thread id on the Session that closes it
+      ---
+      duration_ms: 139.7819
+      type: 'test'
+      ...
+    # Subtest: does not drop a previously claimed retry when the trigger state changes
+    ok 36 - does not drop a previously claimed retry when the trigger state changes
+      ---
+      duration_ms: 174.4208
+      type: 'test'
+      ...
+    # Subtest: does not recreate a lifecycle after its mode is changed during a run
+    ok 37 - does not recreate a lifecycle after its mode is changed during a run
+      ---
+      duration_ms: 114.2992
+      type: 'test'
+      ...
+    1..37
+ok 264 - Orchestrator
+  ---
+  duration_ms: 6801.082
+  type: 'suite'
+  ...
+# Subtest: stay_silent validates strictly and only records a pending request
+ok 265 - stay_silent validates strictly and only records a pending request
+  ---
+  duration_ms: 2.9022
+  type: 'test'
+  ...
+# Subtest: terminal batch preflight is independent of scheduler enablement
+ok 266 - terminal batch preflight is independent of scheduler enablement
+  ---
+  duration_ms: 1.794
+  type: 'test'
+  ...
+# Subtest: stay_silent commits explicit silence only with zero outbound effects
+ok 267 - stay_silent commits explicit silence only with zero outbound effects
+  ---
+  duration_ms: 0.824
+  type: 'test'
+  ...
+# Subtest: stay_silent accepts the boundary reason length and rejects malformed enums
+ok 268 - stay_silent accepts the boundary reason length and rejects malformed enums
+  ---
+  duration_ms: 0.2115
+  type: 'test'
+  ...
+# Subtest: inline and native tool calls share the same terminal preflight
+ok 269 - inline and native tool calls share the same terminal preflight
+  ---
+  duration_ms: 2.492
+  type: 'test'
+  ...
+# Subtest: participation policy is present once and exposes explicit silence without role-text edits
+ok 270 - participation policy is present once and exposes explicit silence without role-text edits
+  ---
+  duration_ms: 4.3989
+  type: 'test'
+  ...
+# [follow-up] group:123 发言后没人接话，11 分钟后给它一次补话机会
+# (node:86272) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 内置卡单一来源，默认人设不受影响
+ok 271 - 内置卡单一来源，默认人设不受影响
+  ---
+  duration_ms: 2.6355
+  type: 'test'
+  ...
+# Subtest: grounded 档替换冲突的风格规则，但保留权限与工具
+ok 272 - grounded 档替换冲突的风格规则，但保留权限与工具
+  ---
+  duration_ms: 3.6842
+  type: 'test'
+  ...
+# Subtest: 所有社交场景都带上同一份角色与附加规则，人设哈希随之失效
+ok 273 - 所有社交场景都带上同一份角色与附加规则，人设哈希随之失效
+  ---
+  duration_ms: 3.7487
+  type: 'test'
+  ...
+# Subtest: 人设档位持久化、保留手改正文、原子拒绝非法值
+ok 274 - 人设档位持久化、保留手改正文、原子拒绝非法值
+  ---
+  duration_ms: 32.359
+  type: 'test'
+  ...
+# Subtest: grounded 的代码格式保留运算符、缩进与行内代码
+ok 275 - grounded 的代码格式保留运算符、缩进与行内代码
+  ---
+  duration_ms: 1.6883
+  type: 'test'
+  ...
+# Subtest: grounded 会话通过工具与出站队列发出完整代码
+ok 276 - grounded 会话通过工具与出站队列发出完整代码
+  ---
+  duration_ms: 372.2631
+  type: 'test'
+  ...
+# Subtest: 控制台接口能列出、选择、自定义与回退内置卡
+ok 277 - 控制台接口能列出、选择、自定义与回退内置卡
+  ---
+  duration_ms: 1910.3165
+  type: 'test'
+  ...
+# Subtest: 登记的模板 id 都能取到卡，未知 id 返回 null
+ok 278 - 登记的模板 id 都能取到卡，未知 id 返回 null
+  ---
+  duration_ms: 1.1418
+  type: 'test'
+  ...
+# Subtest: 绑定的内置卡：载入时按卡文件刷新正文（改了卡不用重选）
+ok 279 - 绑定的内置卡：载入时按卡文件刷新正文（改了卡不用重选）
+  ---
+  duration_ms: 4.0972
+  type: 'test'
+  ...
+# Subtest: 卡文件改了以后，下次载入就跟着变（模拟升级带的正文更新）
+ok 280 - 卡文件改了以后，下次载入就跟着变（模拟升级带的正文更新）
+  ---
+  duration_ms: 4.7518
+  type: 'test'
+  ...
+# Subtest: 磁盘上人设段是标量/数组/字符串时：载入与保存都不打崩
+ok 281 - 磁盘上人设段是标量/数组/字符串时：载入与保存都不打崩
+  ---
+  duration_ms: 56.4801
+  type: 'test'
+  ...
+# Subtest: 未绑定（手改正文 / 自定义卡）：正文原样保留
+ok 282 - 未绑定（手改正文 / 自定义卡）：正文原样保留
+  ---
+  duration_ms: 2.6302
+  type: 'test'
+  ...
+# Subtest: 老配置（没有 templateId 键）不会被误绑成默认卡
+ok 283 - 老配置（没有 templateId 键）不会被误绑成默认卡
+  ---
+  duration_ms: 2.4771
+  type: 'test'
+  ...
+# Subtest: 保存配置时同样会刷新，且只在绑定时生效
+ok 284 - 保存配置时同样会刷新，且只在绑定时生效
+  ---
+  duration_ms: 19.7682
+  type: 'test'
+  ...
+# Subtest: applyPersonaTemplate 对空配置/坏配置不抛错
+ok 285 - applyPersonaTemplate 对空配置/坏配置不抛错
+  ---
+  duration_ms: 1.0311
+  type: 'test'
+  ...
+# Subtest: 认不出的 templateId 会被清成未绑定（不留永远不生效的 id）
+ok 286 - 认不出的 templateId 会被清成未绑定（不留永远不生效的 id）
+  ---
+  duration_ms: 5.5518
+  type: 'test'
+  ...
+# Subtest: 人设字段传了非对象（null / 字符串）时当没改，不会打崩保存
+ok 287 - 人设字段传了非对象（null / 字符串）时当没改，不会打崩保存
+  ---
+  duration_ms: 16.0599
+  type: 'test'
+  ...
+# Subtest: 每张内置角色卡都能加载，档位与正文形状合法
+ok 288 - 每张内置角色卡都能加载，档位与正文形状合法
+  ---
+  duration_ms: 2.8094
+  type: 'test'
+  ...
+# Subtest: 系统提示开场白不冒充角色卡：名字归名字，人格指向【角色设定】
+ok 289 - 系统提示开场白不冒充角色卡：名字归名字，人格指向【角色设定】
+  ---
+  duration_ms: 17.0034
+  type: 'test'
+  ...
+# Subtest: roles/ 下的每个文件都已登记（新增卡忘了登记会失败）
+ok 290 - roles/ 下的每个文件都已登记（新增卡忘了登记会失败）
+  ---
+  duration_ms: 2.7198
+  type: 'test'
+  ...
+# Subtest: 角色卡不引用旧架构指令，提到的工具都真实存在
+ok 291 - 角色卡不引用旧架构指令，提到的工具都真实存在
+  ---
+  duration_ms: 1.6975
+  type: 'test'
+  ...
+# Subtest: 每张内置卡都能构建系统提示，且带得上安全规则
+ok 292 - 每张内置卡都能构建系统提示，且带得上安全规则
+  ---
+  duration_ms: 1.4915
+  type: 'test'
+  ...
+# Subtest: 每张内置卡都有正例示例段（示例里至少有 3 组「你可以」）
+ok 293 - 每张内置卡都有正例示例段（示例里至少有 3 组「你可以」）
+  ---
+  duration_ms: 0.3955
+  type: 'test'
+  ...
+# Subtest: 名称即规格：每张卡都写明招牌的正向下限，且被问人设时报得出卡名
+ok 294 - 名称即规格：每张卡都写明招牌的正向下限，且被问人设时报得出卡名
+  ---
+  duration_ms: 0.4912
+  type: 'test'
+  ...
+# Subtest: 每张内置卡都写明对管理员怎么相处（口吻比对群友软一档）
+ok 295 - 每张内置卡都写明对管理员怎么相处（口吻比对群友软一档）
+  ---
+  duration_ms: 0.2203
+  type: 'test'
+  ...
+# Subtest: 猫娘卡把招牌写成硬指标，示例给出"索要就给"的路径
+ok 296 - 猫娘卡把招牌写成硬指标，示例给出"索要就给"的路径
+  ---
+  duration_ms: 0.6241
+  type: 'test'
+  ...
+# (node:86504) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: real createApp startup starts and stops a scoped probe plugin
+ok 297 - real createApp startup starts and stops a scoped probe plugin
+  ---
+  duration_ms: 1818.0456
+  type: 'test'
+  ...
+# (node:86604) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: disabled plugin has no start, context, timer, or tool side effects
+ok 298 - disabled plugin has no start, context, timer, or tool side effects
+  ---
+  duration_ms: 4.6635
+  type: 'test'
+  ...
+# Subtest: start failure removes the staged plugin and does not leave runtime state
+ok 299 - start failure removes the staged plugin and does not leave runtime state
+  ---
+  duration_ms: 2.0297
+  type: 'test'
+  ...
+# Subtest: startAll failure atomically rolls back every plugin started by that call
+ok 300 - startAll failure atomically rolls back every plugin started by that call
+  ---
+  duration_ms: 1.7083
+  type: 'test'
+  ...
+# Subtest: startAll failure preserves plugins that were already running
+ok 301 - startAll failure preserves plugins that were already running
+  ---
+  duration_ms: 1.0874
+  type: 'test'
+  ...
+# Subtest: provider failure degrades without failing the run context
+ok 302 - provider failure degrades without failing the run context
+  ---
+  duration_ms: 1.5032
+  type: 'test'
+  ...
+# Subtest: provider timeout aborts the provider and preserves the shared run context
+ok 303 - provider timeout aborts the provider and preserves the shared run context
+  ---
+  duration_ms: 7.8249
+  type: 'test'
+  ...
+# Subtest: stop invalidates snapshots before plugin cleanup and clears plugin timers
+ok 304 - stop invalidates snapshots before plugin cleanup and clears plugin timers
+  ---
+  duration_ms: 152.6181
+  type: 'test'
+  ...
+# Subtest: config-based enablement is evaluated when the manager starts
+ok 305 - config-based enablement is evaluated when the manager starts
+  ---
+  duration_ms: 1.0917
+  type: 'test'
+  ...
+# Subtest: startAll explicit config controls dynamic plugin enablement
+ok 306 - startAll explicit config controls dynamic plugin enablement
+  ---
+  duration_ms: 0.7611
+  type: 'test'
+  ...
+# Subtest: hard disable rejects a late tool result from an old run snapshot
+ok 307 - hard disable rejects a late tool result from an old run snapshot
+  ---
+  duration_ms: 3.657
+  type: 'test'
+  ...
+# Subtest: ChatStore completion events are transactional, at-least-once, and retryable
+ok 308 - ChatStore completion events are transactional, at-least-once, and retryable
+  ---
+  duration_ms: 129.6881
+  type: 'test'
+  ...
+# Subtest: enabled observer delivery is at-least-once and delivered events are not replayed
+ok 309 - enabled observer delivery is at-least-once and delivered events are not replayed
+  ---
+  duration_ms: 935.7374
+  type: 'test'
+  ...
+# Subtest: hung observers time out as retryable failures and do not block stopAll
+ok 310 - hung observers time out as retryable failures and do not block stopAll
+  ---
+  duration_ms: 1538.0859
+  type: 'test'
+  ...
+# Subtest: Orchestrator composition accepts a probe manager through the real constructor path
+ok 311 - Orchestrator composition accepts a probe manager through the real constructor path
+  ---
+  duration_ms: 2.5506
+  type: 'test'
+  ...
+# Subtest: legacy adapter preserves the 23 tool names, order, and OpenAI schemas
+ok 312 - legacy adapter preserves the 23 tool names, order, and OpenAI schemas
+  ---
+  duration_ms: 5.6131
+  type: 'test'
+  ...
+# Subtest: registry stages atomically and rejects duplicate owners, tools, invalid schemas, and reserved names
+ok 313 - registry stages atomically and rejects duplicate owners, tools, invalid schemas, and reserved names
+  ---
+  duration_ms: 1.6522
+  type: 'test'
+  ...
+# Subtest: published registrations have stable plugin/tool ordering independent of registration order
+ok 314 - published registrations have stable plugin/tool ordering independent of registration order
+  ---
+  duration_ms: 0.4256
+  type: 'test'
+  ...
+# Subtest: manager snapshots freeze config, plugin enablement, generations, and tool handles per run
+ok 315 - manager snapshots freeze config, plugin enablement, generations, and tool handles per run
+  ---
+  duration_ms: 2.1317
+  type: 'test'
+  ...
+# Subtest: generic plugin tool callbacks receive only the safe base context
+ok 316 - generic plugin tool callbacks receive only the safe base context
+  ---
+  duration_ms: 4.4885
+  type: 'test'
+  ...
+# Subtest: ownerless tool definitions receive the restricted generic context
+ok 317 - ownerless tool definitions receive the restricted generic context
+  ---
+  duration_ms: 0.4702
+  type: 'test'
+  ...
+# Subtest: ExperimentalToolBatch prestart uses the restricted tool callback context
+ok 318 - ExperimentalToolBatch prestart uses the restricted tool callback context
+  ---
+  duration_ms: 1.0228
+  type: 'test'
+  ...
+# Subtest: legacy owner still receives the raw host context
+ok 319 - legacy owner still receives the raw host context
+  ---
+  duration_ms: 0.2281
+  type: 'test'
+  ...
+# Subtest: legacy buildToolDefs wrapper marks core definitions for raw compatibility
+ok 320 - legacy buildToolDefs wrapper marks core definitions for raw compatibility
+  ---
+  duration_ms: 18.9649
+  type: 'test'
+  ...
+# Subtest: trusted owner facades require both owner id and built-in tool name
+ok 321 - trusted owner facades require both owner id and built-in tool name
+  ---
+  duration_ms: 0.4345
+  type: 'test'
+  ...
+# Subtest: messaging facade remains functional and binds chat, run, signal, and session
+ok 322 - messaging facade remains functional and binds chat, run, signal, and session
+  ---
+  duration_ms: 5.3009
+  type: 'test'
+  ...
+# Subtest: memory and runtime-control facades bind current chat, run, and signal
+ok 323 - memory and runtime-control facades bind current chat, run, and signal
+  ---
+  duration_ms: 3.7626
+  type: 'test'
+  ...
+# Subtest: snapshotPluginConfig redacts auth material and token-shaped values
+ok 324 - snapshotPluginConfig redacts auth material and token-shaped values
+  ---
+  duration_ms: 1.0982
+  type: 'test'
+  ...
+# Subtest: 同一组地址的并发刷新只发一次请求（结果共用，谁也不覆盖谁）
+ok 325 - 同一组地址的并发刷新只发一次请求（结果共用，谁也不覆盖谁）
+  ---
+  duration_ms: 35.0849
+  type: 'test'
+  ...
+# Subtest: 刷新中地址被改：等前一次跑完再跑新的，最终生效的是新地址
+ok 326 - 刷新中地址被改：等前一次跑完再跑新的，最终生效的是新地址
+  ---
+  duration_ms: 46.9716
+  type: 'test'
+  ...
+# Subtest: 换了地址但没拉成功：标记 sourceStale，并说明生效的仍是旧地址
+ok 327 - 换了地址但没拉成功：标记 sourceStale，并说明生效的仍是旧地址
+  ---
+  duration_ms: 7.5409
+  type: 'test'
+  ...
+# Subtest: 切成 none：当场回落到内置表，不再沿用已拉到的远程表
+ok 328 - 切成 none：当场回落到内置表，不再沿用已拉到的远程表
+  ---
+  duration_ms: 5.3735
+  type: 'test'
+  ...
+# Subtest: none 之后重新启用：磁盘缓存顶上，拉到新的再覆盖
+ok 329 - none 之后重新启用：磁盘缓存顶上，拉到新的再覆盖
+  ---
+  duration_ms: 91.1073
+  type: 'test'
+  ...
+# Subtest: one-api 倍率表 → 元/百万 token（含汇率与分组）
+ok 330 - one-api 倍率表 → 元/百万 token（含汇率与分组）
+  ---
+  duration_ms: 1.953
+  type: 'test'
+  ...
+# Subtest: 没给汇率就用 7.2，并在条目备注里写明
+ok 331 - 没给汇率就用 7.2，并在条目备注里写明
+  ---
+  duration_ms: 0.281
+  type: 'test'
+  ...
+# Subtest: 探测：识别 one-api 站点，并从 /api/status 取汇率
+ok 332 - 探测：识别 one-api 站点，并从 /api/status 取汇率
+  ---
+  duration_ms: 2.7048
+  type: 'test'
+  ...
+# Subtest: 探测：自家价目表形状直接采用（元/百万，不换算）
+ok 333 - 探测：自家价目表形状直接采用（元/百万，不换算）
+  ---
+  duration_ms: 1.5165
+  type: 'test'
+  ...
+# Subtest: 探测：认不出来就明确失败，并把试过的地址列出来
+ok 334 - 探测：认不出来就明确失败，并把试过的地址列出来
+  ---
+  duration_ms: 0.4139
+  type: 'test'
+  ...
+# Subtest: 候选地址：站点根优先，去重，也能直接填 /api/pricing
+ok 335 - 候选地址：站点根优先，去重，也能直接填 /api/pricing
+  ---
+  duration_ms: 0.6523
+  type: 'test'
+  ...
+# Subtest: 渠道价目表参与查价：手填的价仍然优先
+ok 336 - 渠道价目表参与查价：手填的价仍然优先
+  ---
+  duration_ms: 1.565
+  type: 'test'
+  ...
+# Subtest: 渠道价目表落盘 + 拉取失败时保留上一次的表
+ok 337 - 渠道价目表落盘 + 拉取失败时保留上一次的表
+  ---
+  duration_ms: 75.3712
+  type: 'test'
+  ...
+# Subtest: 拉取过程中被删掉的渠道，晚到的响应不能把表复活
+ok 338 - 拉取过程中被删掉的渠道，晚到的响应不能把表复活
+  ---
+  duration_ms: 13.8778
+  type: 'test'
+  ...
+# Subtest: 自动探测：成功就登记成渠道价目表并生效
+ok 339 - 自动探测：成功就登记成渠道价目表并生效
+  ---
+  duration_ms: 14.761
+  type: 'test'
+  ...
+# Subtest: 自动探测：失败静默、不登记、不抛异常
+ok 340 - 自动探测：失败静默、不登记、不抛异常
+  ---
+  duration_ms: 3.8468
+  type: 'test'
+  ...
+# Subtest: 自动探测：已配过或刚探过就跳过
+ok 341 - 自动探测：已配过或刚探过就跳过
+  ---
+  duration_ms: 0.292
+  type: 'test'
+  ...
+# Subtest: 远程价格表默认地址：jsDelivr 优先、raw 兜底；填 none 关闭
+ok 342 - 远程价格表默认地址：jsDelivr 优先、raw 兜底；填 none 关闭
+  ---
+  duration_ms: 5.4198
+  type: 'test'
+  ...
+# Subtest: 远程价格表：所有候选都失败时报错但不影响内置表
+ok 343 - 远程价格表：所有候选都失败时报错但不影响内置表
+  ---
+  duration_ms: 0.3825
+  type: 'test'
+  ...
+# Subtest: 价格表条目校验：null/空串/负数不会被当成 0 元免费价
+ok 344 - 价格表条目校验：null/空串/负数不会被当成 0 元免费价
+  ---
+  duration_ms: 0.4985
+  type: 'test'
+  ...
+# Subtest: 探测：显式给的汇率优先于站点上的 /api/status
+ok 345 - 探测：显式给的汇率优先于站点上的 /api/status
+  ---
+  duration_ms: 2.1084
+  type: 'test'
+  ...
+# Subtest: 同进程内删掉再加回同一个渠道：拉取不能被 revoked 永久挡住
+ok 346 - 同进程内删掉再加回同一个渠道：拉取不能被 revoked 永久挡住
+  ---
+  duration_ms: 33.5671
+  type: 'test'
+  ...
+# Subtest: sanitizeUserText：半角/全角/繁体方括号的系统段标记都要弱化
+ok 347 - sanitizeUserText：半角/全角/繁体方括号的系统段标记都要弱化
+  ---
+  duration_ms: 1.8083
+  type: 'test'
+  ...
+# Subtest: sanitizeUserText：繁体写法的段头也要弱化（[管理員] 曾经整条穿透）
+ok 348 - sanitizeUserText：繁体写法的段头也要弱化（[管理員] 曾经整条穿透）
+  ---
+  duration_ms: 0.297
+  type: 'test'
+  ...
+# Subtest: sanitizeUserText：关键词内嵌零宽字符/空白不再穿透（2026-09-24 审查发现的绕过）
+ok 349 - sanitizeUserText：关键词内嵌零宽字符/空白不再穿透（2026-09-24 审查发现的绕过）
+  ---
+  duration_ms: 0.2505
+  type: 'test'
+  ...
+# Subtest: 昵称与引用预览进提示词前同样被弱化
+ok 350 - 昵称与引用预览进提示词前同样被弱化
+  ---
+  duration_ms: 10.5468
+  type: 'test'
+  ...
+# Subtest: 提示词里的每个段头都能被弱化（清洗白名单不许落后于任何注入模块）
+ok 351 - 提示词里的每个段头都能被弱化（清洗白名单不许落后于任何注入模块）
+  ---
+  duration_ms: 5.9635
+  type: 'test'
+  ...
+# [qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+# [qzone-interactions] 好友动态抓取失败，45 秒后重试一次:
+# [qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: 好友动态接口调用失败（无错误信息）
+# [qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+# Subtest: parses structured friend feed text, images, likes, roots, and nested replies
+ok 352 - parses structured friend feed text, images, likes, roots, and nested replies
+  ---
+  duration_ms: 10.7066
+  type: 'test'
+  ...
+# Subtest: interaction prompt keeps the complete configured persona and rejects social prompt injection
+ok 353 - interaction prompt keeps the complete configured persona and rejects social prompt injection
+  ---
+  duration_ms: 0.5538
+  type: 'test'
+  ...
+# Subtest: parses native Qzone reply markers without exposing them to the model
+ok 354 - parses native Qzone reply markers without exposing them to the model
+  ---
+  duration_ms: 0.6819
+  type: 'test'
+  ...
+# Subtest: Qzone web client reads details and submits a native nested reply
+ok 355 - Qzone web client reads details and submits a native nested reply
+  ---
+  duration_ms: 29.6062
+  type: 'test'
+  ...
+# Subtest: submits all unread feeds in one newest-first batch and never repeats writes
+ok 356 - submits all unread feeds in one newest-first batch and never repeats writes
+  ---
+  duration_ms: 47.2538
+  type: 'test'
+  ...
+# Subtest: context clipping keeps omitted older feeds unread for a later cycle
+ok 357 - context clipping keeps omitted older feeds unread for a later cycle
+  ---
+  duration_ms: 15.7271
+  type: 'test'
+  ...
+# Subtest: malformed tool JSON is corrected without consuming unread feeds
+ok 358 - malformed tool JSON is corrected without consuming unread feeds
+  ---
+  duration_ms: 12.9022
+  type: 'test'
+  ...
+# Subtest: uncertain comment dispatch is never retried automatically
+ok 359 - uncertain comment dispatch is never retried automatically
+  ---
+  duration_ms: 35.5301
+  type: 'test'
+  ...
+# Subtest: restart converts in-flight writes to unknown and never makes them unread again
+ok 360 - restart converts in-flight writes to unknown and never makes them unread again
+  ---
+  duration_ms: 6.856
+  type: 'test'
+  ...
+# Subtest: a new comment on the bot own moment is submitted as one reply decision
+ok 361 - a new comment on the bot own moment is submitted as one reply decision
+  ---
+  duration_ms: 19.1746
+  type: 'test'
+  ...
+# Subtest: friend reply under the bot comment triggers one model-decided native reply
+ok 362 - friend reply under the bot comment triggers one model-decided native reply
+  ---
+  duration_ms: 41.0392
+  type: 'test'
+  ...
+# Subtest: friend-feed failure is retried once and a successful retry finishes the round
+ok 363 - friend-feed failure is retried once and a successful retry finishes the round
+  ---
+  duration_ms: 27.5891
+  type: 'test'
+  ...
+# Subtest: a feed error without a message is still recorded as a failure
+ok 364 - a feed error without a message is still recorded as a failure
+  ---
+  duration_ms: 10.1935
+  type: 'test'
+  ...
+# Subtest: stop and time-window aborts are not counted as interface failures
+ok 365 - stop and time-window aborts are not counted as interface failures
+  ---
+  duration_ms: 0.4202
+  type: 'test'
+  ...
+# [qzone-interactions] 好友动态抓取失败，45 秒后重试一次: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+# [qzone-interactions] 好友动态本轮未取到，继续检查评论与积压: OneBot get_qzone_feeds 失败: retcode=100 qzone feeds failed: code=-10001 network busy
+# Subtest: aborting during the retry wait skips the retry and is not recorded as a feed failure
+ok 366 - aborting during the retry wait skips the retry and is not recorded as a feed failure
+  ---
+  duration_ms: 771.7778
+  type: 'test'
+  ...
+# Subtest: repeated friend-feed failure still runs replies and the unread backlog
+ok 367 - repeated friend-feed failure still runs replies and the unread backlog
+  ---
+  duration_ms: 16.1342
+  type: 'test'
+  ...
+# (node:85088) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: runtime store ignores duplicate unresolved boundary flags for one person
+ok 368 - runtime store ignores duplicate unresolved boundary flags for one person
+  ---
+  duration_ms: 858.2486
+  type: 'test'
+  ...
+# (node:86064) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 合法 JSON 照常解析（回归确认）
+ok 369 - 合法 JSON 照常解析（回归确认）
+  ---
+  duration_ms: 1.4182
+  type: 'test'
+  ...
+# Subtest: 瑕疵：代码围栏 + 尾随逗号 → 修复后解析
+ok 370 - 瑕疵：代码围栏 + 尾随逗号 → 修复后解析
+  ---
+  duration_ms: 1.1158
+  type: 'test'
+  ...
+# Subtest: 瑕疵：单引号 → 修复后解析
+ok 371 - 瑕疵：单引号 → 修复后解析
+  ---
+  duration_ms: 0.3055
+  type: 'test'
+  ...
+# Subtest: 瑕疵：summary 里引用原话产生未转义引号（长输出高发形态）→ 修复后解析
+ok 372 - 瑕疵：summary 里引用原话产生未转义引号（长输出高发形态）→ 修复后解析
+  ---
+  duration_ms: 0.2071
+  type: 'test'
+  ...
+# Subtest: 彻底坏掉的 JSON：仍然抛错（不静默吞、不编造数据）
+ok 373 - 彻底坏掉的 JSON：仍然抛错（不静默吞、不编造数据）
+  ---
+  duration_ms: 0.7098
+  type: 'test'
+  ...
+# Subtest: 修复后内容仍要过完整校验（不能靠修复绕过事件规则）
+ok 374 - 修复后内容仍要过完整校验（不能靠修复绕过事件规则）
+  ---
+  duration_ms: 0.1483
+  type: 'test'
+  ...
+# (node:81376) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: V1 shadowMode cannot be disabled by config
+ok 375 - V1 shadowMode cannot be disabled by config
+  ---
+  duration_ms: 1.8863
+  type: 'test'
+  ...
+# Subtest: disabled pilot creates no relationship database
+ok 376 - disabled pilot creates no relationship database
+  ---
+  duration_ms: 2.8811
+  type: 'test'
+  ...
+# Subtest: evaluator accepts only evidence ids from NEW_EVIDENCE
+ok 377 - evaluator accepts only evidence ids from NEW_EVIDENCE
+  ---
+  duration_ms: 1.7538
+  type: 'test'
+  ...
+# Subtest: ordinary interaction may explicitly produce zero relationship events
+ok 378 - ordinary interaction may explicitly produce zero relationship events
+  ---
+  duration_ms: 0.3968
+  type: 'test'
+  ...
+# Subtest: runtime patch keeps relationship state out of agent lookupPerson path
+ok 379 - runtime patch keeps relationship state out of agent lookupPerson path
+  ---
+  duration_ms: 0.837
+  type: 'test'
+  ...
+# (node:85276) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: familiarity is deterministic, bounded, and does not imply affinity
+ok 380 - familiarity is deterministic, bounded, and does not imply affinity
+  ---
+  duration_ms: 97.9235
+  type: 'test'
+  ...
+# Subtest: events update affinity with saturation and exact evidence dedupe
+ok 381 - events update affinity with saturation and exact evidence dedupe
+  ---
+  duration_ms: 889.4067
+  type: 'test'
+  ...
+# Subtest: conflict friction decays, boundary stays flagged until repair
+ok 382 - conflict friction decays, boundary stays flagged until repair
+  ---
+  duration_ms: 452.5724
+  type: 'test'
+  ...
+# Subtest: replay recomputes relationship state from immutable event ledger
+ok 383 - replay recomputes relationship state from immutable event ledger
+  ---
+  duration_ms: 223.3533
+  type: 'test'
+  ...
+# Subtest: policy compiler stays coarse and friction can suppress positive affinity behavior
+ok 384 - policy compiler stays coarse and friction can suppress positive affinity behavior
+  ---
+  duration_ms: 0.853
+  type: 'test'
+  ...
+# Subtest: decayFriction has the configured half-life
+ok 385 - decayFriction has the configured half-life
+  ---
+  duration_ms: 0.447
+  type: 'test'
+  ...
+# Subtest: relationship settings snapshot user input before any async refresh
+ok 386 - relationship settings snapshot user input before any async refresh
+  ---
+  duration_ms: 0.84
+  type: 'test'
+  ...
+# Subtest: relationship persistence reads config without filling stale values first
+ok 387 - relationship persistence reads config without filling stale values first
+  ---
+  duration_ms: 0.1502
+  type: 'test'
+  ...
+# (node:55732) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 预算线卡在最小值 + 满历史时，第一轮仍然要真的调用一次模型
+ok 388 - 预算线卡在最小值 + 满历史时，第一轮仍然要真的调用一次模型
+  ---
+  duration_ms: 2238.9187
+  type: 'test'
+  ...
+# Subtest: safeFetchBinary rejects an oversized response instead of returning truncated bytes
+ok 389 - safeFetchBinary rejects an oversized response instead of returning truncated bytes
+  ---
+  duration_ms: 19.6242
+  type: 'test'
+  ...
+# Subtest: safeFetchBinary accepts a response exactly at the byte limit
+ok 390 - safeFetchBinary accepts a response exactly at the byte limit
+  ---
+  duration_ms: 6.4302
+  type: 'test'
+  ...
+# Subtest: 名字优先级：群内展示名 > 账号昵称 > 机器人名字
+ok 391 - 名字优先级：群内展示名 > 账号昵称 > 机器人名字
+  ---
+  duration_ms: 1.1351
+  type: 'test'
+  ...
+# Subtest: 说说 / 空间互动 / 好友评估也认账号昵称，不再自称机器人名字
+ok 392 - 说说 / 空间互动 / 好友评估也认账号昵称，不再自称机器人名字
+  ---
+  duration_ms: 0.5412
+  type: 'test'
+  ...
+# Subtest: 改名会改变人设哈希，说说/互动会重新生成
+ok 393 - 改名会改变人设哈希，说说/互动会重新生成
+  ---
+  duration_ms: 0.5141
+  type: 'test'
+  ...
+# [sender] 发送失败（可确认未送达），1.5 秒后重试一次（fetch failed）
+# (node:84648) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: classifyTransportFailure：连不上=确定没送达，超时/重置/5xx=结果未知
+ok 394 - classifyTransportFailure：连不上=确定没送达，超时/重置/5xx=结果未知
+  ---
+  duration_ms: 2.0402
+  type: 'test'
+  ...
+# Subtest: 确认未送达的裸 fetch 失败记成 failed（可重试），不占"待核对"
+ok 395 - 确认未送达的裸 fetch 失败记成 failed（可重试），不占"待核对"
+  ---
+  duration_ms: 2283.7254
+  type: 'test'
+  ...
+# Subtest: 结果未知的失败仍记成 unknown（持有待人工核对）
+ok 396 - 结果未知的失败仍记成 unknown（持有待人工核对）
+  ---
+  duration_ms: 27.2467
+  type: 'test'
+  ...
+# Subtest: 认得内置卡与自定义卡的名字
+ok 397 - 认得内置卡与自定义卡的名字
+  ---
+  duration_ms: 0.7966
+  type: 'test'
+  ...
+# Subtest: 卡名后面的副标题不算进名字
+ok 398 - 卡名后面的副标题不算进名字
+  ---
+  duration_ms: 0.1011
+  type: 'test'
+  ...
+# Subtest: 日报/空间互动/好友评估提示词里的卡也认（段头不同，卡正文一样）
+ok 399 - 日报/空间互动/好友评估提示词里的卡也认（段头不同，卡正文一样）
+  ---
+  duration_ms: 0.0917
+  type: 'test'
+  ...
+# Subtest: 没有角色设定段/空提示词：返回空串，不瞎猜
+ok 400 - 没有角色设定段/空提示词：返回空串，不瞎猜
+  ---
+  duration_ms: 0.1404
+  type: 'test'
+  ...
+# Subtest: 角色设定里没按约定写「角色卡：」也能容忍
+ok 401 - 角色设定里没按约定写「角色卡：」也能容忍
+  ---
+  duration_ms: 0.0766
+  type: 'test'
+  ...
+# Subtest: retired slang research keeps only a non-operational compatibility surface
+ok 402 - retired slang research keeps only a non-operational compatibility surface
+  ---
+  duration_ms: 1.3264
+  type: 'test'
+  ...
+# Subtest: promoted-feature UI uses render-boundary normalization instead of DOM mutation polling
+ok 403 - promoted-feature UI uses render-boundary normalization instead of DOM mutation polling
+  ---
+  duration_ms: 1.4343
+  type: 'test'
+  ...
+# Subtest: auto update uses global admin once migrated and only falls back for pre-admin legacy files
+ok 404 - auto update uses global admin once migrated and only falls back for pre-admin legacy files
+  ---
+  duration_ms: 0.232
+  type: 'test'
+  ...
+# Subtest: retired slang research has no canonical owner or tuning configuration
+ok 405 - retired slang research has no canonical owner or tuning configuration
+  ---
+  duration_ms: 2.5774
+  type: 'test'
+  ...
+# Subtest: 同步剪枝：有备注/标签/使用次数的条目不因一次同步消失
+ok 406 - 同步剪枝：有备注/标签/使用次数的条目不因一次同步消失
+  ---
+  duration_ms: 2.9526
+  type: 'test'
+  ...
+# Subtest: 同步剪枝：一条都没拉到时不剪枝（接口抖动不清库）
+ok 407 - 同步剪枝：一条都没拉到时不剪枝（接口抖动不清库）
+  ---
+  duration_ms: 0.2711
+  type: 'test'
+  ...
+# Subtest: sticker_note 写入封顶：备注/用途 300、标签 40×20，与其它写入路径一致
+ok 408 - sticker_note 写入封顶：备注/用途 300、标签 40×20，与其它写入路径一致
+  ---
+  duration_ms: 0.7719
+  type: 'test'
+  ...
+# Subtest: refreshes a collected QQ image URL from its source message before sending
+ok 409 - refreshes a collected QQ image URL from its source message before sending
+  ---
+  duration_ms: 178.6071
+  type: 'test'
+  ...
+# Subtest: manual uploaded stickers can be viewed and sent by agent tools
+ok 410 - manual uploaded stickers can be viewed and sent by agent tools
+  ---
+  duration_ms: 61.4398
+  type: 'test'
+  ...
+# Subtest: refuses to overwrite a corrupted sticker metadata file
+ok 411 - refuses to overwrite a corrupted sticker metadata file
+  ---
+  duration_ms: 4.4429
+  type: 'test'
+  ...
+# Subtest: reports pending cleanup when a deleted sticker image cannot be removed
+ok 412 - reports pending cleanup when a deleted sticker image cannot be removed
+  ---
+  duration_ms: 45.8874
+  type: 'test'
+  ...
+# Subtest: prompt exposes sticker IDs and exact unique labels remain compatible
+ok 413 - prompt exposes sticker IDs and exact unique labels remain compatible
+  ---
+  duration_ms: 1.2932
+  type: 'test'
+  ...
+# (node:86716) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: ChatStore
+    # Subtest: deduplicates replayed messages and preserves pagination order
+    ok 1 - deduplicates replayed messages and preserves pagination order
+      ---
+      duration_ms: 532.6268
+      type: 'test'
+      ...
+    # Subtest: claims a snapshot without acknowledging it and keeps later messages pending
+    ok 2 - claims a snapshot without acknowledging it and keeps later messages pending
+      ---
+      duration_ms: 141.6668
+      type: 'test'
+      ...
+    # Subtest: returns failed unsent batches to pending and stops after the attempt budget
+    ok 3 - returns failed unsent batches to pending and stops after the attempt budget
+      ---
+      duration_ms: 131.8342
+      type: 'test'
+      ...
+    # Subtest: recovers expired leases without re-sending uncertain external effects
+    ok 4 - recovers expired leases without re-sending uncertain external effects
+      ---
+      duration_ms: 121.3281
+      type: 'test'
+      ...
+    # Subtest: reconciles unknown operations individually without deleting business history
+    ok 5 - reconciles unknown operations individually without deleting business history
+      ---
+      duration_ms: 133.898
+      type: 'test'
+      ...
+    # Subtest: persists leases and recovers an interrupted unsent run after reopening
+    ok 6 - persists leases and recovers an interrupted unsent run after reopening
+      ---
+      duration_ms: 130.9576
+      type: 'test'
+      ...
+    # Subtest: bounds each batch and never evicts pending messages for retention
+    ok 7 - bounds each batch and never evicts pending messages for retention
+      ---
+      duration_ms: 124.5559
+      type: 'test'
+      ...
+    # Subtest: imports a legacy JSON once, preserving the original archive
+    ok 8 - imports a legacy JSON once, preserving the original archive
+      ---
+      duration_ms: 96.7478
+      type: 'test'
+      ...
+    # Subtest: updates media without duplication and only marks specified pending IDs read
+    ok 9 - updates media without duplication and only marks specified pending IDs read
+      ---
+      duration_ms: 121.1481
+      type: 'test'
+      ...
+    # Subtest: persists conversation threads and append-only checkpoints
+    ok 10 - persists conversation threads and append-only checkpoints
+      ---
+      duration_ms: 94.8173
+      type: 'test'
+      ...
+    # Subtest: restores active threads after reopening and expires them by deadline
+    ok 11 - restores active threads after reopening and expires them by deadline
+      ---
+      duration_ms: 116.9661
+      type: 'test'
+      ...
+    # Subtest: applies lifecycle idle deadlines, hard rollover and one-shot resume state
+    ok 12 - applies lifecycle idle deadlines, hard rollover and one-shot resume state
+      ---
+      duration_ms: 127.2385
+      type: 'test'
+      ...
+    # Subtest: restores lifecycle provider turns after reopening
+    ok 13 - restores lifecycle provider turns after reopening
+      ---
+      duration_ms: 80.7097
+      type: 'test'
+      ...
+    # Subtest: adds lifecycle columns to databases created by the threaded pilot
+    ok 14 - adds lifecycle columns to databases created by the threaded pilot
+      ---
+      duration_ms: 124.275
+      type: 'test'
+      ...
+    # Subtest: atomically rolls back message acknowledgement when lifecycle persistence fails
+    ok 15 - atomically rolls back message acknowledgement when lifecycle persistence fails
+      ---
+      duration_ms: 88.769
+      type: 'test'
+      ...
+    1..15
+ok 414 - ChatStore
+  ---
+  duration_ms: 2169.4282
+  type: 'suite'
+  ...
+# (node:86708) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:86708) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# Subtest: legacy: inactive messages and pokes are archived without AI or catch-up
+ok 415 - legacy: inactive messages and pokes are archived without AI or catch-up
+  ---
+  duration_ms: 320.6516
+  type: 'test'
+  ...
+# Subtest: threaded: inactive messages and pokes are archived without AI or catch-up
+ok 416 - threaded: inactive messages and pokes are archived without AI or catch-up
+  ---
+  duration_ms: 77.4682
+  type: 'test'
+  ...
+# Subtest: lifecycle: inactive messages and pokes are archived without AI or catch-up
+ok 417 - lifecycle: inactive messages and pokes are archived without AI or catch-up
+  ---
+  duration_ms: 76.6459
+  type: 'test'
+  ...
+# Subtest: per-chat override enables only its own AI requests, including tool scopes
+ok 418 - per-chat override enables only its own AI requests, including tool scopes
+  ---
+  duration_ms: 65.2016
+  type: 'test'
+  ...
+# Subtest: inputs received while inactive remain record-only across an ingestion queue boundary
+ok 419 - inputs received while inactive remain record-only across an ingestion queue boundary
+  ---
+  duration_ms: 27.0602
+  type: 'test'
+  ...
+# Subtest: master-off sends the same model payload as an absent time-control config
+ok 420 - master-off sends the same model payload as an absent time-control config
+  ---
+  duration_ms: 10.1046
+  type: 'test'
+  ...
+# Subtest: global non-active hours block model tests, vision probes and token-based search
+ok 421 - global non-active hours block model tests, vision probes and token-based search
+  ---
+  duration_ms: 12.57
+  type: 'test'
+  ...
+# Subtest: daily summary excludes inactive source conversations even when globally active
+ok 422 - daily summary excludes inactive source conversations even when globally active
+  ---
+  duration_ms: 24.0853
+  type: 'test'
+  ...
+# Subtest: daily scheduler defers an inactive due time without creating a model session
+ok 423 - daily scheduler defers an inactive due time without creating a model session
+  ---
+  duration_ms: 17.1869
+  type: 'test'
+  ...
+# Subtest: enabling time control cancels an in-flight request and prevents retry
+ok 424 - enabling time control cancels an in-flight request and prevents retry
+  ---
+  duration_ms: 51.8314
+  type: 'test'
+  ...
+# Subtest: non-active boundary retires waiting input but preserves uncertain delivery
+ok 425 - non-active boundary retires waiting input but preserves uncertain delivery
+  ---
+  duration_ms: 65.566
+  type: 'test'
+  ...
+# Subtest: watcher fires exactly at closing boundary and disabled rules do not fire
+ok 426 - watcher fires exactly at closing boundary and disabled rules do not fire
+  ---
+  duration_ms: 0.6572
+  type: 'test'
+  ...
+# Subtest: config validation and override removal preserve the master-off default
+ok 427 - config validation and override removal preserve the master-off default
+  ---
+  duration_ms: 7.2785
+  type: 'test'
+  ...
+# Subtest: master-off ignores all schedules and overrides
+ok 428 - master-off ignores all schedules and overrides
+  ---
+  duration_ms: 2.2873
+  type: 'test'
+  ...
+# Subtest: DeepSeek off-peak windows include lunch, evenings, and Shanghai weekends
+ok 429 - DeepSeek off-peak windows include lunch, evenings, and Shanghai weekends
+  ---
+  duration_ms: 1.2285
+  type: 'test'
+  ...
+# Subtest: custom windows support overnight days, week wrap and half-open boundaries
+ok 430 - custom windows support overnight days, week wrap and half-open boundaries
+  ---
+  duration_ms: 1.5279
+  type: 'test'
+  ...
+# Subtest: overlapping windows merge and full-week coverage has no false boundary
+ok 431 - overlapping windows merge and full-week coverage has no false boundary
+  ---
+  duration_ms: 0.2655
+  type: 'test'
+  ...
+# Subtest: per-chat schedules override the default without affecting other chats
+ok 432 - per-chat schedules override the default without affecting other chats
+  ---
+  duration_ms: 0.3555
+  type: 'test'
+  ...
+# Subtest: invalid rules are rejected rather than silently expanding active hours
+ok 433 - invalid rules are rejected rather than silently expanding active hours
+  ---
+  duration_ms: 0.507
+  type: 'test'
+  ...
+# Subtest: Shanghai reporting day
+    # Subtest: formats model and session timestamps in Asia/Shanghai
+    ok 1 - formats model and session timestamps in Asia/Shanghai
+      ---
+      duration_ms: 1.1058
+      type: 'test'
+      ...
+    # Subtest: changes date at midnight in Asia/Shanghai
+    ok 2 - changes date at midnight in Asia/Shanghai
+      ---
+      duration_ms: 0.2584
+      type: 'test'
+      ...
+    # Subtest: returns the UTC instant for Shanghai midnight
+    ok 3 - returns the UTC instant for Shanghai midnight
+      ---
+      duration_ms: 0.1984
+      type: 'test'
+      ...
+    1..3
+ok 434 - Shanghai reporting day
+  ---
+  duration_ms: 3.8706
+  type: 'suite'
+  ...
+# (node:86656) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 轮数上限：很省模式 5 轮就收尾，关闭模式跑满用户设的 12 轮
+ok 435 - 轮数上限：很省模式 5 轮就收尾，关闭模式跑满用户设的 12 轮
+  ---
+  duration_ms: 462.276
+  type: 'test'
+  ...
+# Subtest: 单次运行预算：很省（5 万）比关闭（16 万）更早停
+ok 436 - 单次运行预算：很省（5 万）比关闭（16 万）更早停
+  ---
+  duration_ms: 66.1706
+  type: 'test'
+  ...
+# Subtest: 私聊也吃档位上限：很省模式下 contextLimit 被夹到 40
+ok 437 - 私聊也吃档位上限：很省模式下 contextLimit 被夹到 40
+  ---
+  duration_ms: 104.8533
+  type: 'test'
+  ...
+# (node:86784) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 模式归一化：默认 off，坏值也一律 off
+ok 438 - 模式归一化：默认 off，坏值也一律 off
+  ---
+  duration_ms: 2.2171
+  type: 'test'
+  ...
+# Subtest: 关闭模式：档位条数、运行预算、轮数都保持用户设置（与升级前一致）
+ok 439 - 关闭模式：档位条数、运行预算、轮数都保持用户设置（与升级前一致）
+  ---
+  duration_ms: 2.8057
+  type: 'test'
+  ...
+# Subtest: 省 / 很省：档位条数被夹到上限（只夹不放大）
+ok 440 - 省 / 很省：档位条数被夹到上限（只夹不放大）
+  ---
+  duration_ms: 0.6106
+  type: 'test'
+  ...
+# Subtest: 只夹不放大：用户本来填得比上限还小的时候原样保留
+ok 441 - 只夹不放大：用户本来填得比上限还小的时候原样保留
+  ---
+  duration_ms: 0.3264
+  type: 'test'
+  ...
+# Subtest: 配置层：默认 off、老配置迁移补 off、写回时归一化
+ok 442 - 配置层：默认 off、老配置迁移补 off、写回时归一化
+  ---
+  duration_ms: 36.8588
+  type: 'test'
+  ...
+# Subtest: 记忆：交接与印象注入的字符上限跟着模式走
+ok 443 - 记忆：交接与印象注入的字符上限跟着模式走
+  ---
+  duration_ms: 70.4853
+  type: 'test'
+  ...
+# Subtest: wrapper is a semantic pass-through when experiment is disabled
+ok 444 - wrapper is a semantic pass-through when experiment is disabled
+  ---
+  duration_ms: 3.7073
+  type: 'test'
+  ...
+# Subtest: wrapper prestarts only contiguous read calls and keeps ordered tools lazy
+ok 445 - wrapper prestarts only contiguous read calls and keeps ordered tools lazy
+  ---
+  duration_ms: 32.8577
+  type: 'test'
+  ...
+# Subtest: wrapper blocks finish after a prior tool error
+ok 446 - wrapper blocks finish after a prior tool error
+  ---
+  duration_ms: 0.7553
+  type: 'test'
+  ...
+# Subtest: wrapper suppresses side effects after finish
+ok 447 - wrapper suppresses side effects after finish
+  ---
+  duration_ms: 0.5627
+  type: 'test'
+  ...
+# Subtest: send tools reject message IDs and unknown users before creating an external write
+ok 448 - send tools reject message IDs and unknown users before creating an external write
+  ---
+  duration_ms: 3.094
+  type: 'test'
+  ...
+# Subtest: send tools accept a verified current group member
+ok 449 - send tools accept a verified current group member
+  ---
+  duration_ms: 0.563
+  type: 'test'
+  ...
+# Subtest: get_message_images refreshes an expired stored URL from the source message
+ok 450 - get_message_images refreshes an expired stored URL from the source message
+  ---
+  duration_ms: 1.4329
+  type: 'test'
+  ...
+# Subtest: malformed tool JSON returns actionable correction guidance without execution
+ok 451 - malformed tool JSON returns actionable correction guidance without execution
+  ---
+  duration_ms: 2.4942
+  type: 'test'
+  ...
+# Subtest: finish conservatively repairs unescaped quotes inside string values
+ok 452 - finish conservatively repairs unescaped quotes inside string values
+  ---
+  duration_ms: 0.8862
+  type: 'test'
+  ...
+# Subtest: @ 给别人不是「@我」：@群友、@别的机器人都不算点名
+ok 453 - @ 给别人不是「@我」：@群友、@别的机器人都不算点名
+  ---
+  duration_ms: 5.2312
+  type: 'test'
+  ...
+# Subtest: @全体成员 不是「@我」（它是喊所有人，档位判定也不当召唤）
+ok 454 - @全体成员 不是「@我」（它是喊所有人，档位判定也不当召唤）
+  ---
+  duration_ms: 0.8998
+  type: 'test'
+  ...
+# Subtest: 真被 @ 的四条路径都要写「@我」
+ok 455 - 真被 @ 的四条路径都要写「@我」
+  ---
+  duration_ms: 0.811
+  type: 'test'
+  ...
+# Subtest: 转发记录/引用预览里的 @ 是别人的话，不算叫我
+ok 456 - 转发记录/引用预览里的 @ 是别人的话，不算叫我
+  ---
+  duration_ms: 0.8789
+  type: 'test'
+  ...
+# Subtest: 名字前缀与大小写：@小鲸鱼 不是叫「小鲸」
+ok 457 - 名字前缀与大小写：@小鲸鱼 不是叫「小鲸」
+  ---
+  duration_ms: 18.8583
+  type: 'test'
+  ...
+# Subtest: 同时 @ 别人和 @ 我：只写「@我」，不写「艾特别人」
+ok 458 - 同时 @ 别人和 @ 我：只写「@我」，不写「艾特别人」
+  ---
+  duration_ms: 0.2913
+  type: 'test'
+  ...
+# Subtest: 没有 @ 的消息不打点名牌：邮箱、只打一个 @、普通聊天都不算
+ok 459 - 没有 @ 的消息不打点名牌：邮箱、只打一个 @、普通聊天都不算
+  ---
+  duration_ms: 0.7518
+  type: 'test'
+  ...
+# Subtest: 不知道自己 QQ 号时，数字形态的 @ 不贴「艾特别人」
+ok 460 - 不知道自己 QQ 号时，数字形态的 @ 不贴「艾特别人」
+  ---
+  duration_ms: 0.9427
+  type: 'test'
+  ...
+# Subtest: @ 判定与档位判定同源：isAtMe 认 @QQ号 形态
+ok 461 - @ 判定与档位判定同源：isAtMe 认 @QQ号 形态
+  ---
+  duration_ms: 0.5196
+  type: 'test'
+  ...
+# Subtest: 端到端：本次唤醒那一段里不再把别人的点名标成（@我）
+ok 462 - 端到端：本次唤醒那一段里不再把别人的点名标成（@我）
+  ---
+  duration_ms: 2.18
+  type: 'test'
+  ...
+# Subtest: network settings are bounded and keep backward-compatible defaults
+ok 463 - network settings are bounded and keep backward-compatible defaults
+  ---
+  duration_ms: 5.919
+  type: 'test'
+  ...
+# Subtest: retry operation uses exponential backoff and stops after success
+ok 464 - retry operation uses exponential backoff and stops after success
+  ---
+  duration_ms: 1.0701
+  type: 'test'
+  ...
+# Subtest: non-transient branch/auth errors fail without retry
+ok 465 - non-transient branch/auth errors fail without retry
+  ---
+  duration_ms: 2.0039
+  type: 'test'
+  ...
+# Subtest: Git transport defaults to HTTP/1.1 and can be disabled
+ok 466 - Git transport defaults to HTTP/1.1 and can be disabled
+  ---
+  duration_ms: 0.6904
+  type: 'test'
+  ...
+# Subtest: undici 的 fetch 失败按其 cause 判定为可重试
+ok 467 - undici 的 fetch 失败按其 cause 判定为可重试
+  ---
+  duration_ms: 0.8781
+  type: 'test'
+  ...
+# Subtest: parses GitHub repository slugs
+ok 468 - parses GitHub repository slugs
+  ---
+  duration_ms: 2.6306
+  type: 'test'
+  ...
+# Subtest: advertises a published release with its notes and the commits it brings
+ok 469 - advertises a published release with its notes and the commits it brings
+  ---
+  duration_ms: 15.1819
+  type: 'test'
+  ...
+# Subtest: a release already contained in the deployment is "current", never a rollback
+ok 470 - a release already contained in the deployment is "current", never a rollback
+  ---
+  duration_ms: 19.1205
+  type: 'test'
+  ...
+# Subtest: diverged lines still follow the release
+ok 471 - diverged lines still follow the release
+  ---
+  duration_ms: 8.3961
+  type: 'test'
+  ...
+# Subtest: a repository without any release never advertises an update
+ok 472 - a repository without any release never advertises an update
+  ---
+  duration_ms: 6.1427
+  type: 'test'
+  ...
+# Subtest: draft and prerelease builds are not advertised
+ok 473 - draft and prerelease builds are not advertised
+  ---
+  duration_ms: 13.1986
+  type: 'test'
+  ...
+# Subtest: an unknown deployment baseline is described but not advertised
+ok 474 - an unknown deployment baseline is described but not advertised
+  ---
+  duration_ms: 5.1671
+  type: 'test'
+  ...
+# Subtest: a failed release lookup is neither cached nor reported as "no release"
+ok 475 - a failed release lookup is neither cached nor reported as "no release"
+  ---
+  duration_ms: 9.8562
+  type: 'test'
+  ...
+# Subtest: a failed comparison neither advertises nor caches, so the direction is never guessed
+ok 476 - a failed comparison neither advertises nor caches, so the direction is never guessed
+  ---
+  duration_ms: 8.8932
+  type: 'test'
+  ...
+# Subtest: serves cached results within the TTL and refreshes once the baseline moves
+ok 477 - serves cached results within the TTL and refreshes once the baseline moves
+  ---
+  duration_ms: 10.3073
+  type: 'test'
+  ...
+# Subtest: the GitHub API base can be pointed elsewhere for tests and mirrors
+ok 478 - the GitHub API base can be pointed elsewhere for tests and mirrors
+  ---
+  duration_ms: 0.4658
+  type: 'test'
+  ...
+# Subtest: ignores exactly one release tag at a time
+ok 479 - ignores exactly one release tag at a time
+  ---
+  duration_ms: 6.3586
+  type: 'test'
+  ...
+# (node:85140) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 账户级包月：多个模型也只有一个固定支出，不会按模型数翻倍
+ok 480 - 账户级包月：多个模型也只有一个固定支出，不会按模型数翻倍
+  ---
+  duration_ms: 424.629
+  type: 'test'
+  ...
+# Subtest: 未定价 ≠ 免费：没价的调用单独计数，明细接口也要带上
+ok 481 - 未定价 ≠ 免费：没价的调用单独计数，明细接口也要带上
+  ---
+  duration_ms: 323.0888
+  type: 'test'
+  ...
+# (node:85736) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: doubaoSearch：请求体 PascalCase + Bearer 认证 + Result.WebResults 解析
+ok 482 - doubaoSearch：请求体 PascalCase + Bearer 认证 + Result.WebResults 解析
+  ---
+  duration_ms: 37.5917
+  type: 'test'
+  ...
+# Subtest: doubaoSearch：未配置 Key 时明确报错
+ok 483 - doubaoSearch：未配置 Key 时明确报错
+  ---
+  duration_ms: 6.6459
+  type: 'test'
+  ...
+# Subtest: doubaoSearch：Key 回退环境变量 DOUBAO_SEARCH_API_KEY
+ok 484 - doubaoSearch：Key 回退环境变量 DOUBAO_SEARCH_API_KEY
+  ---
+  duration_ms: 4.0404
+  type: 'test'
+  ...
+# Subtest: doubaoSearch：HTTP 错误带状态码与响应片段
+ok 485 - doubaoSearch：HTTP 错误带状态码与响应片段
+  ---
+  duration_ms: 3.7364
+  type: 'test'
+  ...
+# Subtest: doubaoSearch：HTTP 200 + ResponseMetadata.Error 时抛出真实错误码与信息（Issue \#8）
+ok 486 - doubaoSearch：HTTP 200 + ResponseMetadata.Error 时抛出真实错误码与信息（Issue \#8）
+  ---
+  duration_ms: 4.6304
+  type: 'test'
+  ...
+# Subtest: doubaoSearch：空结果报额度/权限提示
+ok 487 - doubaoSearch：空结果报额度/权限提示
+  ---
+  duration_ms: 3.8421
+  type: 'test'
+  ...
+# Subtest: webSearch() 路由：provider=doubao 走豆包
+ok 488 - webSearch() 路由：provider=doubao 走豆包
+  ---
+  duration_ms: 3.5578
+  type: 'test'
+  ...
+# Subtest: /api/config 不泄露 webSearch.doubao.apiKey 明文（脱敏走通用 SECRET_KEY_PATTERN）
+ok 489 - /api/config 不泄露 webSearch.doubao.apiKey 明文（脱敏走通用 SECRET_KEY_PATTERN）
+  ---
+  duration_ms: 718.4132
+  type: 'test'
+  ...
+1..489
+# tests 566
+# suites 4
+# pass 517
+# fail 46
+# cancelled 0
+# skipped 3
+# todo 0
+# duration_ms 46646.4702

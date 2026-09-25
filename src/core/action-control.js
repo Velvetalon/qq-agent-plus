@@ -16,7 +16,8 @@ export const VISIBLE_EXTERNAL_TOOL_NAMES = Object.freeze(new Set([
   'send_message',
   'send_sticker',
   'send_face',
-  'send_poke'
+  'send_poke',
+  'friend_request_propose'
 ]));
 
 // P4 may register this tool later. Keep its same-round contract explicit now.
@@ -114,6 +115,9 @@ function effectOfCall(call, defsByName) {
   if (VISIBLE_EXTERNAL_TOOL_NAMES.has(name)) {
     return { name, terminal: false, effect: 'external-visible', known: true };
   }
+  if (def?.effect === 'external-write') {
+    return { name, terminal: false, effect: 'external-visible', known: true };
+  }
   if (FUTURE_LOCAL_WRITE_TOOL_NAMES.has(name)) {
     return { name, terminal: false, effect: 'local-write', known: true };
   }
@@ -168,13 +172,17 @@ export function preflightToolCalls(calls, defs = []) {
           )
         };
       }
-      if (effect.terminal && terminalBlocked) {
+      if (terminalBlocked) {
         return {
           index,
           call,
           effect,
           execute: false,
-          result: blockedTerminalResult(terminalBlockReason)
+          result: blockedTerminalResult(
+            effect.terminal
+              ? terminalBlockReason
+              : `本批次终止边界无效，未执行：${terminalBlockReason}`
+          )
         };
       }
       return { index, call, effect, execute: true, result: null };
@@ -250,6 +258,15 @@ export function summarizeOutbound(session, store = null) {
   return summary;
 }
 
+export function hasOutboundEffects(outbound) {
+  return Number(outbound?.attempted) > 0
+    || Number(outbound?.succeeded) > 0
+    || Number(outbound?.failed) > 0
+    || Number(outbound?.unknown) > 0
+    || Number(outbound?.held) > 0
+    || (Array.isArray(outbound?.effects) && outbound.effects.length > 0);
+}
+
 export function recordOutboundObservation(session, name, result, callId = '') {
   if (!VISIBLE_EXTERNAL_TOOL_NAMES.has(String(name || ''))) return;
   session.outbound ||= emptyOutbound();
@@ -270,12 +287,7 @@ export function commitStaySilent(session, request, {
   const valid = validateStaySilentArgs(request);
   if (!valid.ok) return { committed: false, blocked: true, error: valid };
   const value = valid.value;
-  const hasOutbound = Number(outbound?.attempted) > 0
-    || Number(outbound?.succeeded) > 0
-    || Number(outbound?.failed) > 0
-    || Number(outbound?.unknown) > 0
-    || Number(outbound?.held) > 0
-    || (Array.isArray(outbound?.effects) && outbound.effects.length > 0);
+  const hasOutbound = hasOutboundEffects(outbound);
   session.outbound = outbound;
   session.participation = {
     mode: 'silent',

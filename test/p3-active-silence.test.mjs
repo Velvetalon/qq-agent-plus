@@ -12,6 +12,7 @@ import { createRuntimeControlContext } from '../src/plugins/context.js';
 import { annotateExperimentalToolSchemas, ExperimentalToolBatch } from '../src/pilots/experimental-tool-scheduler.js';
 import { buildSystemPrompt } from '../src/llm/prompt.js';
 import { DEFAULT_CONFIG } from '../src/core/config.js';
+import { resolveToolCalls } from '../src/tools/inline-tools.js';
 
 function call(id, name, args = {}) {
   return {
@@ -72,14 +73,40 @@ test('terminal batch preflight is independent of scheduler enablement', async ()
     ['stay_silent', 'control', true]
   ));
   assert.equal(conflict.validTerminal, false);
+  assert.equal(conflict.calls[0].execute, false);
+  assert.equal(conflict.calls[0].result.errorCode, 'TERMINAL_BATCH_BLOCKED');
   assert.equal(conflict.calls[1].result.errorCode, 'TERMINAL_BATCH_BLOCKED');
   assert.equal(conflict.calls[1].result.terminalBlocked, true);
+
+  const unknownConflict = preflightToolCalls([
+    call('u', 'unknown_effect', { value: true }),
+    stay
+  ], defs(['stay_silent', 'control', true]));
+  assert.equal(unknownConflict.validTerminal, false);
+  assert.equal(unknownConflict.calls[0].execute, false);
+  assert.equal(unknownConflict.calls[1].execute, false);
+
+  const friendConflict = preflightToolCalls([
+    call('f', 'friend_request_propose', {
+      userId: '42',
+      reasonCode: 'interest',
+      reason: 'test'
+    }),
+    stay
+  ], defs(
+    ['friend_request_propose', 'external-write'],
+    ['stay_silent', 'control', true]
+  ));
+  assert.equal(friendConflict.validTerminal, false);
+  assert.equal(friendConflict.calls[0].execute, false);
+  assert.equal(friendConflict.calls[1].execute, false);
 
   const trailing = preflightToolCalls([stay, send], defs(
     ['send_message', 'external-write'],
     ['stay_silent', 'control', true]
   ));
   assert.equal(trailing.calls[0].execute, false);
+  assert.equal(trailing.calls[0].result.terminalBlocked, true);
   assert.equal(trailing.calls[1].result.skipped, true);
   assert.equal(trailing.calls[1].result.errorCode, 'SKIPPED_AFTER_TERMINAL');
 
@@ -91,6 +118,7 @@ test('terminal batch preflight is independent of scheduler enablement', async ()
     ['stay_silent', 'control', true]
   ));
   assert.equal(duplicate.validTerminal, false);
+  assert.equal(duplicate.calls[0].execute, false);
   assert.equal(duplicate.calls[0].result.terminalBlocked, true);
   assert.equal(duplicate.calls[1].result.skipped, true);
 
@@ -99,6 +127,19 @@ test('terminal batch preflight is independent of scheduler enablement', async ()
     stay
   ], defs(['notebook_append', 'local-write'], ['stay_silent', 'control', true]));
   assert.equal(futureNotebook.validTerminal, true);
+  assert.equal(futureNotebook.calls[0].execute, true);
+  assert.equal(futureNotebook.calls[1].execute, true);
+
+  const sendThenFinish = preflightToolCalls([
+    send,
+    call('f', 'finish', { summary: 'sent' })
+  ], defs(
+    ['send_message', 'external-write'],
+    ['finish', 'control', true]
+  ));
+  assert.equal(sendThenFinish.validTerminal, true);
+  assert.equal(sendThenFinish.calls[0].execute, true);
+  assert.equal(sendThenFinish.calls[1].execute, true);
 
   const schemas = annotateExperimentalToolSchemas([
     { type: 'function', function: { name: 'stay_silent', description: 'silent', parameters: {} } }
@@ -143,13 +184,83 @@ test('stay_silent commits explicit silence only with zero outbound effects', () 
   assert.equal(blocked.committed, false);
   assert.equal(priorSend.termination.kind, 'blocked');
   assert.equal(priorSend.termination.blocked, true);
+
+  for (const state of ['failed', 'unknown', 'held']) {
+    const prior = {
+      id: `s-${state}`,
+      leaseId: `r-${state}`,
+      sent: [],
+      outbound: {
+        effects: [{ id: `e-${state}`, type: 'send_message', state }]
+      }
+    };
+    const outcome = commitStaySilent(prior, request, {
+      terminalToolCallId: 'terminal',
+      outbound: summarizeOutbound(prior)
+    });
+    assert.equal(outcome.committed, false, `${state} effect must block explicit silence`);
+    assert.equal(prior.termination.kind, 'blocked');
+  }
+});
+
+test('stay_silent accepts the boundary reason length and rejects malformed enums', () => {
+  const base = {
+    reasonCode: 'waiting_for_context',
+    reason: 'x'.repeat(240),
+    threadDisposition: 'listening'
+  };
+  assert.equal(validateStaySilentArgs(base).ok, true);
+  assert.equal(validateStaySilentArgs({ ...base, reason: 'x'.repeat(241) }).ok, false);
+  assert.equal(validateStaySilentArgs({
+    ...base,
+    reasonCode: 'silent'
+  }).ok, false);
+  assert.equal(validateStaySilentArgs({
+    ...base,
+    threadDisposition: 'paused'
+  }).ok, false);
+});
+
+test('inline and native tool calls share the same terminal preflight', () => {
+  const inline = resolveToolCalls({
+    content: [
+      '<tool_call>{"name":"send_message","arguments":{"messages":"must not send"}}</tool_call>',
+      '<tool_call>{"name":"stay_silent","arguments":{'
+        + '"reasonCode":"already_answered","threadDisposition":"active"}}</tool_call>'
+    ].join('\n')
+  });
+  const native = [
+    call('send', 'send_message', { messages: 'must not send' }),
+    call('silent', 'stay_silent', {
+      reasonCode: 'already_answered',
+      threadDisposition: 'active'
+    })
+  ];
+  const names = [
+    ['send_message', 'external-write'],
+    ['stay_silent', 'control', true]
+  ];
+  const inlinePlan = preflightToolCalls(inline, defs(...names));
+  const nativePlan = preflightToolCalls(native, defs(...names));
+  assert.deepEqual(
+    inlinePlan.calls.map((item) => [item.execute, item.result?.errorCode]),
+    nativePlan.calls.map((item) => [item.execute, item.result?.errorCode])
+  );
+  assert.deepEqual(
+    inlinePlan.calls.map((item) => item.execute),
+    [false, false]
+  );
 });
 
 test('participation policy is present once and exposes explicit silence without role-text edits', () => {
   const cfg = structuredClone(DEFAULT_CONFIG);
+  const roleText = '请保持这个角色原文。';
+  cfg.persona.roleText = roleText;
   const prompt = buildSystemPrompt({ persona: cfg.persona });
   assert.ok((prompt.match(/【该说\/不该说】/g) || []).length >= 1);
   assert.match(prompt, /stay_silent/);
   assert.match(prompt, /reasonCode/);
   assert.match(prompt, /threadDisposition/);
+  assert.equal(cfg.persona.roleText, roleText);
+  assert.equal((prompt.match(new RegExp(roleText, 'g')) || []).length, 1);
 });
