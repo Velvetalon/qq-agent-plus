@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DATA_DIR, getConfig } from '../core/config.js';
+import { cappedByTokenSaver, tokenSaverCapsOf } from '../core/token-saver.js';
 import {
   addUsage,
   cachedTokensOfUsage,
@@ -9,6 +10,7 @@ import {
   emptyUsage
 } from '../llm/llm.js';
 import { assertTimeAllowed, watchTimeWindow, withTimeScope } from '../core/time-gate.js';
+import { resolveSelfName } from '../core/util.js';
 import { timeControlState } from '../core/time-control.js';
 import {
   estimateQzoneTokens,
@@ -23,14 +25,21 @@ import {
   QZONE_INTERACTION_PROMPT_VERSION
 } from '../llm/qzone-interaction-prompt.js';
 import { resolveToolCalls } from '../tools/inline-tools.js';
-import { minuteOfDayInZone } from '../core/util.js';
+import { minuteOfDayInZone, sanitizeUserText } from '../core/util.js';
 
 const STATE_FILE = path.join(DATA_DIR, 'qzone-interactions.json');
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_STATE_ITEMS = 2000;
+// 腾讯侧 feeds3_html_more 偶发繁忙（network busy / 使用人数过多）通常几十秒内恢复：
+// 抓取失败先等一会儿重试一次，仍失败才记账走退避。
+const FEED_RETRY_DELAY_MS = 45000;
+// 连续失败到第 3 次才上报异常通知：一次限流不值得顶一条"错误"给管理员。
+const FAILURE_NOTIFY_STREAK = 3;
 
 function cleanText(value, max = 1000) {
-  return String(value ?? '').replace(/\0/g, '').replace(/[ \t]+/g, ' ').trim().slice(0, max);
+  // 双保险：数据源头（qzone-feed.js 的 compact）已过 sanitizeUserText，
+  // 拼进互动决策提示词前再过一次 —— 昵称等字段可能绕过 compact 直达这里。
+  return sanitizeUserText(String(value ?? '').replace(/\0/g, '').replace(/[ \t]+/g, ' ').trim()).slice(0, max);
 }
 
 function readJson(file, fallback) {
@@ -51,6 +60,15 @@ function writeJson(file, value) {
 
 function interactionError(code, message, httpStatus = 409) {
   return Object.assign(new Error(message), { code, httpStatus });
+}
+
+/**
+ * 哪些错误不算"这一轮失败了"：主动停止/重启（手动停用、换配置），以及全局时间控制把运行
+ * 中止在非活跃时段。这两类都是正常结束，不该累计失败计数、更不该顶一条异常通知出来。
+ */
+export function isNonFailureRunError(error) {
+  if (error?.code === 'TIME_CONTROL_INACTIVE') return true;
+  return /Qzone interaction task stopped/i.test(String(error?.message ?? error));
 }
 
 // ── 活跃时段（本功能专用）：窗口外不阅览动态，也不影响聊天回复 ──
@@ -216,14 +234,14 @@ function sanitizePlan(raw, batch, cfg) {
 
 function publicPost(post) {
   return {
-    author: post.nickname || '好友',
+    author: sanitizeUserText(post.nickname) || '好友',
     time: post.time,
     content: cleanText(post.content, 1200),
     imageCount: post.images?.length || 0,
     commentCount: post.comments?.length || 0,
     alreadyLiked: post.isLiked === true,
     recentComments: (post.comments || []).slice(-8).map((comment) => ({
-      author: comment.nickname || '好友',
+      author: sanitizeUserText(comment.nickname) || '好友',
       content: cleanText(comment.content, 300)
     }))
   };
@@ -231,15 +249,15 @@ function publicPost(post) {
 
 function publicReply(item) {
   return {
-    author: item.comment.nickname || '好友',
+    author: sanitizeUserText(item.comment.nickname) || '好友',
     time: item.comment.time || item.discoveredAt,
     content: cleanText(item.comment.content, 500),
     post: {
-      author: item.post.nickname || '好友',
+      author: sanitizeUserText(item.post.nickname) || '好友',
       content: cleanText(item.post.content, 800)
     },
     thread: (item.context || []).slice(-10).map((comment) => ({
-      author: comment.nickname || '好友',
+      author: sanitizeUserText(comment.nickname) || '好友',
       content: cleanText(comment.content, 300),
       self: comment.self === true
     }))
@@ -466,26 +484,22 @@ export class QzoneInteractionManager {
       || now - this.state.lastReplyPollAt >= cfg.replyIntervalMinutes * 60000;
     if (feedDue || replyDue) {
       try {
-        await this.#exclusive('scheduled', () => this.#run({
+        const result = await this.#exclusive('scheduled', () => this.#run({
           kind: feedDue && replyDue ? 'all' : (feedDue ? 'feed' : 'reply'),
           source: 'scheduled',
           includeExisting: cfg.startupCatchup
         }));
-        if (Number(this.state.failStreak)) {
+        // 好友动态抓取失败（重试后仍没拿到）算这一轮降级：评论检查与未读积压已经照跑，
+        // 但失败计数和退避照旧，保持"接口出问题就慢下来"的保护。
+        const feedError = result?.run?.feedError;
+        if (feedError) this.#recordFailure(`好友动态抓取失败（已重试一次）: ${feedError}`);
+        else if (Number(this.state.failStreak)) {
           this.state.failStreak = 0;
           this.#save();
         }
       } catch (error) {
-        const message = String(error?.message ?? error);
-        // 主动停止/重启触发的 abort 不是故障：不上报、不退避
-        if (!/Qzone interaction task stopped/i.test(message)) {
-          const streak = Math.min(6, (Number(this.state.failStreak) || 0) + 1);
-          this.state.failStreak = streak;
-          this.#save();
-          // 一轮连续故障只上报一次，之后安静退避重试（避免刷屏 + 避免被 QQ 限流）
-          if (streak === 1) this.log('[qzone-interactions] run failed:', message);
-          else console.log(`[qzone-interactions] run failed（连续 ${streak} 次，退避重试中）:`, message);
-        }
+        // 主动停止/重启、或全局时间控制判定离开活跃时段：不是故障，不上报也不退避
+        if (!isNonFailureRunError(error)) this.#recordFailure(String(error?.message ?? error));
       }
     }
     if (!this.stopped) {
@@ -499,6 +513,18 @@ export class QzoneInteractionManager {
     }
   }
 
+  /**
+   * 记一次失败：累加连续失败计数（供退避使用），并决定要不要上报异常通知。
+   * 腾讯侧偶发繁忙很常见，前两次只写日志；连到第 3 次仍失败才当故障通知，之后安静退避重试。
+   */
+  #recordFailure(message) {
+    const streak = Math.min(6, (Number(this.state.failStreak) || 0) + 1);
+    this.state.failStreak = streak;
+    this.#save();
+    if (streak === FAILURE_NOTIFY_STREAK) this.log('[qzone-interactions] run failed:', message);
+    else console.log(`[qzone-interactions] run failed（连续 ${streak} 次，退避重试中）:`, message);
+  }
+
   #save() {
     this.#prune();
     writeJson(this.stateFile, this.state);
@@ -507,11 +533,20 @@ export class QzoneInteractionManager {
 
   #prune() {
     const cutoff = this.now() - 30 * 24 * HOUR_MS;
-    const trim = (items) => items
-      .filter((item) => item.status === 'unread' || item.status === 'unknown'
-        || Number(item.updatedAt || item.discoveredAt) >= cutoff)
-      .sort((a, b) => Number(b.discoveredAt) - Number(a.discoveredAt))
-      .slice(0, MAX_STATE_ITEMS);
+    // 未处理的（unread）与待人工核对的（unknown）永远保留，只对已结束的旧项做上限截断。
+    // 此前是过滤后直接 slice：一旦超过上限，最老的 unread/unknown 会被静默丢掉——既不记日志
+    // 也不改状态，等于那批动态再也不会被处理。
+    const trim = (items) => {
+      const kept = items.filter((item) => item.status === 'unread' || item.status === 'unknown'
+        || Number(item.updatedAt || item.discoveredAt) >= cutoff);
+      const active = kept.filter((item) => item.status === 'unread' || item.status === 'unknown');
+      const settled = kept.filter((item) => item.status !== 'unread' && item.status !== 'unknown')
+        .sort((a, b) => Number(b.discoveredAt) - Number(a.discoveredAt));
+      const room = Math.max(0, MAX_STATE_ITEMS - active.length);
+      const keep = new Set([...active, ...settled.slice(0, room)]);
+      return kept.filter((item) => keep.has(item))
+        .sort((a, b) => Number(b.discoveredAt) - Number(a.discoveredAt));
+    };
     this.state.feeds = trim(this.state.feeds);
     this.state.comments = trim(this.state.comments);
     this.state.watchedPosts = this.state.watchedPosts
@@ -578,7 +613,8 @@ export class QzoneInteractionManager {
     }
   }
 
-  async #discoverFeeds(cfg, signal) {
+  /** 取一页好友动态；接口失败与返回结构异常都算失败，由 #discoverFeeds 决定是否重试。 */
+  async #fetchFeeds(cfg, signal) {
     const data = await this.onebot.call(
       'get_qzone_feeds',
       { page_num: 1, count: cfg.feedFetchCount },
@@ -586,6 +622,36 @@ export class QzoneInteractionManager {
       signal
     );
     if (!Array.isArray(data?.feeds)) throw new Error('好友动态接口返回格式无效');
+    return data;
+  }
+
+  /** 重试前的等待；这期间被中止就立刻结束等待，由调用方 throwIfAborted 收尾。 */
+  async #waitBeforeFeedRetry(signal) {
+    if (!signal) {
+      await this.sleep(FEED_RETRY_DELAY_MS);
+      return;
+    }
+    if (signal.aborted) return;
+    await Promise.race([
+      this.sleep(FEED_RETRY_DELAY_MS),
+      new Promise((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+    ]);
+  }
+
+  async #discoverFeeds(cfg, signal) {
+    let data;
+    try {
+      data = await this.#fetchFeeds(cfg, signal);
+    } catch (error) {
+      signal?.throwIfAborted();
+      console.log(
+        `[qzone-interactions] 好友动态抓取失败，${Math.round(FEED_RETRY_DELAY_MS / 1000)} 秒后重试一次:`,
+        cleanText(error?.message ?? error, 200)
+      );
+      await this.#waitBeforeFeedRetry(signal);
+      signal?.throwIfAborted();
+      data = await this.#fetchFeeds(cfg, signal);
+    }
     const cutoff = Math.floor((this.now() - cfg.maxAgeHours * HOUR_MS) / 1000);
     let discovered = 0;
     for (const raw of data.feeds) {
@@ -638,7 +704,7 @@ export class QzoneInteractionManager {
         const post = {
           uin: selfId,
           tid: String(item.tid || ''),
-          nickname: this.onebot.selfNickname || getConfig().persona?.botName || '我',
+          nickname: resolveSelfName(getConfig().persona || {}, this.onebot.selfNickname || ''),
           content: cleanText(item.content, 1200),
           time: Number(item.time) || 0,
           commentCount: Number(item.comment_num) || 0
@@ -713,11 +779,12 @@ export class QzoneInteractionManager {
       ...feeds.map((item) => ({ type: 'feed', item }))
     ].slice(0, cfg.maxBatchItems);
     const root = getConfig();
-    const systemPrompt = buildQzoneInteractionPrompt(root.persona);
+    const systemPrompt = buildQzoneInteractionPrompt(root.persona, { accountNickname: this.onebot?.selfNickname || '' });
     const tools = openAiTools([this.#submitToolDef([], [], cfg)]);
+    // 与主运行同口径：省 Token 模式夹住单次预算上限
     const hardLimit = Math.min(
       Math.max(16000, Number(root.api?.contextWindowTokens) || 1000000),
-      Math.max(20000, Number(root.api?.maxRunTokens) || 160000)
+      Math.max(20000, cappedByTokenSaver(Number(root.api?.maxRunTokens) || 160000, tokenSaverCapsOf(root)?.maxRunTokens))
     );
     const budget = Math.max(4000, hardLimit - 8192);
     const selected = [];
@@ -790,7 +857,7 @@ export class QzoneInteractionManager {
 
   async #decide(batch, cfg, session, signal) {
     const root = getConfig();
-    const systemPrompt = buildQzoneInteractionPrompt(root.persona);
+    const systemPrompt = buildQzoneInteractionPrompt(root.persona, { accountNickname: this.onebot?.selfNickname || '' });
     const defs = [this.#submitToolDef(batch.feeds, batch.replies, cfg)];
     const tools = openAiTools(defs);
     const userPrompt = [
@@ -947,6 +1014,9 @@ export class QzoneInteractionManager {
     const replyMap = new Map(batch.replies.map((item) => [item.id, item.state]));
     let writes = 0;
     for (const action of plan.replyActions) {
+      // 窗口关闭/手动停止后不再发起新的写入：未尝试的条目保持 unread，
+      // 留给下一个活跃窗口重试；catch 里的 unknown 只覆盖"在途中止"。
+      if (signal?.aborted) break;
       const item = replyMap.get(action.id);
       item.decision = action.action;
       item.reason = action.reason;
@@ -977,6 +1047,19 @@ export class QzoneInteractionManager {
         });
         run.actions.push({ type: 'reply', key: item.key, status: 'done' });
       } catch (error) {
+        if (signal?.aborted) {
+          // 走到这里说明中止发生在请求**在途**时（发出前的中止已被循环头拦截）：
+          // 无法确认服务端是否已写入，按模块自身不变量（docs/QZONE_INTERACTIONS.md
+          // 「写入发起后中断 → unknown，永不自动重试」）记 unknown 等人工核对。
+          // 原来恢复成 unread 会把可能已发出的回复在下一轮再发一遍（5aaa134 引入的回归）。
+          // break 是兜底：正常情况下循环头已经拦住了后续条目。
+          item.status = 'unknown';
+          item.error = 'aborted';
+          item.updatedAt = this.now();
+          run.actions.push({ type: 'reply', key: item.key, status: 'unknown', error: 'aborted' });
+          this.#save();
+          break;
+        }
         item.status = 'unknown';
         item.error = cleanText(error?.message ?? error, 500);
         item.updatedAt = this.now();
@@ -985,6 +1068,8 @@ export class QzoneInteractionManager {
       this.#save();
     }
     for (const action of plan.feedActions) {
+      // 同 reply 循环：中止后不再发起新写入，未尝试条目保持 unread 可重试。
+      if (signal?.aborted) break;
       const item = feedMap.get(action.id);
       item.decision = action.action;
       item.reason = action.reason;
@@ -1011,6 +1096,17 @@ export class QzoneInteractionManager {
           this.#watchPost(item.post, { ownComment: action.content });
           run.actions.push({ type: 'comment', key: item.key, status: 'done' });
         } catch (error) {
+          if (signal?.aborted) {
+            // 同上：在途中止按 unknown 处理，绝不回到 unread 重来 —— 否则已发出的评论会被
+            // 下一轮重新决策、重复发布（like_comment 里评论已 done 后点赞被中止的场景尤其如此）。
+            // break：signal 已中止，后面未尝试的条目保持 unread 留待重试。
+            item.commentStatus = 'unknown';
+            item.status = 'unknown';
+            item.error = 'aborted';
+            run.actions.push({ type: 'comment', key: item.key, status: 'unknown', error: 'aborted' });
+            this.#save();
+            break;
+          }
           item.commentStatus = 'unknown';
           item.status = 'unknown';
           item.error = cleanText(error?.message ?? error, 500);
@@ -1030,6 +1126,16 @@ export class QzoneInteractionManager {
           item.likeStatus = 'done';
           run.actions.push({ type: 'like', key: item.key, status: 'done' });
         } catch (error) {
+          if (signal?.aborted) {
+            // 同上：点赞在途中止记 unknown；commentStatus 保持原值 —— 评论可能已经成功，
+            // 不能因为点赞中止就被抹掉或跟着重做。break：未尝试的条目保持 unread 留待重试。
+            item.likeStatus = 'unknown';
+            item.status = 'unknown';
+            item.error = 'aborted';
+            run.actions.push({ type: 'like', key: item.key, status: 'unknown', error: 'aborted' });
+            this.#save();
+            break;
+          }
           item.likeStatus = 'unknown';
           item.status = 'unknown';
           item.error = cleanText(error?.message ?? error, 500);
@@ -1084,13 +1190,28 @@ export class QzoneInteractionManager {
     const release = watchTimeWindow((error) => this.controller?.abort(error), '');
     let session = null;
     try {
+      let feedOk = false;
       if (kind === 'all' || kind === 'feed') {
-        run.discoveredFeeds = await this.#discoverFeeds(cfg, this.controller.signal);
+        try {
+          run.discoveredFeeds = await this.#discoverFeeds(cfg, this.controller.signal);
+          feedOk = true;
+        } catch (error) {
+          // 中止（手动停止/重启/离开活跃时段）照旧结束整轮，不算接口失败
+          this.controller?.signal?.throwIfAborted();
+          // 好友动态这一路不再让整轮失败：腾讯侧偶发繁忙很常见，照 get_qzone_msg_list 的既有做法
+          // 记下来继续跑——本轮仍然检查评论回复、处理已积压的未读。失败计数、退避和
+          // "连续 3 次才上报"由 #tick 统一处理，这里只留一条不出通知的日志。
+          // 原因必须非空：下一轮要不要退避是看 feedError 真假的，空字符串会被当成"这轮没失败"，
+          // 下次只隔 1 秒就又来一次——正是 2026-09-17 那次打密的形态。
+          run.feedError = cleanText(error?.message ?? error, 500) || '好友动态接口调用失败（无错误信息）';
+          console.log('[qzone-interactions] 好友动态本轮未取到，继续检查评论与积压:', run.feedError);
+        }
       }
       if (kind === 'all' || kind === 'reply') {
         run.discoveredReplies = await this.#discoverReplies(cfg, this.controller.signal);
       }
-      const baselineFeed = !this.state.feedInitializedAt && (kind === 'all' || kind === 'feed');
+      // 基线只在本轮真的读到动态时才立：读失败就立基线，会把"上线前已存在的动态"错当成新内容
+      const baselineFeed = feedOk && !this.state.feedInitializedAt && (kind === 'all' || kind === 'feed');
       const baselineReply = !this.state.replyInitializedAt && (kind === 'all' || kind === 'reply');
       if (baselineFeed) this.state.feedInitializedAt = this.now();
       if (baselineReply) this.state.replyInitializedAt = this.now();
@@ -1114,7 +1235,7 @@ export class QzoneInteractionManager {
       run.estimatedInputTokens = batch.estimatedTokens;
       run.inputBudgetTokens = batch.budget;
       if (!batch.feeds.length && !batch.replies.length) {
-        run.status = 'idle';
+        run.status = run.feedError ? 'partial-feed-error' : 'idle';
         run.endedAt = this.now();
         this.#save();
         return { ok: true, run };
@@ -1143,7 +1264,7 @@ export class QzoneInteractionManager {
       await this.#executePlan(decided.plan, batch, cfg, this.controller.signal, run);
       run.status = run.actions.some((action) => action.status === 'unknown')
         ? 'partial-unknown'
-        : 'done';
+        : (run.feedError ? 'partial-feed-error' : 'done');
       run.endedAt = this.now();
       this.#save();
       this.#finishSession(session, run);

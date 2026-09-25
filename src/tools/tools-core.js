@@ -67,15 +67,32 @@ async function stickerLookupHint(ctx, key) {
   }
 }
 
-import { normalizeMessageList, unquoteJsonString } from '../core/util.js';
+import { normalizeMessageList, sanitizeUserText, unquoteJsonString } from '../core/util.js';
+import { repairUnescapedStringQuotes } from '../core/json-repair.js';
 import { formatStickerList } from '../onebot/stickers.js';
 import { validateImageUrl, safeFetchBinary } from '../llm/safe-fetch.js';
 import { webSearch, webFetch } from '../llm/web-search.js';
 import { expandForwardNodes, extractMediaFromSegments } from '../onebot/onebot.js';
 import { readForwardMessages } from '../onebot/forward-reader.js';
+import { convertGifToStillStrip, fetchOversizedImageAsJpeg } from './image-downsample.js';
 
 
-async function downloadImageAsDataUrl(url, signal) {
+/**
+ * 视觉模型用的 data URL 收口。GIF 特殊处理：主流视觉网关不接受 image/gif，
+ * 且动图的情绪信息在动作里——用 ffmpeg 抽帧拼成 2x2 帧条转成 JPEG；
+ * ffmpeg 缺失或转换失败时回退原始 GIF data URL（保持既有行为，不劣化）。
+ */
+async function toVisionDataUrl(buffer, mime, signal) {
+  if (mime === 'image/gif') {
+    try {
+      const strip = await convertGifToStillStrip(buffer, signal);
+      if (strip?.length) return `data:image/jpeg;base64,${strip.toString('base64')}`;
+    } catch { /* 回退原始 GIF */ }
+  }
+  return `data:${mime};base64,${buffer.toString('base64')}`;
+}
+
+export async function downloadImageAsDataUrl(url, signal) {
   signal?.throwIfAborted();
   if (String(url || '').startsWith('base64://')) {
     const buffer = Buffer.from(String(url).slice('base64://'.length), 'base64');
@@ -84,13 +101,21 @@ async function downloadImageAsDataUrl(url, signal) {
     }
     const mime = detectMime(buffer);
     if (!mime) throw new Error('本地表情图片格式无效');
-    return `data:${mime};base64,${buffer.toString('base64')}`;
+    return toVisionDataUrl(buffer, mime, signal);
   }
   const safeUrl = await validateImageUrl(url);
-  const { buffer, contentType } = await safeFetchBinary(safeUrl, 12 * 1024 * 1024, signal);
+  let buffer;
+  let contentType;
+  try {
+    ({ buffer, contentType } = await safeFetchBinary(safeUrl, 12 * 1024 * 1024, signal));
+  } catch (error) {
+    // 超过常规上限 → 放宽到 96MiB 重拉 + ffmpeg 降采样（Issue #6：群友发 >12MiB 大图）。
+    // 非超限错误原样抛出；ffmpeg 缺失/失败时抛带指引的错误，常规 ≤12MiB 路径不受影响。
+    ({ buffer, contentType } = await fetchOversizedImageAsJpeg(safeUrl, error, signal));
+  }
   if (!buffer || !buffer.length) throw new Error('图片内容为空');
   const mime = detectMime(buffer) || String(contentType || 'image/jpeg').split(';')[0];
-  return `data:${mime};base64,${buffer.toString('base64')}`;
+  return toVisionDataUrl(buffer, mime, signal);
 }
 
 function detectMime(buf) {
@@ -112,49 +137,8 @@ function err(message, metadata = {}) {
 
 const REPAIRABLE_ARGUMENT_TOOLS = new Set(['finish']);
 
-function repairUnescapedStringQuotes(value) {
-  const text = String(value ?? '');
-  let output = '';
-  let inString = false;
-  let escaped = false;
-  let changed = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (!inString) {
-      output += char;
-      if (char === '"') inString = true;
-      continue;
-    }
-    if (escaped) {
-      output += char;
-      escaped = false;
-      continue;
-    }
-    if (char === '\\') {
-      output += char;
-      escaped = true;
-      continue;
-    }
-    if (char !== '"') {
-      output += char;
-      continue;
-    }
-
-    let nextIndex = index + 1;
-    while (nextIndex < text.length && /\s/.test(text[nextIndex])) nextIndex += 1;
-    const next = text[nextIndex];
-    if (next === undefined || [',', ':', '}', ']'].includes(next)) {
-      output += char;
-      inString = false;
-    } else {
-      output += '\\"';
-      changed = true;
-    }
-  }
-
-  return changed && !inString ? output : null;
-}
+// 修复逻辑已抽到 core/json-repair.js 与 relationship-pilot（影子评估）共用，
+// 这里只保留"哪些工具允许修复"的策略门槛。
 
 function parseToolArguments(name, raw) {
   if (typeof raw !== 'string') return { args: raw, repaired: false };
@@ -190,7 +174,8 @@ function midHint(ctx) {
 function memberHint(ctx) {
   const members = ctx.store.activeMembers(ctx.chatKey, 8);
   if (!members.length) return '当前没有可用的成员列表，请先等有群友发言后再试';
-  const lines = members.map((m) => `- ${m.name}：${m.userId}`).join('\n');
+  // 昵称入库时未清洗（ingest 只清洗 text），工具结果会回传给模型 —— 过同一道清洗。
+  const lines = members.map((m) => `- ${sanitizeUserText(m.name)}：${m.userId}`).join('\n');
   return `请从当前会话成员里选一个 QQ 号填进去：\n${lines}`;
 }
 
@@ -554,7 +539,7 @@ export function buildToolDefs() {
           messages: messages.map((m) => ({
             messageId: m.mid ?? undefined,
             time: new Date(m.ts).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-            sender: m.self ? '我' : m.senderName,
+            sender: m.self ? '我' : sanitizeUserText(m.senderName),
             text: m.text
           }))
         });
@@ -601,7 +586,7 @@ export function buildToolDefs() {
         return ok({
           members: members.map((m) => ({
             userId: m.userId,
-            name: m.name,
+            name: sanitizeUserText(m.name),
             lastSeen: new Date(m.lastTs).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
             recentCount: m.count
           }))
@@ -622,7 +607,7 @@ export function buildToolDefs() {
         return ok({
           messageId: entry.mid,
           time: new Date(entry.ts).toLocaleString('zh-CN', { hour12: false }),
-          sender: entry.self ? '我' : entry.senderName,
+          sender: entry.self ? '我' : sanitizeUserText(entry.senderName),
           senderId: entry.senderId,
           text: entry.text,
           reply: entry.reply
@@ -677,7 +662,7 @@ export function buildToolDefs() {
     },
     {
       name: 'memory_append',
-      description: '记一条对群友的长期印象（下次运行会自动看到）。只记"以后和这个人打交道时用得上"的稳定印象：他的身份/关系、说话风格、爱玩的梗、雷点、常聊话题、别踩的坑。太临时的事情不要记。userId 必须填对方的 QQ 号（不知道就先调 get_active_members / get_recent_messages 查）；target 填备注名/群名片/昵称，用于展示。',
+      description: '记一条对群友的长期印象（下次运行会自动看到）。只记"以后和这个人打交道时用得上"的稳定印象：他的身份/关系、说话风格、爱玩的梗、雷点、常聊话题、别踩的坑。太临时的事情不要记。只写可观察的事实与偏好，不写评价、不揣测动机（写"会反复问你人设"，别写"想掌控设定/扬言改人设/喜欢试探规则"）；写管理员本人的时候照事实记——他改人设、问人设、逗你玩都是本职，不是试探。userId 必须填对方的 QQ 号（不知道就先调 get_active_members / get_recent_messages 查）；target 填备注名/群名片/昵称，用于展示。',
       parameters: {
         type: 'object',
         properties: {
@@ -692,6 +677,14 @@ export function buildToolDefs() {
         const userId = String(args.userId ?? '').trim();
         if (!/^\d{1,15}$/.test(userId)) {
           return err(`userId 必须是数字 QQ 号（收到：${JSON.stringify(args.userId)}）。${memberHint(ctx)}`);
+        }
+        // 只给本会话确实出现过的人记印象：模型会编出或打错号码，那会永久生成一条挂在陌生人
+        // 名下的印象（注入本群提示词、还会出现在控制台资产页），而这类错事后无法发现。
+        // send_poke / send_message 等同类工具都做这个检查，这里此前漏了。
+        if (ctx.kind === 'group' && !hasParticipant(ctx, userId)) {
+          const looksLikeMessageId = Boolean(ctx.store?.findByMid?.(ctx.chatKey, userId));
+          return err(`${userId} 不是当前群中已出现的成员 QQ 号`
+            + `${looksLikeMessageId ? '，它是消息 id；如需引用请改用 replyToMessageId' : ''}。${memberHint(ctx)}`);
         }
         const entry = ctx.memory.append(ctx.chatKey, 'memberImpression', String(args.content ?? ''), {
           userId,
@@ -813,7 +806,7 @@ export function buildToolDefs() {
     },
     {
       name: 'memory_remove',
-      description: '删除一条过时/不再准确的对群友印象。userId 优先按 QQ 号删；target 按名字删；两者都不传则删全部印象。',
+      description: '删除一条过时/不再准确的对群友印象。userId 优先按 QQ 号删；target 按名字删（重名时不删）；只给 content 就删本会话里的这条内容；三个都不给则清空这个会话记的全部印象（不动会话交接）。',
       parameters: {
         type: 'object',
         properties: {

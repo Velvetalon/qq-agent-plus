@@ -38,7 +38,8 @@ const LOW_ENTROPY = (value) => new Set(value.toLowerCase()).size <= 3;
 const IPV4_CONTEXT = /(?:\b(?:https?|ssh|git|ftp):\/\/|@)(\d{1,3}(?:\.\d{1,3}){3})\b|\b(\d{1,3}(?:\.\d{1,3}){3}):\d{2,5}\b/g;
 
 // 通用示例不算泄露：文档里出现 /home/user、/home/ubuntu、C:\Users\user 这类占位是正常的。
-const EXAMPLE_USER_PATH = /(?:\/(?:home|Users)\/(?:user|ubuntu|deploy|sourcecode|example|<[^>]+>)|[A-Za-z]:\\Users\\(?:user|public|Public|example|<[^>]+>))/i;
+// qqagent 是部署文档里自己建的服务账号（adduser qqagent），不算本机个人目录。
+const EXAMPLE_USER_PATH = /(?:\/(?:home|Users)\/(?:user|ubuntu|deploy|sourcecode|example|qqagent|<[^>]+>)|[A-Za-z]:\\Users\\(?:user|public|Public|example|<[^>]+>))/i;
 
 /**
  * 本机个人串：`data/sanitize-patterns.json` 里写一个字符串数组。
@@ -120,6 +121,17 @@ function scanFile(rel, text) {
 }
 
 function main() {
+  // --force 会对已存在的目录做递归删除：先挡住文件系统根目录、仓库本身与仓库的上级目录，
+  // 否则 `--out=. --force` 会把工作副本清空。
+  const outResolved = path.resolve(OUT);
+  const rootResolved = path.resolve(ROOT);
+  const outIsRootOrAncestor = outResolved === path.parse(outResolved).root
+    || rootResolved === outResolved
+    || rootResolved.startsWith(outResolved + path.sep);
+  if (outIsRootOrAncestor) {
+    console.error(`拒绝输出到 ${outResolved}：它是文件系统根目录、仓库本身或仓库的上级目录。`);
+    return 1;
+  }
   if (fs.existsSync(OUT)) {
     if (!FORCE) {
       console.error(`输出目录已存在：${OUT}\n（要覆盖请加 --force）`);

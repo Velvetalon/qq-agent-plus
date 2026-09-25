@@ -143,10 +143,45 @@ export function buildSlangContextForChat(
 
 export function readMemoryAssetSummary(dataDir = DATA_DIR) {
   const memoryDir = path.join(dataDir, 'memory');
-  const chats = [];
+  const peopleDir = path.join(memoryDir, 'people');
   let names = [];
   try { names = fs.readdirSync(memoryDir); } catch {
     return { chats: 0, people: 0, impressions: 0, handoffs: 0, items: [] };
+  }
+  const rows = new Map();
+  const touch = (chatKey) => {
+    if (!rows.has(chatKey)) rows.set(chatKey, { chatKey, people: 0, impressions: 0, hasHandoff: false, updatedAt: 0 });
+    return rows.get(chatKey);
+  };
+  // 人物印象自 v0.6.x 起按人存：memory/people/<QQ>.json（旧版按会话分目录，文件已被迁移归档）。
+  // 只按旧布局统计的话，人数与印象数永远是 0 —— 接口里看起来"没有数据"就是这个原因。
+  let globalFiles = [];
+  try { globalFiles = fs.readdirSync(peopleDir).filter((file) => file.endsWith('.json')); } catch { globalFiles = []; }
+  let people = 0;
+  let impressions = 0;
+  for (const file of globalFiles) {
+    const target = path.join(peopleDir, file);
+    const value = readJson(target, null);
+    if (!value) continue;
+    people += 1;
+    const list = Array.isArray(value.impressions) ? value.impressions : [];
+    impressions += list.length;
+    let updatedAt = Number(value.updatedAt) || 0;
+    try { updatedAt = Math.max(updatedAt, fs.statSync(target).mtimeMs); } catch { /* ignore */ }
+    const keys = new Set();
+    for (const key of Array.isArray(value.sourceChatKeys) ? value.sourceChatKeys : []) keys.add(String(key));
+    for (const item of list) for (const key of Array.isArray(item?.sourceChatKeys) ? item.sourceChatKeys : []) keys.add(String(key));
+    for (const key of keys) {
+      if (!/^(group|private):\d+$/.test(key)) continue;
+      const row = touch(key);
+      row.people += 1;
+      // 按条目自己的来源算：没写来源的旧条目，算在它会出现的每个会话里
+      row.impressions += list.filter((item) => {
+        const sources = Array.isArray(item?.sourceChatKeys) ? item.sourceChatKeys : [];
+        return !sources.length || sources.includes(key);
+      }).length;
+      row.updatedAt = Math.max(row.updatedAt, updatedAt);
+    }
   }
   for (const name of names) {
     const full = path.join(memoryDir, name);
@@ -157,34 +192,31 @@ export function readMemoryAssetSummary(dataDir = DATA_DIR) {
     if (!stat.isDirectory()) continue;
     let files = [];
     try { files = fs.readdirSync(full); } catch { continue; }
-    let people = 0;
-    let impressions = 0;
-    let updatedAt = 0;
-    for (const file of files) {
-      if (!/^\d{1,15}\.json$/.test(file)) continue;
-      const target = path.join(full, file);
-      const value = readJson(target, null);
-      if (!value) continue;
-      people += 1;
-      impressions += Array.isArray(value.impressions) ? value.impressions.length : 0;
-      try { updatedAt = Math.max(updatedAt, fs.statSync(target).mtimeMs); } catch { /* ignore */ }
+    const row = touch(`${match[1]}:${match[2]}`);
+    if (files.includes('_handoff.json')) {
+      row.hasHandoff = true;
+      try { row.updatedAt = Math.max(row.updatedAt, fs.statSync(path.join(full, '_handoff.json')).mtimeMs); } catch { /* ignore */ }
     }
-    const hasHandoff = files.includes('_handoff.json');
-    chats.push({
-      chatKey: `${match[1]}:${match[2]}`,
-      people,
-      impressions,
-      hasHandoff,
-      updatedAt
-    });
+    // 旧布局残留（还没跑过迁移的机器）：只在没有全局人物文件时兜底计数，避免同一份印象被算两遍
+    if (!globalFiles.length) {
+      for (const file of files) {
+        if (!/^\d{1,15}\.json$/.test(file)) continue;
+        const target = path.join(full, file);
+        const value = readJson(target, null);
+        if (!value) continue;
+        row.people += 1;
+        row.impressions += Array.isArray(value.impressions) ? value.impressions.length : 0;
+        try { row.updatedAt = Math.max(row.updatedAt, fs.statSync(target).mtimeMs); } catch { /* ignore */ }
+      }
+    }
   }
-  chats.sort((a, b) => b.updatedAt - a.updatedAt);
+  const items = [...rows.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   return {
-    chats: chats.length,
-    people: chats.reduce((sum, chat) => sum + chat.people, 0),
-    impressions: chats.reduce((sum, chat) => sum + chat.impressions, 0),
-    handoffs: chats.filter((chat) => chat.hasHandoff).length,
-    items: chats
+    chats: items.length,
+    people: globalFiles.length ? people : items.reduce((sum, chat) => sum + chat.people, 0),
+    impressions: globalFiles.length ? impressions : items.reduce((sum, chat) => sum + chat.impressions, 0),
+    handoffs: items.filter((chat) => chat.hasHandoff).length,
+    items
   };
 }
 
@@ -642,7 +674,8 @@ export class AssetObserver {
     if (!text) throw new Error('记忆内容不能为空');
     const entry = this.memory?.append(source, 'memberImpression', text, {
       userId: uin,
-      target: cleanText(name, 60)
+      target: cleanText(name, 60),
+      origin: 'manual'   // 控制台手动新增的，不是模型自己记的
     });
     if (!entry) throw new Error('记忆存储不可用');
     return { chatKey: source, userId: uin, ...entry };
@@ -656,11 +689,13 @@ export class AssetObserver {
       .map((entry) => cleanText(entry, 300))
       .filter(Boolean);
     if (!entries.length) throw new Error('至少保留一条记忆；删除请使用删除按钮');
+    // 控制台里人手改的：标成 manual，别让它在记忆页显示成"整理改写"
     return this.memory.replaceMember(
       source,
       String(userId || '').trim(),
       cleanText(name, 60),
-      entries
+      entries,
+      { origin: 'manual' }
     );
   }
 

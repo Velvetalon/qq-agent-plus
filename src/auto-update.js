@@ -565,17 +565,26 @@ export class AutoUpdateManager {
           pending: false,
           ownerUin,
           sentAt: Date.now(),
-          error: ''
+          error: '',
+          // 这一条已经确认发出去了，之前那条"结果未知"的标记不能留着 ——
+          // 否则 data/auto-update.json 会一直显示"需人工确认"，与 docs/AUTO_UPDATE.md 的语义对不上。
+          deliveryUnknown: false
         }
       });
       this.emit('auto-update', this.status());
       return updated;
     } catch (error) {
+      // 发送失败要分清"确定没发出去"和"结果未知"：只有前者能自动重试。这条通知走
+      // onebot.sendText，超时属于结果未知。此前 pending 一直留着，于是 30 秒一次的定时器
+      // 会把同一条【更新部署失败】反复发给管理员（项目规则：结果未知不外发重试）。
+      const definitelyNotSent = error?.beforeWrite === true;
       writeAutoUpdateState(this.dataDir, {
         notification: {
           ...state.notification,
+          pending: definitelyNotSent,
           ownerUin,
-          error: cleanText(error?.message ?? error, 500)
+          error: cleanText(error?.message ?? error, 500),
+          ...(definitelyNotSent ? {} : { deliveryUnknown: true })
         }
       });
       throw error;

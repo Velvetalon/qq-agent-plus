@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DATA_DIR, getConfig } from '../core/config.js';
+import { cappedByTokenSaver, tokenSaverCapsOf } from '../core/token-saver.js';
 import {
   addUsage,
   cachedTokensOfUsage,
@@ -9,6 +10,7 @@ import {
   emptyUsage
 } from '../llm/llm.js';
 import { safeFetchBinary, validateImageUrl } from '../llm/safe-fetch.js';
+import { convertGifToStillStrip } from '../tools/image-downsample.js';
 import { webFetch, webSearch } from '../llm/web-search.js';
 import { buildMomentSystemPrompt, momentPersonaHash, MOMENT_PROMPT_VERSION } from '../llm/moment-prompt.js';
 import { assertTimeAllowed, isTimeActive, watchTimeWindow, withTimeScope } from '../core/time-gate.js';
@@ -90,7 +92,14 @@ function normalizedConfig(cfg = getConfig().dailyMoments || {}) {
     targetUins: (Array.isArray(cfg.targetUins) ? cfg.targetUins : [])
       .map(Number).filter(Number.isFinite).slice(0, 200),
     maxResearchCalls: Math.min(10, Math.max(0, Number(cfg.maxResearchCalls) || 0)),
-    maxRounds: Math.min(16, Math.max(2, Number(cfg.maxRounds) || 8))
+    // 省 Token 模式：日说说的工具轮数也夹上限（关闭时上限为 null，原样取用户设置）。
+    // ⚠️ 这里必须用**日说说自己的** cfg.maxRounds，不能借聊天模型的 api.maxRounds ——
+    // 两者是不同的旋钮（日说说默认 8、聊天默认 12），换错了会让"轮次预算"多跑几轮、
+    // 白烧 token（曾把 moment-publish 的用量用例跑成 180 vs 45）。
+    maxRounds: Math.min(16, Math.max(2, cappedByTokenSaver(
+      Number(cfg.maxRounds) || 8,
+      tokenSaverCapsOf(getConfig())?.maxRounds
+    )))
   };
 }
 
@@ -573,7 +582,7 @@ export class DailyMomentsManager {
       scheduleAt: scheduleSlot?.at || 0,
       scheduleEndAt: scheduleSlot?.endAt || 0,
       promptVersion: MOMENT_PROMPT_VERSION,
-      personaHash: momentPersonaHash(getConfig().persona),
+      personaHash: momentPersonaHash(getConfig().persona, this.onebot?.selfNickname || ''),
       accountId: String(this.onebot.selfId || ''),
       publishAttempted: false,
       status: 'running',
@@ -722,7 +731,7 @@ export class DailyMomentsManager {
       throw momentError('MOMENT_ACCOUNT_CHANGED', 'QQ 登录账号已改变，请重新生成草稿');
     }
     if (record.promptVersion !== MOMENT_PROMPT_VERSION
-      || record.personaHash !== momentPersonaHash(cfg.persona)) {
+      || record.personaHash !== momentPersonaHash(cfg.persona, this.onebot?.selfNickname || '')) {
       throw momentError('MOMENT_PERSONA_CHANGED', '草稿的人设或提示词已过期，请按当前设置重新生成');
     }
     if ((record.groupSummaries || []).some((group) => !chatAllowed(group.chatKey, cfg))) {
@@ -1003,8 +1012,8 @@ export class DailyMomentsManager {
   async #decide(snapshot, cfg, session, signal) {
     const rootConfig = getConfig();
     const style = STYLE_SEEDS[Math.floor(this.random() * STYLE_SEEDS.length)] || STYLE_SEEDS[0];
-    const systemPrompt = buildMomentSystemPrompt(rootConfig.persona);
-    const personaHash = momentPersonaHash(rootConfig.persona);
+    const systemPrompt = buildMomentSystemPrompt(rootConfig.persona, { accountNickname: this.onebot?.selfNickname || '' });
+    const personaHash = momentPersonaHash(rootConfig.persona, this.onebot?.selfNickname || '');
     const recentPosts = this.state.records.filter((record) => record.status === 'published')
       .slice(0, 5).map((record) => ({ day: record.dayKey, content: record.content }));
     const userPrompt = [
@@ -1361,9 +1370,19 @@ export class DailyMomentsManager {
     );
     if (!buffer?.length) throw new Error(`候选图片 ${imageId} 内容为空`);
     const mime = imageMime(buffer, contentType);
+    // GIF 与消息图片同一收口：主流视觉网关不收 image/gif，且动图情绪在动作里——
+    // 抽帧条转 JPEG 给模型判读；空间上传（uploadSource）仍用原始 GIF 保留动画。
+    let visionBuffer = buffer;
+    let visionMime = mime;
+    if (mime === 'image/gif') {
+      try {
+        const strip = await convertGifToStillStrip(buffer, signal);
+        if (strip?.length) { visionBuffer = strip; visionMime = 'image/jpeg'; }
+      } catch { /* 转换失败回退原始 GIF */ }
+    }
     const encoded = buffer.toString('base64');
     candidate.prepared = {
-      dataUrl: `data:${mime};base64,${encoded}`,
+      dataUrl: `data:${visionMime};base64,${visionBuffer.toString('base64')}`,
       uploadSource: `base64://${encoded}`
     };
     return candidate.prepared;

@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { conversationConfigForChat, getConfig, identityPilotEnabled, incidentPilotEnabled, slangPilotEnabled, updateConfig, onTimeControlChange, DATA_DIR, ROOT } from '../core/config.js';
+import { tokenSaverEffective } from '../core/token-saver.js';
 import { customSearch } from '../llm/web-search.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from '../onebot/onebot.js';
 import { readForwardMessages } from '../onebot/forward-reader.js';
@@ -13,7 +14,7 @@ import { ChatStore } from '../core/store.js';
 import { MemoryStore } from '../memory/memory.js';
 import { StickerManager } from '../onebot/sticker-manager.js';
 import { SendQueue } from '../onebot/sender.js';
-import { SessionRegistry } from '../core/sessions.js';
+import { SessionRegistry, personaLabelOfPrompt } from '../core/sessions.js';
 import { Orchestrator } from '../core/orchestrator.js';
 import { DailyMomentsManager } from '../features/daily-moments.js';
 import { QzoneInteractionManager } from '../features/qzone-interactions.js';
@@ -76,6 +77,37 @@ function sameSecret(a, b) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+// /api/login 的按源失败退避：控制台 token 是唯一凭据（绑定 0.0.0.0 时尤其是），
+// 原来对猜测试毫无成本、比较还是普通 !==。连续失败 5 次后指数退避（30s 起、封顶 15 分钟），
+// 成功即清零。map 超过 4096 个源时整体清空（极端情况下最坏回到无退避，但内存有界）。
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_BACKOFF_BASE_MS = 30_000;
+const LOGIN_BACKOFF_MAX_MS = 15 * 60_000;
+const loginThrottle = new Map();
+function loginGate(req) {
+  const key = String(req.socket?.remoteAddress || 'unknown');
+  if (loginThrottle.size > 4096) loginThrottle.clear();
+  const entry = loginThrottle.get(key);
+  if (entry && entry.blockedUntil > Date.now()) {
+    return { ok: false, retryAfterSec: Math.ceil((entry.blockedUntil - Date.now()) / 1000) };
+  }
+  return {
+    ok: true,
+    fail() {
+      const e = loginThrottle.get(key) || { failures: 0, blockedUntil: 0 };
+      e.failures += 1;
+      if (e.failures >= LOGIN_MAX_FAILURES) {
+        e.blockedUntil = Date.now() + Math.min(
+          LOGIN_BACKOFF_BASE_MS * 2 ** (e.failures - LOGIN_MAX_FAILURES),
+          LOGIN_BACKOFF_MAX_MS
+        );
+      }
+      loginThrottle.set(key, e);
+    },
+    clear() { loginThrottle.delete(key); }
+  };
+}
+
 function decodeImageDataUrl(value) {
   const match = /^data:image\/(?:png|jpeg|gif|webp);base64,([A-Za-z0-9+/=\r\n]+)$/i
     .exec(String(value || ''));
@@ -133,6 +165,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             activity: s.activity ?? '',
             webSearchCount: s.webSearchCount ?? 0,
             rounds: s.rounds ?? 0,
+            // 人设标记要随 SSE 一起推：session-start 早于 systemPrompt 赋值，
+            // 不带的话新会话的卡片要等下一次 HTTP 轮询（默认 4 秒）才补上。
+            persona: view.persona || '',
             usage: s.usage ?? null,
             trigger: s.triggerSummary ?? '',
             triggerSummary: s.triggerSummary ?? '',
@@ -339,7 +374,15 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     emit,
     log,
     notifyAvailable: () => onebot.connected === true,
-    notify: (text, ownerUin) => sendIdentityAdminText(ownerUin, text),
+    // 与异常告警同口径：连协议端都没连上 = **确定没发出去**（带 beforeWrite，保留 pending 等重连后重发）；
+    // 已经在发送中失败的（超时/业务拒绝）属于"结果未知"，只记 deliveryUnknown、不自动重发
+    // —— 否则 pending 会一直留着，30 秒一次的定时器把同一条失败通知反复发给管理员。
+    notify: async (text, ownerUin) => {
+      if (!onebot.connected) {
+        throw Object.assign(new Error('OneBot 未连接，更新失败通知等待发送'), { beforeWrite: true });
+      }
+      return sendIdentityAdminText(ownerUin, text);
+    },
     ...(autoUpdateOptions.runSystemctl
       ? { runSystemctl: autoUpdateOptions.runSystemctl }
       : {})
@@ -856,7 +899,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     const selfId = onebot.selfId;
     // 拍一拍也要记下真实群名片：原先这里硬编码"（拍一拍事件）"，
     // 会覆盖同一 QQ 在普通消息里的真实昵称 —— 记忆整理时取名字会拿到这个占位符，
-    // 导致"317183522 的名字叫（拍一拍事件）"这种脏数据。
+    // 导致"<uin> 的名字叫（拍一拍事件）"这种脏数据。
     const chatKeyNow = `${isGroup ? 'group' : 'private'}:${id}`;
     let operatorName = isGroup ? ((await resolveAtName(id, operatorId)) || '') : '';
     if (!operatorName) {
@@ -1087,6 +1130,25 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
   }
 
   /**
+   * 已保存的 Key 只允许发往配置里已知的地址。
+   * 目的只是不让"随手填个地址点测试"把已保存的 Key 送出去，**它不构成安全边界**：
+   * 控制台令牌本身就是完全管理凭据，持有令牌的人可以直接从 /api/api-key 等端点读到明文
+   * Key（见 keyEndpointAllowed 的第一条分支：令牌通过即放行）；也可以先 POST /api/providers
+   * 把自己的地址注册进来，再走这个回退。前端正常流程都显式传 Key，只有"测试当前配置的
+   * provider"会用到回退，而那个地址本来就等于配置里的值。
+   */
+  function storedKeyAllowedFor(cfgNow, baseUrl) {
+    const norm = (v) => String(v || '').trim().replace(/\/+$/, '').toLowerCase();
+    const target = norm(baseUrl);
+    if (!target) return true;   // 没给地址 = 用配置里的那个
+    const known = [
+      norm(cfgNow.api?.baseUrl),
+      ...(cfgNow.providers || []).map((p) => norm(p?.baseUrl))
+    ].filter(Boolean);
+    return known.includes(target);
+  }
+
+  /**
    * 提供商对象脱敏：去掉明文 apiKey，只留 hasKey。
    * upsertProvider / addModelsToProvider / removeModelFromProvider 的返回值都带
    * 明文 key（来自 withResolvedKey），不能直接 json 给前端。
@@ -1116,9 +1178,16 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       if (origin && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`) {
         return json(res, 403, { error: 'Invalid origin' });
       }
-      const body = await readBody(req);
+      const gate = loginGate(req);
+      if (!gate.ok) return json(res, 429, { error: `尝试过于频繁，请 ${gate.retryAfterSec} 秒后再试` });
+      const body = await readBody(req).catch(() => ({}));
       const token = getConfig().server.token;
-      if (!token || body.token !== token) return json(res, 401, { error: 'Token 不正确' });
+      // timing-safe 比较：全项目统一 sameSecret 口径（这里原来是唯一的普通 !==，修复遗漏）。
+      if (!token || !sameSecret(String(body?.token ?? ''), token)) {
+        gate.fail();
+        return json(res, 401, { error: 'Token 不正确' });
+      }
+      gate.clear();
       setConsoleCookie(res, token);
       return json(res, 200, { ok: true });
     }
@@ -1393,6 +1462,8 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           webSearchCount: dailyStats.searchCount
         };
         const cfgNow = getConfig();
+        // 省 Token 模式的"用户值 / 生效值"对照表：控制台设置页直接渲染，避免两边各写一份上限数字
+        const tokenSaver = tokenSaverEffective(cfgNow);
         const currentVendor = vendorOfConfig(cfgNow) || '';
         const currentPrice = resolveModelPrice(cfgNow.api?.model, cfgNow, null, { vendor: currentVendor });
         const currentTier = currentPrice.peak
@@ -1449,6 +1520,8 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           cost,
           cacheHitRate: totals.cacheHitRate,
           webSearchCount: usage.webSearchCount || 0,
+          // 省 Token 模式：模式 + 每项的"用户值 / 生效值"（设置页渲染用）
+          tokenSaver,
           ...(cfgNow.timeControl?.enabled ? {
             timeControl: timeControlState(cfgNow.timeControl)
           } : {}),
@@ -1685,7 +1758,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         const field = String(url.searchParams.get('field') || '');
         // 自定义搜索服务的 Key 不走这里（它们存在 webSearch.providers 数组里，
         // 由 /api/search-providers 管理，且添加时是一次性输入，不提供明文回读）。
-        const allowed = ['deepseek', 'zhipu', 'bocha', 'baidu', 'metaso'];
+        const allowed = ['deepseek', 'zhipu', 'bocha', 'baidu', 'metaso', 'doubao'];
         if (!allowed.includes(field)) {
           return json(res, 400, { error: `未知搜索服务：${field}` });
         }
@@ -1698,7 +1771,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           const body = await readBody(req);
           const cfgNow = getConfig();
           const baseUrl = String(body.baseUrl || cfgNow.api.baseUrl || '');
-          const apiKey = body.apiKey !== undefined ? String(body.apiKey ?? '') : String(cfgNow.api.apiKey || '');
+          const submitted = String(body.apiKey ?? '').trim();
+          // 掩码 / 空 → 用服务端已保存的 Key，但仅限配置里已知的地址（见 storedKeyAllowedFor）。
+          const apiKey = (submitted && submitted !== '******')
+            ? submitted
+            : (storedKeyAllowedFor(cfgNow, baseUrl) ? String(cfgNow.api.apiKey || '') : '');
           const models = await fetchModelsFrom(baseUrl, apiKey);
           return json(res, 200, { ok: true, models });
         } catch (error) {
@@ -1728,10 +1805,15 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         try {
           const body = await readBody(req);
           const submitted = String(body.apiKey ?? '').trim();
-          // 掩码 / 空 → 说明客户端没有新 Key，用服务端已保存的
-          const apiKey = (submitted && submitted !== '******') ? submitted : resolveApiKey(getConfig());
+          const baseUrl = String(body.baseUrl ?? '');
+          // 掩码 / 空 → 说明客户端没有新 Key，用服务端已保存的；但只发往配置里已知的地址
+          // （见 storedKeyAllowedFor：否则等于把明文 Key 送到调用方指定的任意主机）。
+          const cfgNow = getConfig();
+          const apiKey = (submitted && submitted !== '******')
+            ? submitted
+            : (storedKeyAllowedFor(cfgNow, baseUrl) ? resolveApiKey(cfgNow) : '');
           const result = await testModelChat({
-            baseUrl: String(body.baseUrl ?? ''),
+            baseUrl,
             apiKey,
             model: String(body.model ?? '')
           });
@@ -2308,6 +2390,27 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         }
       }
 
+      const friendProposalRedispatch = /^\/api\/identity-pilot\/friend-proposals\/(fp_[a-f0-9]{12})\/redispatch$/i.exec(pathname);
+      if (friendProposalRedispatch && method === 'POST') {
+        if (!identityPilot?.active || getConfig().identityPilot?.friendProposal?.enabled !== true) {
+          return json(res, 409, { error: '主动好友候选功能未启用' });
+        }
+        const body = await readBody(req);
+        if (body.confirm !== true) {
+          return json(res, 409, { error: '重新派发需要 confirm === true' });
+        }
+        try {
+          const result = await identityPilot.redispatchFriendProposal(
+            friendProposalRedispatch[1],
+            { decidedBy: 'console' }
+          );
+          emit('identity-pilot-update', identityPilot.status());
+          return json(res, 200, result);
+        } catch (error) {
+          return json(res, 409, { error: String(error?.message ?? error) });
+        }
+      }
+
       if (pathname === '/api/assets/overview' && method === 'GET') {
         const overview = assetObserver.overview();
         const pilotStatus = slangPilotStatus();
@@ -2766,6 +2869,19 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         return json(res, 200, { ok: true });
       }
 
+      // 按 QQ 号**全局**删除此人的人物记忆（人物库页「删除全部人物记忆」用）：
+      // 空 chatKey = 该 QQ 在所有会话的印象一起删（删前留快照，可回滚）。
+      // 旧的 /api/memory-files/<chat>/members/<uid> 语义是"只清这个来源"，两者别混用。
+      const memoryMemberGlobalMatch = /^\/api\/memory-files\/global\/members\/(\d{1,15})$/.exec(pathname);
+      if (memoryMemberGlobalMatch && method === 'DELETE') {
+        // 破坏性操作统一 confirm 门槛（与全站口径一致）：global 版跨所有会话删除。
+        const body = await readBody(req).catch(() => ({}));
+        if (body?.confirm !== true) return json(res, 409, { ok: false, error: '删除全部人物记忆需要 body.confirm === true' });
+        const removed = memory.removeMember('', memoryMemberGlobalMatch[1]);
+        emit('memory-update', { chatKey: '' });
+        return json(res, 200, { ok: true, removed });
+      }
+
       // 手动编辑某个群友的印象（PUT 编辑：QQ号必填，备注可同步保存 / DELETE 删除成员文件）
       const memoryMemberMatch = /^\/api\/memory-files\/(group|private)_(\d+)\/members\/(\d+)$/.exec(pathname);
       if (memoryMemberMatch && method === 'PUT') {
@@ -2785,6 +2901,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         }
       }
       if (memoryMemberMatch && method === 'DELETE') {
+        // 同上：删除成员印象也要 confirm（该路径的快照对 name-only 成员缺位，误删更难恢复）。
+        const body = await readBody(req).catch(() => ({}));
+        if (body?.confirm !== true) return json(res, 409, { ok: false, error: '删除成员印象需要 body.confirm === true' });
         const chatKey = `${memoryMemberMatch[1]}:${memoryMemberMatch[2]}`;
         memory.removeMember(chatKey, memoryMemberMatch[3]);
         emit('memory-update', { chatKey });
@@ -3332,6 +3451,9 @@ function buildSessionView(s, store, options = {}) {
   const lifecycle = sessionLifecycleView(s, store, options);
   return {
     ...s,
+    // 列表走索引摘要（带 persona）；详情拿的是完整会话对象，只有 systemPrompt —— 这里补算，
+    // 否则详情头部永远显示"没记录到角色卡"。
+    persona: s.persona || personaLabelOfPrompt(s.systemPrompt),
     threadState: lifecycle?.state || s.threadState || null,
     lifecycle,
     sessionMetrics: buildSessionMetrics(s)

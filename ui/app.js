@@ -764,6 +764,23 @@ function serviceUrl(port, path = '/') {
   return `${protocol}//${hostname}:${port}${path}`;
 }
 
+// 服务卡片的状态：旧架构（DSH / Bridge）没配置端点时是「未部署」，不是故障 ——
+// 本仓库的部署栈不含它们（见 docs/LINUX.md），部署脚本也不会起。
+// 配置过（后端给了 optional+configured）却连不上，才照旧报「不可达」。
+function serviceTileState(id, status) {
+  const online = id === 'agent' || status?.online === true;
+  if (online) return { text: '在线', cls: 'online' };
+  if (!status) return { text: '检测中', cls: 'offline' };
+  if (status.optional === true && status.configured === false) return { text: '未部署', cls: 'idle' };
+  return { text: '不可达', cls: 'offline' };
+}
+
+/** 旧架构服务是否落在本部署里（没配置 = 不显示指向它的入口）。 */
+function legacyServiceDeployed(statuses, id) {
+  const status = statuses.get(id);
+  return !(status?.optional === true && status?.configured === false);
+}
+
 // 「更新部署」里的上次更新检查说明：口径是「已发布的 Release」，
 // 让"连不上 GitHub / 没有新 Release / 当前部署领先"这些情况都能看见，而不是完全无声。
 function renderUpdateCheckNote(update = {}) {
@@ -807,6 +824,88 @@ function renderUpdateCheckNote(update = {}) {
   return `上次更新检查${when}：已是最新（${latest}当前 ${esc(short(check.deployed))}）。`;
 }
 
+// ── 更新进度：更新器把当前阶段写进状态文件（phase），排队阶段只有 status。
+//    这里只做展示，不推断阶段；阶段起点用 progressAt（每次阶段推进都续期）。───────
+const UPDATE_PHASE_LABELS = {
+  startup: '启动更新器',
+  connectivity: '检查网络连通性',
+  checking: '检查最新版本',
+  testing: '跑部署前测试',
+  deploying: '部署（服务会短暂重启）',
+  complete: '收尾'
+};
+const UPDATE_STATUS_LABELS = {
+  queued: '等待更新器接手',
+  checking: '检查最新版本',
+  testing: '跑部署前测试',
+  deploying: '部署（服务会短暂重启）'
+};
+// 「这轮更新在跑」的口径要与更新器一致（src/auto-update.js 的 ACTIVE_STATES）：
+// status() 的 busy 只说明更新器进程在（跳过间隔、被禁用这类情形也留个进程），
+// 那种时刻状态文件还停在上一轮的终态，单看 busy 会闪出一条"正在更新…收尾"的假进度行。
+const UPDATE_ACTIVE_STATUSES = new Set(['queued', 'checking', 'testing', 'deploying']);
+
+function formatElapsed(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (total < 60) return `${total} 秒`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes} 分 ${String(total % 60).padStart(2, '0')} 秒`;
+  return `${Math.floor(minutes / 60)} 小时 ${String(minutes % 60).padStart(2, '0')} 分`;
+}
+
+function updateProgressStage(update = {}) {
+  const status = String(update.status || '');
+  if (update.busy !== true || !UPDATE_ACTIVE_STATUSES.has(status)) return '';
+  const phase = String(update.phase || '');
+  // 排队时 phase 还是上一轮的残留值，先看 status
+  const label = status === 'queued'
+    ? UPDATE_STATUS_LABELS.queued
+    : (UPDATE_PHASE_LABELS[phase] || UPDATE_STATUS_LABELS[status] || '更新进行中');
+  // targetVersion 只有"手动更新提交时"和"更新器解析出 Release 后"才有；
+  // 不能拿 state.version 兜底 —— 那是状态文件的 schema 版本（恒为 1）。
+  const version = String(update.targetVersion || '').trim();
+  // 连通性测试（probe）只探通道、不部署，文案别说成"正在更新"
+  const probe = String(update.mode || '') === 'probe';
+  return probe ? `正在探测更新通道：${label}` : `正在更新${version ? `到 ${version}` : ''}：${label}`;
+}
+
+function updateProgressElapsed(update = {}) {
+  if (update.busy !== true) return '';
+  const now = Date.now();
+  const started = Number(update.startedAt || 0) || Number(update.updatedAt || 0);
+  const stageAt = Number(update.progressAt || 0) || started;
+  const parts = [];
+  if (stageAt) parts.push(`本阶段 ${formatElapsed((now - stageAt) / 1000)}`);
+  if (started && stageAt && started !== stageAt) parts.push(`总计 ${formatElapsed((now - started) / 1000)}`);
+  return parts.join(' · ');
+}
+
+function updateProgressText(update = {}) {
+  const stage = updateProgressStage(update);
+  if (!stage) return '';
+  const elapsed = updateProgressElapsed(update);
+  return elapsed ? `${stage} · ${elapsed}` : stage;
+}
+
+// 进度里的耗时每秒刷新；只在控制页且更新仍在跑时工作，跑完或切页后自动停。
+// 注意：这里直接写 textContent —— setText 是 updateControlHubFields 里的局部函数，
+// 模块作用域拿不到（曾经在这里调它，导致更新期间每秒抛一次 ReferenceError）。
+let updateProgressTicker = null;
+function startUpdateProgressTicker() {
+  if (updateProgressTicker) return;
+  updateProgressTicker = setInterval(() => {
+    const box = document.getElementById('hub-deploy-progress');
+    if (state.tab !== 'control' || state.autoUpdateStatus?.busy !== true || !box) {
+      clearInterval(updateProgressTicker);
+      updateProgressTicker = null;
+      return;
+    }
+    const el = document.getElementById('hub-deploy-progress-elapsed');
+    const next = updateProgressElapsed(state.autoUpdateStatus || {});
+    if (el && el.textContent !== next) el.textContent = next;
+  }, 1000);
+}
+
 function renderControlHub(data = {}) {
   const box = $('#control-page');
   if (!box) return;
@@ -829,6 +928,9 @@ function renderControlHub(data = {}) {
       ? (updateLabels[update.status] || '等待检查')
       : '已暂停';
   const revision = (value) => value ? String(value).slice(0, 12) : '-';
+  // 更新进度行：结构只建一次，这里的初值 + updateControlHubFields 里的实时同步
+  // 一起保证"点完立即更新马上能看到阶段与耗时"。没有在跑时留空并隐藏。
+  const progressLine = updateProgressText(update);
   const __html = `
     <div class="control-head">
       <div><h2>服务与访问控制</h2><span class="muted">统一入口</span></div>
@@ -836,12 +938,11 @@ function renderControlHub(data = {}) {
     </div>
     <div class="control-service-grid">
       ${CORE_SERVICE_LINKS.map((service) => {
-        const status = statuses.get(service.id);
-        const online = service.id === 'agent' || status?.online === true;
+        const tile = serviceTileState(service.id, statuses.get(service.id));
         return `<a class="control-service" data-hub-service="${esc(service.id)}" href="${esc(serviceUrl(service.port))}" target="_blank" rel="noreferrer">
           <span class="control-service-mark">${esc(service.mark)}</span>
           <span class="control-service-copy"><strong>${esc(service.name)}</strong><small>${esc(service.detail)} · :${service.port}</small></span>
-          <span class="control-service-state ${online ? 'online' : 'offline'}">${online ? '在线' : status ? '不可达' : '检测中'}</span>
+          <span class="control-service-state ${tile.cls}">${tile.text}</span>
         </a>`;
       }).join('')}
     </div>
@@ -857,6 +958,11 @@ function renderControlHub(data = {}) {
         <div><span>下次检查</span><strong data-hub-deploy="nextCheck">${update.nextCheckAt ? esc(fmtTime(update.nextCheckAt)) : '-'}</strong></div>
       </div>
       <div class="muted" data-hub-update-check style="margin-top:6px;font-size:12px;line-height:1.5">${renderUpdateCheckNote(update)}</div>
+      <div class="update-deploy-progress${progressLine ? '' : ' hidden'}" id="hub-deploy-progress">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <span class="update-deploy-progress-text" id="hub-deploy-progress-text" role="status" aria-live="polite">${esc(updateProgressStage(update))}</span>
+        <span class="update-deploy-progress-elapsed" id="hub-deploy-progress-elapsed" aria-hidden="true">${esc(updateProgressElapsed(update))}</span>
+      </div>
       <div class="update-deploy-settings">
         <label><span>告警管理员 QQ</span><input type="text" id="auto-update-owner" inputmode="numeric" value="${esc(update.ownerUin || '')}" /></label>
         <label><span>检查间隔（小时）</span><input type="number" id="auto-update-interval" min="1" max="168" value="${esc(update.intervalHours || 6)}" /></label>
@@ -885,7 +991,7 @@ function renderControlHub(data = {}) {
         <button type="button" class="control-key-row" data-open-settings="desktop">
           <span><strong>QQ Agent 控制台 Token</strong><small>系统</small></span><b>管理</b>
         </button>
-        <a class="control-key-row" href="${esc(serviceUrl(3100))}" target="_blank" rel="noreferrer">
+        <a class="control-key-row${legacyServiceDeployed(statuses, 'bridge') ? '' : ' hidden'}" data-hub-legacy-entry="bridge" href="${esc(serviceUrl(3100))}" target="_blank" rel="noreferrer">
           <span><strong>Bridge 控制台 Token</strong><small>旧架构控制台</small></span><b>打开</b>
         </a>
       </div>
@@ -896,6 +1002,9 @@ function renderControlHub(data = {}) {
         <a class="btn btn-small" href="${esc(serviceUrl(5099, '/settings?tab=account'))}" target="_blank" rel="noreferrer">打开账号安全</a>
       </div>
       <form id="snowluma-password-form" class="control-password-form" autocomplete="off">
+        <!-- 浏览器要求密码表单带用户名框（可隐藏），否则 F12 里会有一条 DOM 提示。
+             这里是给 SnowLuma 改密钥、不是登录，放个隐藏占位即可。 -->
+        <input type="text" id="snowluma-account" name="username" value="snowluma" autocomplete="username" hidden aria-hidden="true" tabindex="-1" />
         <label><span>当前密钥</span><input type="password" id="snowluma-current-password" autocomplete="current-password" required /></label>
         <label><span>新密钥</span><input type="password" id="snowluma-new-password" autocomplete="new-password" placeholder="至少 10 位，含大小写与符号" required /></label>
         <label><span>确认新密钥</span><input type="password" id="snowluma-confirm-password" autocomplete="new-password" required /></label>
@@ -951,12 +1060,15 @@ function updateControlHubFields(box, statuses, update) {
   for (const [id, status] of statuses) {
     const el = box.querySelector('[data-hub-service="' + id + '"] .control-service-state');
     if (!el) continue;
-    const online = id === 'agent' || status?.online === true;
-    const text = online ? '在线' : status ? '不可达' : '检测中';
-    setText(el, text);
-    const cls = 'control-service-state ' + (online ? 'online' : 'offline');
+    const tile = serviceTileState(id, status);
+    setText(el, tile.text);
+    const cls = 'control-service-state ' + tile.cls;
     if (el.className !== cls) el.className = cls;
   }
+  // 旧架构入口每次同步都跟着状态走：结构只在首次建，光在模板里判断的话，
+  // 部署重启期间 integrations 拉取失败重建页面后，入口可能一直留在页面上（与"未部署"的卡片自相矛盾）。
+  const legacyEntry = box.querySelector('[data-hub-legacy-entry="bridge"]');
+  if (legacyEntry) legacyEntry.classList.toggle('hidden', !legacyServiceDeployed(statuses, 'bridge'));
 
   // 部署状态徽标
   const badge = box.querySelector('[data-hub-deploy-state]');
@@ -994,6 +1106,17 @@ function updateControlHubFields(box, statuses, update) {
     errorBox.classList.toggle('hidden', !update.error);
   }
 
+  // 更新进度：排队 / 检查 / 测试 / 部署 各阶段显示一行带耗时，跑完自动隐藏
+  const progressBox = document.getElementById('hub-deploy-progress');
+  if (progressBox) {
+    const line = updateProgressText(update);
+    // 阶段走 aria-live（变化时播报），耗时放 aria-hidden —— 否则读屏每秒念一次
+    setText(document.getElementById('hub-deploy-progress-text'), updateProgressStage(update));
+    setText(document.getElementById('hub-deploy-progress-elapsed'), updateProgressElapsed(update));
+    progressBox.classList.toggle('hidden', !line);
+    if (line) startUpdateProgressTicker();
+  }
+
   // 按钮可用性 / 暂停与恢复的显隐
   const runBtn = document.getElementById('auto-update-run');
   if (runBtn) runBtn.disabled = !update.installed || update.busy === true;
@@ -1027,6 +1150,11 @@ async function loadControlHub({ force = false } = {}) {
     state.autoUpdateStatus = update;
     if (state.tab === 'control') renderControlHub(state.integrationStatus);
   } catch (error) {
+    // 读取失败（部署重启期间很常见）会把结构换成错误提示，此时必须把 __hubBuilt 归零：
+    // 否则下一次成功刷新只跑 updateControlHubFields，元素已不在 DOM，页面永远停在
+    // 这句错误提示上（按钮也失效）——进度行同样会被吞掉。
+    box.__hubBuilt = false;
+    box.__renderedHtml = null;
     box.innerHTML = `<div class="empty-hint">服务状态读取失败：${esc(error.message)}</div>`;
   }
 }
@@ -1181,11 +1309,13 @@ async function runUpdateFromNotice() {
       body: JSON.stringify({ confirm: true, version: state.updateNoticeVersion || '' })
     });
     state.autoUpdateStatus = response.status;
-    if (result) {
-      result.textContent = '更新任务已提交：先跑测试再部署，失败自动回滚；进度见「控制 → 更新部署」。';
-      result.className = 'control-result';
-    }
+    // 提交成功就关掉提示框，切到「控制 → 更新部署」：进度（阶段 + 已耗时）显示在那一块，
+    // 由状态派生、整页重绘也不会丢。以前这里留着框只把按钮点灰，用户看不到任何进展
+    // （2026-09-22 反馈）。
+    $('#update-notice')?.close();
+    switchTab('control');
   } catch (error) {
+    // 提交失败：框留着，错误直接显示在框里
     if (runBtn) runBtn.disabled = false;
     if (result) { result.textContent = `启动失败：${error.message}`; result.className = 'control-result error'; }
   }
@@ -1781,6 +1911,7 @@ function renderSessionList() {
         <div class="session-meta">
           <span class="status-badge status-${s.status}">${esc(sessionStatusText(s))}</span>
           <span class="mode-chip mode-${mode}">${esc(conversationStatusText(s))}</span>
+          ${s.persona ? `<span class="persona-chip" title="这次运行用的角色卡">人设 ${esc(s.persona)}</span>` : ''}
           ${lifecycleRemain}
           ${waitHtml}
           ${activityHtml}
@@ -2114,6 +2245,7 @@ function renderSessionDetail(s, {
       </h2>
       <div class="sub">
         <span>触发方式：${esc(triggerKindLabel(s))}${s.triggerReason ? ` · ${esc(s.triggerReason)}` : ''}</span>
+        <span>人设：${esc(s.persona || '（这次运行没记录到角色卡）')}</span>
         <span>触发消息：${esc(s.triggerSummary || (s.trigger === 'proactive' ? '主动机会' : '-'))}</span>
         <span>开始 ${fmtClock(s.startedAt)}${s.endedAt ? ` · ${s.conversationMode === 'lifecycle' ? '本轮结束' : '结束'} ${fmtClock(s.endedAt)}` : ' · 进行中'}</span>
         <span>模型 ${esc(s.model || '-')}</span>
@@ -4164,6 +4296,24 @@ function renderMemoryList() {
   });
 }
 
+/** 记忆页每条印象前面的标记：「[09-20 · 模型记的] 」——多老 + 谁写的，一眼分得开。
+ *  时间戳以前会被每次整理刷成当天（已修），所以这个日期现在真能当"年龄"看。
+ *  今年的只显示月-日；往年的要带年份，否则 1 月看到 [12-20] 会像是"还没到的那天"。 */
+function impressionMetaLabel(entry) {
+  const raw = Number(entry?.lastObservedAt || entry?.createdAt) || 0;
+  // 坏数据（负数/纳秒级/超范围）会让 toISOString 抛 RangeError，整页记忆一起挂 —— 回退成 ??
+  const at = Number.isFinite(raw) && raw > 0 && raw <= 8.64e15 ? raw : 0;
+  const shanghai = (ts) => new Date(ts + 8 * 60 * 60 * 1000).toISOString();
+  const thisYear = shanghai(Date.now()).slice(0, 4);
+  let when = '??-??';
+  if (at > 0) {
+    const key = shanghai(at);
+    when = key.startsWith(thisYear) ? key.slice(5, 10) : key.slice(0, 10);
+  }
+  const origin = { model: '模型记的', consolidated: '整理改写', manual: '手动编辑' }[entry?.origin] || '早先的';
+  return `[${when} · ${origin}] `;
+}
+
 async function loadMemoryDetail(chatKey) {
   const detail = $('#memory-detail');
   detail.innerHTML = '<div class="empty-hint">加载中…</div>';
@@ -4219,7 +4369,7 @@ async function loadMemoryDetail(chatKey) {
     const rows = members.map((m) => {
       const who = notes[String(m.userId)] || m.name || m.userId || '某人';
       const qq = m.userId ? ` <span class="muted">(QQ ${esc(m.userId)})</span>` : '';
-      const imps = m.impressions.map((e) => `- ${e.content}`).join('\n');
+      const imps = m.impressions.map((e) => `- ${impressionMetaLabel(e)}${e.content}`).join('\n');
       return `<div class="collapsible" open>
         <summary>${esc(who)}${qq}（${m.impressions.length} 条）
           <button class="btn btn-small mem-edit-imp" data-qq="${esc(m.userId)}" data-name="${esc(m.name)}" style="margin-left:8px">编辑</button>
@@ -4332,8 +4482,13 @@ async function loadMemoryDetail(chatKey) {
           });
           el.textContent = '已提交 ✓';
         } catch (err) {
+          // 请求在客户端就失败时不会有 SSE 的 consolidate-done 来收尾：
+          // 必须自己把"整理中"摘掉，否则列表永远显示"整理中…"、计时器也一直空转
+          delete state.consolidating[chatKey];
+          state.consolidateResult[chatKey] = { note: `失败：${err.message}`, at: Date.now(), failed: true };
           el.textContent = '失败';
           alert(`更新记忆失败：${err.message}`);
+          renderMemoryList();
         }
         setTimeout(() => { el.disabled = false; el.textContent = old; }, 2500);
       });
@@ -4422,9 +4577,9 @@ function openMemberImpressModal(chatKey, member) {
   });
   const delBtn = overlay.querySelector('#mi-del');
   if (delBtn) delBtn.addEventListener('click', async () => {
-    if (!await askForConfirmation(`确定删除 ${note || name || userId} 的全部印象？`)) return;
+    if (!await askForConfirmation(`确定删除 ${note || name || userId} 在本会话里的印象？（其它会话记得的印象不受影响；服务端会留可回滚快照）`)) return;
     try {
-      await api(`/api/memory-files/${chatKey.replace(':', '_')}/members/${userId}`, { method: 'DELETE', body: '{}' });
+      await api(`/api/memory-files/${chatKey.replace(':', '_')}/members/${userId}`, { method: 'DELETE', body: JSON.stringify({ confirm: true }) });
       closeModelModal(overlay);
       loadMemoryDetail(chatKey);
     } catch (e) {
@@ -4513,7 +4668,7 @@ async function openMemberNoteModal(qq, chatKey) {
 async function loadSettings() {
   const [cfg, tplData, provData, visionData, priceData] = await Promise.all([
     api('/api/config'),
-    api('/api/persona-templates').catch(() => ({ templates: [] })),
+    api('/api/persona-templates').catch(() => ({ templates: [], failed: true })),
     api('/api/providers').catch(() => ({ providers: [] })),
     api('/api/vision/results').catch(() => ({ results: {}, scanning: false })),
     api('/api/model-prices').catch(() => ({ prices: [], current: null }))
@@ -4525,6 +4680,8 @@ async function loadSettings() {
   state.visionScanning = !!visionData.scanning;
   state.modelPrices = priceData || { prices: [], current: null };
   state.personaTemplates = {};
+  state.personaTemplatesVersion = (state.personaTemplatesVersion || 0) + 1;   // 卡库变了：让卡库/正文的缓存指纹失效
+  state.personaTemplatesFailed = tplData.failed === true;
   for (const t of tplData.templates || []) state.personaTemplates[t.id] = {
     name: t.name, text: t.text, customRules: t.customRules || '',
     behaviorProfile: t.behaviorProfile || 'legacy', builtin: !!t.builtin
@@ -5486,49 +5643,477 @@ function currentPersonaId() {
   );
 }
 
-function syncPersonaButtons() {
-  const id = currentPersonaId();
-  const tpl = state.personaTemplates[id];
-  const delBtn = $('#del-persona-btn');
-  if (delBtn) delBtn.classList.toggle('hidden', !id.startsWith('custom_'));
-  const input = $('#cfg-persona-pick');
-  if (input) input.value = tpl?.name || '';
-  const hint = $('#persona-pick-hint');
-  if (hint) hint.textContent = tpl ? (tpl.builtin ? '内置人设' : '自定义人设') : '';
+/** 草稿与生效配置不一致时，卡库/详情头要跟着草稿说，不能只认已保存的那份。 */
+function personaDraftState() {
+  const cfg = state.config || {};
+  return {
+    id: currentPersonaId(),
+    roleText: $('#cfg-roletext')?.value ?? (cfg.persona?.roleText || ''),
+    behaviorProfile: $('#cfg-behavior-profile')?.value || cfg.persona?.behaviorProfile || 'legacy',
+    customRules: $('#cfg-customrules')?.value ?? (cfg.persona?.customRules || '')
+  };
 }
 
-function applyPersonaDraft(tpl) {
+function syncPersonaButtons() {
+  const draft = personaDraftState();
+  refreshPersonaFold(draft.roleText);
+  const tpl = state.personaTemplates[draft.id];
+  // 卡库还没读出来时，"匹配不到任何卡"并不等于"正文被改过" —— 下面几处提示都要区分这两种情况
+  const templatesKnown = Object.keys(state.personaTemplates || {}).length > 0;
+  const delBtn = $('#del-persona-btn');
+  if (delBtn) delBtn.classList.toggle('hidden', !String(draft.id).startsWith('custom_'));
+  const hint = $('#persona-pick-hint');
+  // 正文与内置模板不一致时（升级改了模板而实例里存的是旧正文，或管理员手改过），
+  // 选择框会是空的，容易让人以为人设丢了 —— 用提示行说明这是按自定义处理。
+  const hasText = String(draft.roleText || '').trim().length > 0;
+  if (hint) {
+    hint.textContent = tpl
+      ? (tpl.builtin ? `内置卡：跟着 roles/ 下的卡文件走，改卡重启即生效。` : `自定义卡「${tpl.name}」。`)
+      : (hasText
+        ? (templatesKnown ? '当前正文与内置模板不一致（按自定义处理，可在上面的卡库里点一张卡换回来）'
+          : (state.personaTemplatesFailed ? '人设卡读取失败，刷新页面重试。' : '正在读取人设卡…'))
+        : '');
+  }
+  // 详情视图：正文、档位、绑定状态都按草稿渲染。
+  // 「恢复本节 / 恢复整张卡」按**草稿那张卡**取文件正文（不是 config 里已保存的绑定）——
+  // 刚在卡库点了另一张卡、还没保存时，用旧绑定会把两张卡的内容拼在一起。
+  const baseTpl = state.personaTemplates[personaBaseCardId()];
+  const fileText = baseTpl?.builtin ? baseTpl.text : '';
+  // 只有内容真的变了才重画：人设页的输入事件（改名字、改附加规则、改正文）都会走到这里，
+  // 每次都重画 15KB 正文 + 5 张卡的话，打字时每敲一键都要多花约 10ms。
+  const viewKey = [draft.roleText, personaEditingSection,
+    [...personaCollapsedSections].sort((a, b) => a - b).join(','), fileText].join('\u0000');
+  const detail = $('#persona-card-view');
+  if (detail && viewKey !== personaViewKey) {
+    personaViewKey = viewKey;
+    detail.innerHTML = renderPersonaCardBody(draft.roleText, {
+      collapsed: personaCollapsedSections,
+      editing: personaEditingSection,
+      fileText
+    });
+  }
+  const restoreBtn = $('#restore-persona-btn');
+  if (restoreBtn) {
+    const dirty = Boolean(fileText) && String(draft.roleText || '').trim() !== String(fileText).trim();
+    restoreBtn.classList.toggle('hidden', !dirty);
+  }
+  const note = $('#persona-edit-note');
+  if (note) {
+    // 提示只在"草稿与卡文件不一致"时留着；一旦恢复成卡文件原文就自动消失
+    const dirty = Boolean(fileText)
+      ? String(draft.roleText || '').trim() !== String(fileText).trim()
+      : true;
+    note.textContent = dirty ? personaEditNote : '';
+  }
+  const title = $('#persona-view-title');
+  if (title) title.textContent = tpl?.name || (hasText ? (templatesKnown ? '自定义正文' : '角色设定') : '（还没设置角色设定）');
+  const profileChip = $('#persona-view-profile');
+  if (profileChip) profileChip.textContent = draft.behaviorProfile === 'grounded' ? '自然可靠' : '原版群友';
+  const bindChip = $('#persona-view-binding');
+  if (bindChip) {
+    const boundId = String((state.config?.persona?.templateId) || '');
+    bindChip.className = 'chip';
+    if (tpl?.builtin) {
+      // 只有草稿正文就是这张卡的正文、且实例确实绑着它，才算"正在跟随卡文件"
+      bindChip.classList.add(draft.id === boundId ? 'ok' : 'warn');
+      bindChip.textContent = draft.id === boundId ? '跟随卡文件' : '保存后跟随卡文件';
+    } else if (tpl) {
+      bindChip.textContent = '自定义卡';
+    } else if (hasText && templatesKnown) {
+      bindChip.classList.add('warn');
+      bindChip.textContent = '自定义正文 · 与卡文件解绑';
+    } else if (hasText) {
+      // 卡库还没读出来（或读取失败）时别断言"已解绑"——那时根本不知道有没有对应的卡
+      bindChip.textContent = state.personaTemplatesFailed ? '卡库读取失败' : '读取卡库中…';
+    } else {
+      bindChip.textContent = '';
+    }
+  }
+  const gridKey = [state.personaTemplatesVersion || 0,
+    String(state.config?.persona?.templateId || ''),
+    state.config?.persona?.roleText || '', state.config?.persona?.behaviorProfile || '',
+    state.config?.persona?.customRules || '', draft.roleText, draft.behaviorProfile, draft.customRules].join('\u0000');
+  const grid = $('#persona-grid');
+  if (grid && gridKey !== personaGridKey) {
+    personaGridKey = gridKey;
+    grid.innerHTML = renderPersonaGrid(state.config || {}, draft);
+  }
+  // 折叠按钮的文案要跟着实际状态走（折叠状态是跨分区保留的，不能只靠点击时改文字）
+  const expandBtn = $('#persona-expand-btn');
+  if (expandBtn) {
+    const total = parsePersonaCard(draft.roleText).sections.length;
+    expandBtn.textContent = total > 0 && personaCollapsedSections.size >= total ? '全部展开' : '全部收起';
+  }
+}
+
+function applyPersonaDraft(tpl, id = '') {
   $('#cfg-roletext').value = tpl.text;
   $('#cfg-customrules').value = tpl.customRules || '';
   $('#cfg-behavior-profile').value = tpl.behaviorProfile || 'legacy';
+  personaEditingSection = -1;
+  personaEditNote = '';
+  // 记下"草稿是从哪张卡来的"：没保存之前 config 里还是旧绑定，
+  // 「恢复本节 / 恢复整张卡」必须按草稿这张卡来，否则会把两张卡拼在一起。
+  personaDraftCardId = id || findPersonaTemplateId(tpl.text, tpl.behaviorProfile || 'legacy', tpl.customRules || '');
   syncPersonaButtons();
 }
 
-function renderPersonaPicker(c) {
-  const currentId = findPersonaTemplateId(
-    c.persona?.roleText || '', c.persona?.behaviorProfile || 'legacy', c.persona?.customRules || ''
-  );
-  const currentName = state.personaTemplates[currentId]?.name || '';
-  return `
-    <div class="field-row" style="align-items:flex-end">
-      <div class="field">
-        <label>选择人设</label>
-        <div style="display:flex;gap:8px">
-          <input type="text" id="cfg-persona-pick" readonly placeholder="点击选择人设" value="${esc(currentName)}" style="flex:1;cursor:pointer" />
-          <button class="btn btn-small" id="new-persona-btn">＋ 添加人设</button>
-          <button class="btn btn-small btn-danger hidden" id="del-persona-btn">删除当前自定义人设</button>
-        </div>
-        <span id="persona-pick-hint" class="muted" style="font-size:12px"></span>
-      </div>
-    </div>`;
+/**
+ * 草稿对应的内置卡 id：正文与某张内置卡完全一致就用那张；否则用用户最近点的那张
+ * （点完卡再逐节改，正文就不完全一致了，但"基准卡"还是它）。
+ */
+function personaBaseCardId() {
+  const draft = personaDraftState();
+  const exact = findPersonaTemplateId(draft.roleText, draft.behaviorProfile, draft.customRules);
+  if (exact && state.personaTemplates[exact]?.builtin) return exact;
+  const picked = String(personaDraftCardId || '');
+  return picked && state.personaTemplates[picked]?.builtin ? picked : '';
 }
 
-function renderPersonaSaveBar() {
+/**
+ * 把"正在编辑的小节"落回草稿。分节编辑框不是唯一数据源（#cfg-roletext 才是），
+ * 所以保存、折叠、恢复这些会重画视图的动作之前都得先冲一次，否则刚打的字会消失。
+ * @returns {boolean} 有改动被落回时 true
+ */
+function flushPersonaSectionEdit() {
+  if (personaEditingSection < 0) return false;
+  const roleBox = $('#cfg-roletext');
+  const box = document.querySelector(`#persona-card-view .pd-edit-text[data-sec="${personaEditingSection}"]`);
+  if (!roleBox || !box) return false;
+  // 输入框内容与"按渲染规则解析出来的正文"逐字一致 → 这一节根本没改过，别写回。
+  // replacePersonaSectionBody 会规范化行尾空白与多余空行：原样写回也会让正文与卡文件不再逐字节相同，
+  // 保存时 currentPersonaId() 按整串比较就把它当成"自定义" → 静默解绑内置卡（用户什么都没改）。
+  if (box.value === personaSectionBody(roleBox.value, personaEditingSection)) return false;
+  const next = replacePersonaSectionBody(roleBox.value, personaEditingSection, box.value);
+  if (next === roleBox.value) return false;
+  roleBox.value = next;
+  return true;
+}
+
+// ── 角色正文的结构化渲染 ──
+// 卡正文是 markdown，只给一个大 textarea 太糙：这里解析成分节面板 ——
+// 「你的标志」渲染成一排标签、「AI 味黑名单」渲染成打叉标签、示例渲染成聊天气泡，
+// 让人一眼看出这张卡会让它怎么说话。保存仍然以 #cfg-roletext 的原文为准（视图只读）。
+/** 管理员附加规则的常用例子：点一下就填进去，省得对着空白框发呆。 */
+const PERSONA_RULE_EXAMPLES = [
+  '别装傻、别反问，不想接就安静',
+  '说话短一点，一轮最多两条',
+  '被怼只淡淡带过，不还嘴',
+  '称呼固定用「老板」',
+  '不用网络梗和颜文字'
+];
+
+let personaCollapsedSections = new Set();
+let personaFoldKey = null;
+let personaEditingSection = -1;   // 正在按小节编辑的序号；-1 = 没在编辑
+let personaEditNote = '';         // 小节编辑后的提示（"还得点保存设置"这类）
+let personaViewKey = null;        // 上次画正文视图用的内容指纹（没变就跳过重画）
+let personaGridKey = null;        // 同上，卡库
+let personaViewTimer = null;      // 正文输入时的合并渲染定时器
+let personaDraftCardId = '';      // 草稿是从哪张卡来的（点卡时记下）
+
+/**
+ * 默认折叠策略：只展开"你是谁"和"你的标志"，其余小节收起来。
+ * 一张卡的正文能有三千多像素，全展开会把下面的名字/参与度/附加规则/保存按钮压到很远，
+ * 用起来像"页面滚不动"。想看全的点「全部展开」。
+ */
+function defaultPersonaFold(roleText) {
+  const card = parsePersonaCard(roleText);
+  const folded = new Set();
+  card.sections.forEach((section, index) => {
+    if (!/你是谁|标志|招牌/.test(section.name)) folded.add(index);
+  });
+  return folded;
+}
+
+/**
+ * 正文变了就更新折叠基准：换了另一张卡就按默认折叠重算，
+ * 只是改了某一节（小节数没变）就保留用户当前展开/收起的状态。
+ */
+function refreshPersonaFold(roleText) {
+  const key = String(roleText || '');
+  if (personaFoldKey === key) return;
+  const previousKey = personaFoldKey;
+  const sameShape = previousKey !== null
+    && parsePersonaCard(previousKey).sections.length === parsePersonaCard(key).sections.length;
+  personaFoldKey = key;
+  if (!sameShape) {
+    personaCollapsedSections = defaultPersonaFold(key);
+    personaEditingSection = -1;
+  }
+}
+
+const PERSONA_SECTION_EMOJI = {
+  你是谁: '🪪',
+  说话方式: '💬',
+  偏好: '🍜',
+  工具: '🧰',
+  分寸: '🧭'
+};
+
+/** 行内格式：`code`、**加粗**（先转义再替换，避免注入）。 */
+function personaInline(text) {
+  return esc(String(text))
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
+
+/**
+ * 把角色正文解析成 { title, sections: [{ num, name, blocks, from, to }] }。
+ * 只认卡里实际用的写法：一级标题、`## 一、小节`、`>` 引用、`-`/`1.` 列表、正文续行，
+ * 以及示例段的 `群友：/你不要：/你可以：/或者：`（同一组群友发言归到一个气泡组里）。
+ *
+ * from / to 是这一节在原始文本里的行号区间（`from` 是小节标题那一行、`to` 是下一节标题
+ * 那一行或文末，左闭右开）—— 按小节编辑时要靠它把改动精确地拼回去。
+ */
+/**
+ * 解析结果按"整段文本"缓存一份：人设页一次同步会解析同一段正文好几次
+ * （默认折叠、卡库简介、正文渲染、取单节正文…），3~4KB 的正文每次重解析不划算。
+ * 调用方都只读返回值，不要改它。
+ */
+let personaParseCache = { text: null, card: null };
+
+function parsePersonaCard(text) {
+  const source = String(text || '');
+  if (personaParseCache.text === source) return personaParseCache.card;
+  const card = { title: '', sections: [] };
+  let section = null;
+  const blocks = () => (section ? section.blocks : (card.intro ||= []));
+  const lastBlock = () => blocks()[blocks().length - 1];
+  const lines = String(text || '').split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].replace(/\s+$/, '');
+    if (!line.trim()) continue;
+    const h1 = line.match(/^#\s+(.*)$/);
+    if (h1) { card.title = h1[1].trim(); continue; }
+    const h2 = line.match(/^##\s*(?:([一二三四五六七八九十]+|\d+)\s*[、.．]\s*)?(.*)$/);
+    if (h2) {
+      if (section) section.to = index;
+      section = { num: (h2[1] || '').trim(), name: (h2[2] || '').trim(), blocks: [], from: index, to: lines.length };
+      card.sections.push(section);
+      continue;
+    }
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      const last = lastBlock();
+      if (last?.type === 'quote') last.lines.push(quote[1]);
+      else blocks().push({ type: 'quote', lines: [quote[1]] });
+      continue;
+    }
+    const listItem = line.match(/^\s*(?:[-*]|\d+[.．])\s+(.*)$/);
+    if (listItem) {
+      const last = lastBlock();
+      if (last?.type === 'list') last.items.push(listItem[1]);
+      else blocks().push({ type: 'list', items: [listItem[1]] });
+      continue;
+    }
+    const turn = line.trim().match(/^(群友|你不要|你可以|或者|但|示例)[：:]\s*(.*)$/);
+    if (turn) {
+      const role = turn[1] === '群友' ? 'peer' : (turn[1] === '你不要' ? 'bad' : 'ok');
+      const last = lastBlock();
+      if (role === 'peer' || last?.type !== 'example') {
+        blocks().push({ type: 'example', turns: [{ role, text: turn[2] }] });
+      } else {
+        last.turns.push({ role, text: turn[2] });
+      }
+      continue;
+    }
+    // 续行：接到上一段/上一条列表项后面（卡里的换行大多是折行，不是新句）
+    const last = lastBlock();
+    if (last?.type === 'list' && last.items.length) last.items[last.items.length - 1] += ` ${line.trim()}`;
+    else if (last?.type === 'p') last.text += ` ${line.trim()}`;
+    else blocks().push({ type: 'p', text: line.trim() });
+  }
+  personaParseCache = { text: source, card };
+  return card;
+}
+
+/** 取某一节的正文（不含小节标题那一行）。 */
+function personaSectionBody(text, index) {
+  const source = String(text || '');
+  const section = parsePersonaCard(source).sections[index];
+  if (!section) return '';
+  return source.split(/\r?\n/).slice(section.from + 1, section.to).join('\n').replace(/^\n+|\n+$/g, '');
+}
+
+/**
+ * 用 newBody 替换第 index 节的正文，其余部分原样保留（小节标题不动）。
+ * "按小节编辑"就落在这里：正文全文仍是唯一数据源，只是改哪节拼哪节。
+ * 标题与正文之间的空行、正文与下一节之间的空行，都按原文的样子决定 ——
+ * 这样"原样写回"逐字节不变，编辑别的节也不会把整篇格式弄乱。
+ */
+function replacePersonaSectionBody(text, index, newBody) {
+  const source = String(text || '');
+  const section = parsePersonaCard(source).sections[index];
+  if (!section) return source;
+  const lines = source.split(/\r?\n/);
+  const blankAfterHeader = lines[section.from + 1] !== undefined && !lines[section.from + 1].trim();
+  const blankBeforeNext = section.to < lines.length && !String(lines[section.to - 1] ?? '').trim();
+  const body = String(newBody ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+$/, ''))
+    .join('\n')
+    .replace(/^\n+|\n+$/g, '');
+  const next = lines.slice(0, section.from + 1);   // 含小节标题那行
+  if (body) {
+    if (blankAfterHeader) next.push('');
+    next.push(...body.split('\n'));
+    if (blankBeforeNext) next.push('');
+  }
+  next.push(...lines.slice(section.to));
+  return next.join('\n');
+}
+
+function renderPersonaBlock(block, { asTags = '' } = {}) {
+  if (block.type === 'quote') {
+    return `<div class="pd-quote">${block.lines.map(personaInline).join('<br>')}</div>`;
+  }
+  if (block.type === 'list') {
+    if (asTags) {
+      return `<div class="pd-tags">${block.items.map((item) => `<span class="pd-tag ${asTags}">${personaInline(item)}</span>`).join('')}</div>`;
+    }
+    return `<ul class="pd-list">${block.items.map((item) => `<li>${personaInline(item)}</li>`).join('')}</ul>`;
+  }
+  if (block.type === 'example') {
+    const MARK = { peer: '', bad: '✗', ok: '✓' };
+    return `<div class="pd-chat">${block.turns.map((t) => `
+      <div class="pd-msg ${t.role}">
+        <span class="mark">${MARK[t.role] || ''}</span>
+        <span class="bubble">${t.role === 'peer' ? '<span class="who">群友 </span>' : ''}${personaInline(t.text)}</span>
+      </div>`).join('')}</div>`;
+  }
+  if (block.type === 'p') return `<p>${personaInline(block.text)}</p>`;
+  return '';
+}
+
+const PERSONA_TAG_SECTIONS = /标志|招牌/;
+const PERSONA_BAD_SECTIONS = /黑名单|禁止|不要/;
+
+/**
+ * 把卡正文渲染成分节视图。
+ * @param {object} options
+ *   collapsed  收起来的小节序号集合
+ *   editing    正在按小节编辑的序号（-1 = 没在编辑）
+ *   fileText   这张卡对应的卡文件正文（有值时每节出现「恢复本节」）
+ */
+function renderPersonaCardBody(text, { collapsed = new Set(), showTitle = true, editing = -1, fileText = '' } = {}) {
+  const card = parsePersonaCard(text);
+  if (!card.sections.length) {
+    return `<div class="pd-empty">这段正文还没分节，点「编辑正文」直接改；想有分节视图就按内置卡的写法用 <code>## 一、小节名</code>。</div>`;
+  }
+  const fileCard = fileText ? parsePersonaCard(fileText) : null;
+  const sections = card.sections.map((sec, i) => {
+    const isStar = PERSONA_TAG_SECTIONS.test(sec.name);
+    const isBad = PERSONA_BAD_SECTIONS.test(sec.name);
+    const emoji = isStar ? '✨' : (isBad ? '🚫' : (PERSONA_SECTION_EMOJI[sec.name.replace(/（.*?）/g, '')] || ''));
+    const body = sec.blocks.map((block) => renderPersonaBlock(block, {
+      asTags: isStar ? 'star' : (isBad ? 'bad' : '')
+    })).join('');
+    const chips = [];
+    if (isStar) chips.push('<span class="chip star">招牌特征</span>');
+    if (/示例/.test(sec.name)) chips.push('<span class="chip">✓ 可用 / ✗ 禁用</span>');
+    const isEditing = editing === i;
+    // 卡文件里同一节还在、而且写法不同 → 给一个"只把这一节改回卡文件写法"的入口
+    const fileBody = fileCard && fileCard.sections[i] && fileCard.sections[i].name === sec.name
+      ? personaSectionBody(fileText, i) : null;
+    const canRevert = fileBody !== null && fileBody !== personaSectionBody(text, i);
+    const actions = `
+      <span class="pd-sec-actions">
+        ${canRevert ? `<button type="button" class="pd-sec-revert" data-sec="${i}">恢复本节</button>` : ''}
+        <button type="button" class="pd-sec-edit" data-sec="${i}">${isEditing ? '正在编辑' : '编辑'}</button>
+      </span>`;
+    const sectionBody = isEditing
+      ? `<div class="pd-edit">
+           <textarea class="pd-edit-text" data-sec="${i}" spellcheck="false" placeholder="这一节的正文（markdown）。小节标题不在这里改。">${esc(personaSectionBody(text, i))}</textarea>
+           <div class="pd-edit-row">
+             <button type="button" class="btn btn-small btn-primary pd-sec-save" data-sec="${i}">保存本节</button>
+             <button type="button" class="btn btn-small pd-sec-cancel">取消</button>
+             <span class="muted pd-edit-hint">保存只是改草稿；要生效还得点底部那条「保存设置」。</span>
+           </div>
+         </div>`
+      : body;
+    return `
+      <div class="pd-sec ${collapsed.has(i) && !isEditing ? 'collapsed' : ''} ${isEditing ? 'editing' : ''}" data-sec="${i}">
+        <div class="pd-sec-head">
+          <span class="idx">${esc(sec.num || String(i + 1))}</span>
+          <span class="name">${emoji ? `${emoji} ` : ''}${esc(sec.name)}</span>
+          ${chips.join('')}
+          ${actions}
+          <span class="caret">▾</span>
+        </div>
+        <div class="pd-sec-body">${sectionBody}</div>
+      </div>`;
+  }).join('');
+  const head = showTitle && card.title
+    ? `<div class="pd-headline">${esc(card.title)}</div>`
+    : '';
+  return `${head}${sections}`;
+}
+
+/** 卡库里的一张卡：草稿中的那张会高亮，真正生效且绑着卡文件的那张挂「使用中」。 */
+/** 卡库简介（取自「你是谁」第一段）按卡正文缓存 —— 卡库每次重画都要用 5 次。 */
+const personaDescCache = new Map();
+
+function personaCardDesc(tpl) {
+  const key = `${tpl.name}\u0000${tpl.text.length}\u0000${tpl.text.slice(0, 24)}`;
+  if (personaDescCache.has(key)) return personaDescCache.get(key);
+  const parsed = parsePersonaCard(tpl.text);
+  const sec = parsed.sections.find((s) => s.name.includes('你是谁'));
+  const text = sec?.blocks.find((b) => b.type === 'p')?.text || '';
+  const desc = text.length > 46 ? `${text.slice(0, 46)}…` : text;
+  personaDescCache.set(key, desc);
+  return desc;
+}
+
+function renderPersonaGrid(c, draft = {}) {
+  const draftText = draft.roleText ?? c.persona?.roleText ?? '';
+  const draftProfile = draft.behaviorProfile ?? c.persona?.behaviorProfile ?? 'legacy';
+  const draftRules = draft.customRules ?? c.persona?.customRules ?? '';
+  const draftId = findPersonaTemplateId(draftText, draftProfile, draftRules);
+  const savedId = findPersonaTemplateId(
+    c.persona?.roleText || '', c.persona?.behaviorProfile || 'legacy', c.persona?.customRules || ''
+  );
+  const boundId = String(c.persona?.templateId || '');
+  const templates = Object.entries(state.personaTemplates || {});
+  if (!templates.length) {
+    // 区分"卡库还没读出来/读取失败"和"真的一张卡都没有"，别让人以为人设丢了
+    return state.personaTemplatesFailed
+      ? '<div class="pd-empty">人设卡读取失败，刷新页面重试。</div>'
+      : '<div class="pd-empty">正在读取人设卡…</div>';
+  }
+  return templates.map(([id, tpl]) => {
+    const isDraft = id === draftId;
+    const isInUse = id === savedId && id === boundId;
+    const desc = personaCardDesc(tpl);
+    return `
+      <div class="persona-card ${isDraft ? 'selected' : ''}" data-persona-id="${esc(id)}" role="button" tabindex="0">
+        <div class="pc-top">
+          <span class="pc-name">${esc(tpl.name)}</span>
+          ${isInUse ? '<span class="chip ok">使用中</span>' : (isDraft ? '<span class="chip">草稿中</span>' : '')}
+        </div>
+        <div class="pc-meta">
+          <span class="pc-tag">${tpl.behaviorProfile === 'grounded' ? '自然可靠' : '原版群友'}</span>
+          <span class="pc-src">${tpl.builtin ? '内置 · 跟随卡文件' : '自定义'}</span>
+        </div>
+        <div class="pc-desc">${esc(desc)}</div>
+      </div>`;
+  }).join('');
+}
+
+/** 人设卡库：点一张卡就把它的正文填进草稿（保存后才生效）。 */
+function renderPersonaLibrary(c) {
   return `
-    <div class="persona-save-row">
-      <button class="btn btn-primary" id="save-persona-btn">保存人设修改</button>
-      <span id="persona-save-result" class="muted"></span>
-    </div>`;
+    <div class="persona-lib">
+      <div class="persona-lib-head">
+        <span class="pl-title">人设卡库</span>
+        <span class="spacer"></span>
+        <button class="btn btn-small" id="persona-expand-btn">全部收起</button>
+        <button class="btn btn-small" id="new-persona-btn">＋ 新建自定义卡</button>
+        <button class="btn btn-small btn-danger hidden" id="del-persona-btn">删除当前自定义卡</button>
+      </div>
+      <div class="persona-grid" id="persona-grid">${renderPersonaGrid(c)}</div>
+    </div>
+    <span id="persona-pick-hint" class="muted" style="font-size:12px"></span>`;
 }
 
 function renderHealthCard() {
@@ -5686,6 +6271,7 @@ function renderSettingsSidebar() {
     ['moments', '每日动态'],
     ['qzone-interactions', '动态互动'],
     ['time-control', '时间控制'],
+    ['token-saver', '省 Token'],
     ['persona', '人设'],
     ['allow', '聊天白名单'],
     ['chat', '聊天设置'],
@@ -5729,6 +6315,7 @@ function renderSettingsSection(c) {
     moments: () => renderDailyMomentsSection(c),
     'qzone-interactions': () => renderQzoneInteractionSection(c),
     'time-control': () => renderTimeControlSection(c),
+    'token-saver': () => renderTokenSaverSection(c),
     persona: () => renderPersonaSection(c),
     allow: () => renderAllowSection(c),
     chat: () => renderChatSection(c),
@@ -5736,12 +6323,15 @@ function renderSettingsSection(c) {
     onebot: () => renderOnebotSection(c)
   };
   const render = sections[sec] || sections.api;
+  // 保存条放在内容**末尾**并 sticky 贴底：长页面（人设页能滚好几屏）里从顶部就能看到它，
+  // 一直悬在视口底部，滚到底时正好落在内容末尾。以前它渲染在最前面，既不悬浮又容易
+  // 和分区里自己的保存按钮撞车（人设页就多过一个"保存人设修改"，其实调的是同一个保存）。
   return `
+    ${render()}
     <div class="save-bar">
       <button class="btn btn-primary" id="save-cfg-btn">保存设置</button>
       <span id="cfg-save-result" class="muted"></span>
-    </div>
-    ${render()}`;
+    </div>`;
 }
 
 function renderApiSection(c) {
@@ -5917,6 +6507,7 @@ function renderSearchSection(c) {
         <option value="bocha" ${prov === 'bocha' ? 'selected' : ''}>博查 AI Search</option>
         <option value="baidu" ${prov === 'baidu' ? 'selected' : ''}>百度千帆 AI Search</option>
         <option value="metaso" ${prov === 'metaso' ? 'selected' : ''}>秘塔 AI 搜索</option>
+        <option value="doubao" ${prov === 'doubao' ? 'selected' : ''}>豆包搜索（火山 Agent Plan）</option>
         ${customProvs.map((p) => `<option value="custom:${esc(p.id)}" ${prov === `custom:${p.id}` ? 'selected' : ''}>${esc(p.name || p.baseUrl)}（自定义 · ${p.type === 'bing' ? '网页解析' : 'JSON 接口'}）</option>`).join('')}
       </select></div>
     <div class="field" id="custom-provider-manage" style="${prov.startsWith('custom:') ? '' : 'display:none'}">
@@ -5966,6 +6557,12 @@ function renderSearchSection(c) {
       <div style="display:flex;gap:8px">
         <input type="password" id="cfg-metaso-key" value="${esc(c.webSearch?.metaso?.hasApiKey ? '******' : '')}" placeholder="输入新 Key 可替换；留空保持不变" autocomplete="new-password" style="flex:1" />
         <button class="btn btn-small" id="cfg-metaso-key-toggle" type="button">显示</button>
+      </div></div>
+    <div class="field" id="doubao-search-fields" style="${prov === 'doubao' ? '' : 'display:none'}">
+      <label>豆包搜索 API Key（火山 Agent Plan 搜索服务 Key / 环境变量 DOUBAO_SEARCH_API_KEY）</label>
+      <div style="display:flex;gap:8px">
+        <input type="password" id="cfg-doubao-key" value="${esc(c.webSearch?.doubao?.hasApiKey ? '******' : '')}" placeholder="输入新 Key 可替换；留空保持不变" autocomplete="new-password" style="flex:1" />
+        <button class="btn btn-small" id="cfg-doubao-key-toggle" type="button">显示</button>
       </div></div>
 
     <h3>添加自定义搜索服务</h3>
@@ -6370,11 +6967,25 @@ async function loadIncomingFriendRequests(status) {
   const box = $('#identity-incoming-friend-requests');
   if (!box) return;
   const feature = status?.incomingFriendRequest || {};
+  // 总开关开着、但统一身份库没起来（active=false，比如启动时出错）时，下面这个接口是 409：
+  // 直接给提示，别让请求失败把整页（连同设置表单）换成一整块错误信息。
+  if (status?.active === false) {
+    box.innerHTML = '<div class="empty-hint">统一身份库没有启动：先看页面上提示的启动错误</div>';
+    return;
+  }
   if (!feature.enabled) {
     box.innerHTML = '<div class="empty-hint">入站好友请求审批当前关闭</div>';
     return;
   }
-  const data = await api('/api/identity-pilot/incoming-friend-requests?limit=100');
+  let data;
+  try {
+    data = await api('/api/identity-pilot/incoming-friend-requests?limit=100');
+  } catch (error) {
+    // 外层是 Promise.allSettled，不再替它兜错：失败要显示在这个框里，
+    // 否则页面看起来像"没有好友请求"，而不是"读不到"
+    box.innerHTML = `<div class="empty-hint">读取失败：${esc(error.message)}</div>`;
+    return;
+  }
   const requests = data.requests || [];
   if (!requests.length) {
     box.innerHTML = '<div class="empty-hint">当前没有收到好友请求</div>';
@@ -6439,7 +7050,18 @@ async function loadFriendProposals(status) {
     box.innerHTML = '<div class="empty-hint">主动好友候选当前关闭</div>';
     return;
   }
-  const data = await api('/api/identity-pilot/friend-proposals?limit=100');
+  // 同 loadIncomingFriendRequests：身份库没起来时下面两个接口都是 409
+  if (status?.active === false) {
+    box.innerHTML = '<div class="empty-hint">统一身份库没有启动：先看页面上提示的启动错误</div>';
+    return;
+  }
+  let data;
+  try {
+    data = await api('/api/identity-pilot/friend-proposals?limit=100');
+  } catch (error) {
+    box.innerHTML = `<div class="empty-hint">读取失败：${esc(error.message)}</div>`;
+    return;
+  }
   const proposals = data.proposals || [];
   if (!proposals.length) {
     box.innerHTML = '<div class="empty-hint">当前没有好友候选</div>';
@@ -6456,7 +7078,9 @@ async function loadFriendProposals(status) {
       <td>${proposal.status === 'pending'
         ? `<button type="button" class="btn btn-small proposal-decision" data-id="${esc(proposal.id)}" data-decision="approve">批准</button>
            <button type="button" class="btn btn-small proposal-decision" data-id="${esc(proposal.id)}" data-decision="reject">拒绝</button>`
-        : '-'}</td>
+        : ['failed', 'held_unknown'].includes(proposal.status) && (state.config?.identityPilot?.friendProposal?.activeDispatchEnabled === true)
+          ? `<button type="button" class="btn btn-small proposal-redispatch" data-id="${esc(proposal.id)}">重新派发</button>`
+          : '-'}</td>
     </tr>`).join('')}</tbody>
   </table>`;
   box.querySelectorAll('.proposal-decision').forEach((button) => {
@@ -6471,6 +7095,27 @@ async function loadFriendProposals(status) {
       }
     });
   });
+  box.querySelectorAll('.proposal-redispatch').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!await askForConfirmation('重新派发这个好友候选？会生成一次新的发送尝试；失败仍会记入冷却。')) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        const result = await api(`/api/identity-pilot/friend-proposals/${encodeURIComponent(button.dataset.id)}/redispatch`, {
+          method: 'POST',
+          body: JSON.stringify({ confirm: true })
+        });
+        await loadFriendFeaturePage();
+        const status = $('#friend-feature-state');
+        if (status) status.textContent = result.note;
+      } catch (error) {
+        const node = $('#friend-feature-state');
+        if (node) node.textContent = `重新派发失败：${error.message}`;
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 async function loadFriendOpportunities(status) {
@@ -6481,7 +7126,18 @@ async function loadFriendOpportunities(status) {
     box.innerHTML = '<div class="empty-hint">当前使用提示词提名模式，没有消息触发记录</div>';
     return;
   }
-  const data = await api('/api/identity-pilot/friend-opportunities?limit=100');
+  // 同 loadIncomingFriendRequests：身份库没起来时下面这个接口是 409
+  if (status?.active === false) {
+    box.innerHTML = '<div class="empty-hint">统一身份库没有启动：先看页面上提示的启动错误</div>';
+    return;
+  }
+  let data;
+  try {
+    data = await api('/api/identity-pilot/friend-opportunities?limit=100');
+  } catch (error) {
+    box.innerHTML = `<div class="empty-hint">读取失败：${esc(error.message)}</div>`;
+    return;
+  }
   const opportunities = data.opportunities || [];
   if (!opportunities.length) {
     box.innerHTML = '<div class="empty-hint">尚无抽签或评估记录</div>';
@@ -6773,7 +7429,9 @@ async function loadFriendFeaturePage() {
     state.config = cfg;
     syncGraduatedFeatureNavigation(cfg);
     renderFriendFeaturePage(cfg, status);
-    await Promise.all([
+    // 三个列表各自把失败显示在自己的框里（各自的 try/catch）：用 allSettled 而不是 all，
+    // 一个接口出错不会把整页（含下面的设置表单与刷新按钮）换成一整块错误信息。
+    await Promise.allSettled([
       loadIncomingFriendRequests(status),
       loadFriendProposals(status),
       loadFriendOpportunities(status)
@@ -7407,6 +8065,7 @@ const QZONE_RUN_LABELS = {
   idle: '没有新内容',
   done: '已完成',
   'partial-unknown': '部分结果待核对',
+  'partial-feed-error': '好友动态未取到',
   failed: '执行失败',
   interrupted: '执行中断',
   deferred: '等待活跃时间'
@@ -7491,6 +8150,8 @@ async function loadQzoneInteractionStatus() {
     const status = await api('/api/qzone-interactions/status');
     const records = Array.isArray(status.records) ? status.records : [];
     const latest = records[0];
+    // 好友动态抓取失败不再让整轮失败：原因记在 feedError 上，这里照样把它显示出来
+    const runAlert = latest?.error || (latest?.feedError ? `好友动态未取到：${latest.feedError}` : '');
     for (const button of $$('#qzi-run-feed-btn,#qzi-run-reply-btn')) {
       button.disabled = status.running;
     }
@@ -7506,7 +8167,7 @@ async function loadQzoneInteractionStatus() {
         <div class="field"><label>上次好友动态检查</label><div>${status.lastFeedPollAt ? esc(fmtTime(status.lastFeedPollAt)) : '-'}</div></div>
         <div class="field"><label>上次评论检查</label><div>${status.lastReplyPollAt ? esc(fmtTime(status.lastReplyPollAt)) : '-'}</div></div>
       </div>
-      ${latest?.error ? `<div class="moment-error" role="alert">${esc(latest.error)}</div>` : ''}
+      ${runAlert ? `<div class="moment-error" role="alert">${esc(runAlert)}</div>` : ''}
       ${records.length ? `<div class="table-wrap"><table class="usage-table">
         <thead><tr><th>时间</th><th>类型</th><th>状态</th><th>动态</th><th>回复</th><th>写操作</th><th>延后</th></tr></thead>
         <tbody>${records.slice(0, 10).map((record) => `
@@ -7527,9 +8188,33 @@ async function loadQzoneInteractionStatus() {
 }
 
 function renderPersonaSection(c) {
+  const roleText = c.persona.roleText || '';
+  refreshPersonaFold(roleText);
+  // 整个设置页会重画 DOM：正文视图与卡库都要按当前状态（折叠/编辑中）画一次，
+  // 并把指纹清空，交给随后的 syncPersonaButtons 校一遍。
+  personaViewKey = null;
+  personaGridKey = null;
   return `
     <h3>人设</h3>
-    ${renderPersonaPicker(c)}
+    ${renderPersonaLibrary(c)}
+    <div class="persona-detail">
+      <div class="pd-head">
+        <span class="pd-title" id="persona-view-title"></span>
+        <span class="chip" id="persona-view-profile"></span>
+        <span class="chip" id="persona-view-binding"></span>
+        <span class="spacer"></span>
+        <button class="btn btn-small hidden" id="restore-persona-btn">恢复整张卡</button>
+        <button class="btn btn-small" id="toggle-persona-edit">编辑全文</button>
+      </div>
+      <div class="pd-body" id="persona-card-view">${renderPersonaCardBody(roleText)}</div>
+    </div>
+    <div class="hint" id="persona-edit-note"></div>
+    <div class="field hidden" id="persona-raw-field">
+      <label>角色设定（原文）</label>
+      <textarea id="cfg-roletext" class="persona-role-text" placeholder="例如：你是运维群里的老油条……">${esc(roleText)}</textarea>
+      <div class="hint">上面那屏是这份原文的读法，保存的也是这份原文。平时逐节改就够了（每节右上角有「编辑」「恢复本节」）；
+        这里改一个字也会<strong>解除与内置卡的绑定</strong>（正文归你自己管），想重新跟随卡文件，回上面的卡库里点一下那张卡。</div>
+    </div>
     <div class="field-row">
       <div class="field"><label>机器人名字</label><input type="text" id="cfg-botname" value="${esc(c.persona.botName)}" /></div>
       <div class="field"><label>群内展示名（可选）</label><input type="text" id="cfg-selfnick" value="${esc(c.persona.selfNickname || '')}" /></div>
@@ -7546,12 +8231,13 @@ function renderPersonaSection(c) {
         </select></div>
     </div>
     <div class="hint">交流策略：「原版群友」那套允许装傻、随口应付、不有求必应；「自然可靠」不装傻、说话有据。嫌它冲或想让它听话，选后者。角色设定里写了相反的脾气时，以角色设定为准（它优先级更高）；参与度（安静/普通/活跃）不受角色设定影响。</div>
-    <div class="field"><label>角色设定</label>
-      <textarea id="cfg-roletext" class="persona-role-text" placeholder="例如：你是运维群里的老油条……">${esc(c.persona.roleText || '')}</textarea></div>
     <div class="field"><label>管理员附加规则（可选；排在所有平台规则之后 —— 想压过默认风格就写这里）</label>
+      <div class="pd-tags" id="persona-rule-chips">
+        ${PERSONA_RULE_EXAMPLES.map((rule) => `<button type="button" class="pd-tag rule-chip" data-rule="${esc(rule)}">＋ ${esc(rule)}</button>`).join('')}
+      </div>
       <textarea id="cfg-customrules" class="persona-role-text" style="min-height:100px" placeholder="例如：别装傻、别反问，不接话就安静；称呼固定用「老板」；被怼只淡淡带过">${esc(c.persona.customRules || '')}</textarea>
-      <div class="hint">冲突时优先级：安全规则 &gt; 这里 &gt; 角色设定 &gt; 平台默认风格。角色的口吻/称呼/脾气写在「角色设定」里就行，这里的硬要求会盖过平台默认风格。</div></div>
-    ${renderPersonaSaveBar()}`;
+      <div class="hint">冲突时优先级：安全规则 &gt; 这里 &gt; 角色设定 &gt; 平台默认风格。角色的口吻/称呼/脾气写在「角色设定」里就行，这里的硬要求会盖过平台默认风格。上面几个例子点一下就加进去，可以再改。</div></div>
+    <div class="hint">改完记得点页面最下面那条<strong>「保存设置」</strong>（一直悬在底部）——它保存的就是这一页的人设。</div>`;
 }
 
 function renderAllowSection(c) {
@@ -7969,6 +8655,41 @@ return `
     </div>`;
 }
 
+function renderTokenSaverSection(c) {
+  const mode = ['off', 'balanced', 'aggressive'].includes(c.tokenSaver?.mode) ? c.tokenSaver.mode : 'off';
+  const saver = state.status?.tokenSaver || null;
+  const caps = saver?.capsByMode || {};
+  // 档位条数按 被艾特/关键词/随机 三档说明（allCount 与被艾特档同值），数字全部来自服务端上限表
+  const summarize = (m) => {
+    const k = caps[m];
+    if (!k) return '';
+    return `档位读 ${k.atCount}/${k.keywordCount}/${k.randomCount} 条，轮数 ≤${k.maxRounds}、单次预算 ≤${Math.round(k.maxRunTokens / 10000)} 万 token，`
+      + `交接 ≤${k.handoffMaxChars} 字符、印象 ≤${k.memoryBlockChars} 字符、表情清单 ≤${k.promptMaxStickers} 条`;
+  };
+  const rows = (saver?.rows || []).map((row) => `<tr>
+      <td>${esc(row.label)}</td>
+      <td class="muted">${esc(row.user)}</td>
+      <td>${row.clamped ? `<strong>${esc(row.effective)}</strong> <span class="muted">（被夹住）</span>` : esc(row.effective)}</td>
+    </tr>`).join('');
+  return `
+    <h3 id="settings-token-saver">省 Token</h3>
+    <div class="hint" style="margin-bottom:8px">开启后只给下面这些项<b>夹上限</b>，不改写你在各分区填的值 —— 关掉立刻恢复原样。
+      每次模型调用的固定底（系统提示 + 工具定义，约 1.2 万-1.5 万 token）不受此影响，
+      想再省就配合「聊天设置」的响应概率与「搜索服务 / 图片输入」开关。</div>
+    <label class="radio-row"><input type="radio" name="token-saver-mode" value="off" ${mode === 'off' ? 'checked' : ''} />
+      <span>关闭：完全按你自己的设置</span></label>
+    <label class="radio-row"><input type="radio" name="token-saver-mode" value="balanced" ${mode === 'balanced' ? 'checked' : ''} />
+      <span>省：${esc(summarize('balanced') || '档位条数、轮数、预算、交接/印象、表情清单都收一档')}</span></label>
+    <label class="radio-row"><input type="radio" name="token-saver-mode" value="aggressive" ${mode === 'aggressive' ? 'checked' : ''} />
+      <span>很省：${esc(summarize('aggressive') || '再收一档，接话更省但读的历史更少')}</span></label>
+    <div class="settings-divider"></div>
+    <h3>实际生效值</h3>
+    ${rows
+      ? `<div class="table-wrap"><table class="usage-table"><thead><tr><th>项目</th><th>你的设置</th><th>当前生效</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<div class="hint">正在读取生效值…（刷新页面后显示）</div>'}
+    <div class="hint" style="margin-top:8px">改完点底部「保存设置」生效；效果在「用量」页按天看得到。</div>`;
+}
+
 function renderDesktopSection(c) {
   return `
     <h3>控制台安全</h3>
@@ -8023,6 +8744,12 @@ function bindSettingsEvents(c) {
   // 保存当前区块设置（通用保存按钮）。只有当前区块的字段才会被读取，不会 null 报错。
   const saveCfgBtn = $('#save-cfg-btn');
   if (saveCfgBtn) saveCfgBtn.addEventListener('click', async () => {
+    // 人设页的分节编辑框不是唯一数据源：#cfg-roletext 才是。保存前先把正在编辑的
+    // 那一节落回草稿，否则"边编辑边点保存"会存下旧正文（界面还提示"已保存"）。
+    if (flushPersonaSectionEdit()) {
+      personaEditNote = '';
+      syncPersonaButtons();
+    }
     try {
       await saveConfig();
       const res = $('#cfg-save-result');
@@ -8030,7 +8757,29 @@ function bindSettingsEvents(c) {
       res.classList.remove('saved-flash');
       void res.offsetWidth;
       res.classList.add('saved-flash');
-      refreshStatus();
+      // 保存成功后，人设页那条"还没生效"的提示就没意义了，清掉它
+      if (state.settingsSection === 'persona') {
+        personaEditNote = '';
+        const note = $('#persona-edit-note');
+        if (note) note.textContent = '';
+      }
+      refreshStatus().then(() => {
+        // 省 Token 的"实际生效值"表按 /api/status 渲染：保存完要等状态回来再重画一次，
+        // 否则切了档位、表格还显示上一档的数字（要刷新页面才对得上）。
+        if (state.settingsSection !== 'token-saver') return;
+        const section = state.settingsSection;
+        renderSettings();
+        // 重画会把上面写好的"已保存 ✓"连同节点一起换掉 —— 这里补写一次，
+        // 否则在省 Token 页点保存看不到任何成功反馈（数字本来就低于上限时尤其明显）。
+        if (state.settingsSection !== section) return;
+        const again = $('#cfg-save-result');
+        if (again) {
+          again.textContent = '已保存 ✓';
+          again.classList.remove('saved-flash');
+          void again.offsetWidth;
+          again.classList.add('saved-flash');
+        }
+      }).catch(() => {});
       startListPoller();   // 刷新间隔可能刚被改过，用新值重启轮询
     } catch (e) {
       $('#cfg-save-result').textContent = `保存失败：${e.message}`;
@@ -8234,7 +8983,8 @@ function bindSettingsEvents(c) {
       zhipu: '#zhipu-search-fields',
       bocha: '#bocha-search-fields',
       baidu: '#baidu-search-fields',
-      metaso: '#metaso-search-fields'
+      metaso: '#metaso-search-fields',
+      doubao: '#doubao-search-fields'
     };
     for (const [provider, sel] of Object.entries(fields)) {
       const el = $(sel);
@@ -8623,7 +9373,8 @@ function bindSettingsEvents(c) {
     ['cfg-zhipu-key-toggle', 'cfg-zhipu-key'],
     ['cfg-bocha-key-toggle', 'cfg-bocha-key'],
     ['cfg-baidu-key-toggle', 'cfg-baidu-key'],
-    ['cfg-metaso-key-toggle', 'cfg-metaso-key']
+    ['cfg-metaso-key-toggle', 'cfg-metaso-key'],
+    ['cfg-doubao-key-toggle', 'cfg-doubao-key']
   ];
   for (const [btnId, inputId] of pwdToggles) {
     const btn = $(`#${btnId}`);
@@ -8663,7 +9414,8 @@ function bindSettingsEvents(c) {
     'cfg-zhipu-key': 'zhipu',
     'cfg-bocha-key': 'bocha',
     'cfg-baidu-key': 'baidu',
-    'cfg-metaso-key': 'metaso'
+    'cfg-metaso-key': 'metaso',
+    'cfg-doubao-key': 'doubao'
   };
 
   // 前端点“显示”时向后端要真实 Key。
@@ -8871,14 +9623,158 @@ function bindSettingsEvents(c) {
   applyShowVision();
 
   // ── 人设区块事件 ──
-  const personaPick = $('#cfg-persona-pick');
-  for (const selector of ['#cfg-roletext', '#cfg-customrules', '#cfg-behavior-profile']) {
+  // 附加规则/交流策略：变化很便宜（卡库有指纹、解析有缓存），即时同步
+  for (const selector of ['#cfg-customrules', '#cfg-behavior-profile']) {
     $(selector)?.addEventListener('input', syncPersonaButtons);
     $(selector)?.addEventListener('change', syncPersonaButtons);
   }
-  if (personaPick) {
-    personaPick.addEventListener('click', () => openPersonaPicker());
+  // 角色正文：整段正文每敲一键都要重画分节视图（约 10ms），打字时按 140ms 合并成一次；
+  // 失焦/提交立刻同步，不会留下过期视图。
+  $('#cfg-roletext')?.addEventListener('input', () => {
+    if (personaViewTimer) clearTimeout(personaViewTimer);
+    personaViewTimer = setTimeout(() => { personaViewTimer = null; syncPersonaButtons(); }, 140);
+  });
+  $('#cfg-roletext')?.addEventListener('change', () => {
+    if (personaViewTimer) { clearTimeout(personaViewTimer); personaViewTimer = null; }
+    syncPersonaButtons();
+  });
+  // 卡库：点一张卡（或回车/空格）就把它的正文填进草稿。事件挂在容器上 ——
+  // syncPersonaButtons 会重画卡库，挂在卡片上会被重画冲掉。
+  const personaGrid = $('#persona-grid');
+  if (personaGrid) {
+    const pickCard = (target) => {
+      const card = target?.closest?.('.persona-card');
+      const id = card?.dataset?.personaId;
+      const tpl = id ? state.personaTemplates[id] : null;
+      if (tpl) applyPersonaDraft(tpl, id);
+    };
+    personaGrid.addEventListener('click', (event) => pickCard(event.target));
+    personaGrid.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pickCard(event.target); }
+    });
   }
+  // 正文视图：点小节标题折叠/展开；小节上的「编辑/保存本节/取消/恢复本节」按钮优先处理
+  const personaView = $('#persona-card-view');
+  if (personaView) {
+    personaView.addEventListener('click', (event) => {
+      const roleBox = $('#cfg-roletext');
+      const button = event.target?.closest?.('button');
+      const buttonIsAction = button && (button.classList.contains('pd-sec-edit')
+        || button.classList.contains('pd-sec-save')
+        || button.classList.contains('pd-sec-cancel')
+        || button.classList.contains('pd-sec-revert'));
+      if (buttonIsAction && roleBox) {
+        const idx = Number(button.closest('.pd-sec')?.dataset?.sec);
+        if (!Number.isFinite(idx)) return;
+        const baseTpl = state.personaTemplates[personaBaseCardId()];
+        if (button.classList.contains('pd-sec-edit')) {
+          // 全文编辑框和分节编辑框只留一个：开了分节就把「编辑全文」收起来
+          const rawField = $('#persona-raw-field');
+          if (rawField) {
+            rawField.classList.add('hidden');
+            const toggle = $('#toggle-persona-edit');
+            if (toggle) toggle.textContent = '编辑全文';
+          }
+          // 切到另一节继续编辑时，先把当前这节未保存的改动落回草稿，别让输入白白丢掉
+          if (flushPersonaSectionEdit()) {
+            personaEditNote = '上一节已更新（还没生效）：确认无误后点底部那条「保存设置」。';
+          }
+          personaEditingSection = personaEditingSection === idx ? -1 : idx;
+        } else if (button.classList.contains('pd-sec-save')) {
+          const box = personaView.querySelector(`.pd-edit-text[data-sec="${idx}"]`);
+          if (box) {
+            roleBox.value = replacePersonaSectionBody(roleBox.value, idx, box.value);
+            personaEditingSection = -1;
+            // 刚保存的这一节保持展开：别让它立刻折回去，看起来像"没保存上"
+            personaCollapsedSections.delete(idx);
+            personaEditNote = '这一节已更新（还没生效）：确认无误后点底部那条「保存设置」。';
+          }
+        } else if (button.classList.contains('pd-sec-cancel')) {
+          personaEditingSection = -1;
+        } else if (button.classList.contains('pd-sec-revert')) {
+          // 先落回正在编辑的那一节（可能是另一节），再恢复本节
+          const flushed = flushPersonaSectionEdit();
+          if (baseTpl?.builtin) {
+            roleBox.value = replacePersonaSectionBody(roleBox.value, idx, personaSectionBody(baseTpl.text, idx));
+            personaEditingSection = -1;
+            personaCollapsedSections.delete(idx);
+            personaEditNote = `${flushed ? '上一节已更新；' : ''}这一节已恢复成卡文件「${baseTpl.name}」里的写法（还没生效）：记得点底部的「保存设置」。`;
+          }
+        }
+        syncPersonaButtons();
+        return;
+      }
+      const head = event.target?.closest?.('.pd-sec-head');
+      const sec = head?.closest?.('.pd-sec');
+      if (!sec) return;
+      const idx = Number(sec.dataset.sec);
+      if (!Number.isFinite(idx)) return;
+      // 正在编辑的那节不许收起：一收起就会重画视图，输入框里没保存的字会丢
+      if (idx === personaEditingSection) return;
+      // 收起/展开会重画整个视图（viewKey 里含折叠集合）：先把正在编辑的另一节落回草稿，
+      // 否则它的输入框会被按旧正文重建 —— 刚敲的字静默消失
+      flushPersonaSectionEdit();
+      if (personaCollapsedSections.has(idx)) personaCollapsedSections.delete(idx);
+      else personaCollapsedSections.add(idx);
+      syncPersonaButtons();
+    });
+  }
+  // 整张卡恢复成卡文件原文（手改乱了就用它撤回）—— 同样按草稿那张卡
+  const restoreBtn = $('#restore-persona-btn');
+  if (restoreBtn) restoreBtn.addEventListener('click', () => {
+    flushPersonaSectionEdit();
+    const baseTpl = state.personaTemplates[personaBaseCardId()];
+    const roleBox = $('#cfg-roletext');
+    if (!baseTpl?.builtin || !roleBox) return;
+    roleBox.value = baseTpl.text;
+    personaEditingSection = -1;
+    personaCollapsedSections = defaultPersonaFold(baseTpl.text);
+    personaEditNote = `正文已恢复成卡文件「${baseTpl.name}」的原文（还没生效）：点底部的「保存设置」确认。`;
+    syncPersonaButtons();
+  });
+  const expandBtn = $('#persona-expand-btn');
+  if (expandBtn) expandBtn.addEventListener('click', () => {
+    // 折叠会重画视图：先把正在编辑的那节落回草稿，否则输入框里的字会没
+    flushPersonaSectionEdit();
+    const total = parsePersonaCard($('#cfg-roletext')?.value || '').sections.length;
+    // 只要还有展开的就全收，全收了就全展 —— 一个按钮两种状态，省一个开关
+    if (personaCollapsedSections.size < total) {
+      personaCollapsedSections = new Set(Array.from({ length: total }, (_, i) => i));
+      expandBtn.textContent = '全部展开';
+    } else {
+      personaCollapsedSections = new Set();
+      expandBtn.textContent = '全部收起';
+    }
+    syncPersonaButtons();
+  });
+  // 「编辑全文」：平时看分节视图（逐节可编辑），点它才露出整段原文 textarea
+  const editToggle = $('#toggle-persona-edit');
+  if (editToggle) editToggle.addEventListener('click', () => {
+    const field = $('#persona-raw-field');
+    if (!field) return;
+    const collapsed = field.classList.toggle('hidden');
+    if (!collapsed) {
+      // 开整段编辑前，先把分节编辑框里的内容落回草稿，并收起它（两种编辑框只留一个）
+      flushPersonaSectionEdit();
+      personaEditingSection = -1;
+      syncPersonaButtons();
+      editToggle.textContent = '收起全文编辑';
+      $('#cfg-roletext')?.focus();
+    } else {
+      editToggle.textContent = '编辑全文';
+    }
+  });
+  // 附加规则的示例标签：点一下追加到 textarea（已经写过就不重复加）
+  const ruleChips = $('#persona-rule-chips');
+  if (ruleChips) ruleChips.addEventListener('click', (event) => {
+    const chip = event.target?.closest?.('.rule-chip');
+    const rule = chip?.dataset?.rule;
+    const box = $('#cfg-customrules');
+    if (!rule || !box) return;
+    if (String(box.value).includes(rule)) return;
+    box.value = box.value.trim() ? `${box.value.replace(/\s+$/, '')}\n${rule}` : rule;
+    syncPersonaButtons();
+  });
   const newPersonaBtn = $('#new-persona-btn');
   if (newPersonaBtn) newPersonaBtn.addEventListener('click', () => openPersonaCreateModal());
   const delPersonaBtn = $('#del-persona-btn');
@@ -8891,19 +9787,9 @@ function bindSettingsEvents(c) {
     try {
       await api(`/api/persona-templates/${id}`, { method: 'DELETE', body: '{}' });
       await loadSettings();
-      applyPersonaDraft(state.personaTemplates.xiaojingyu);
+      applyPersonaDraft(state.personaTemplates.xiaojingyu, 'xiaojingyu');
     } catch (e) {
       $('#persona-pick-hint').textContent = `删除失败：${e.message}`;
-    }
-  });
-  const savePersonaBtn = $('#save-persona-btn');
-  if (savePersonaBtn) savePersonaBtn.addEventListener('click', async () => {
-    try {
-      await saveConfig();
-      $('#persona-save-result').textContent = '人设已保存 ✓';
-      setTimeout(() => { $('#persona-save-result').textContent = ''; }, 3000);
-    } catch (e) {
-      $('#persona-save-result').textContent = `保存失败：${e.message}`;
     }
   });
   syncPersonaButtons();
@@ -9024,37 +9910,6 @@ function openToolBreakdown() {
 // ── 人设选择/添加 模态框 ──
 
 /** 选择人设：弹窗列出所有人设（含自定义），点击后填入角色设定文本框。 */
-function openPersonaPicker() {
-  const entries = Object.entries(state.personaTemplates || {});
-  if (!entries.length) {
-    $('#persona-pick-hint').textContent = '人设列表为空';
-    return;
-  }
-  const overlay = modelModalShell({
-    head: '选择人设',
-    body: `
-      <div class="model-modal-right" id="persona-list" style="flex:1">
-        ${entries.map(([id, p]) => `
-          <div class="mm-model" data-id="${esc(id)}">
-            <span class="mm-check">${id === currentPersonaId() ? '✓' : ''}</span>
-            <span>${esc(p.name)}</span>
-            <span class="muted" style="font-size:11px">${p.builtin ? '内置' : '自定义'}</span>
-          </div>`).join('')}
-      </div>`,
-    foot: `<button class="btn" id="persona-cancel">取消</button>`
-  });
-  overlay.querySelectorAll('.mm-model').forEach((el) => {
-    el.addEventListener('click', () => {
-      const id = el.dataset.id;
-      const tpl = state.personaTemplates[id];
-      if (tpl) applyPersonaDraft(tpl);
-      closeModelModal(overlay);
-      syncPersonaButtons();
-    });
-  });
-  overlay.querySelector('#persona-cancel').addEventListener('click', () => closeModelModal(overlay));
-}
-
 /** 添加人设：弹窗填写人设名称、角色设定、管理员附加规则。 */
 function openPersonaCreateModal() {
   const overlay = modelModalShell({
@@ -9098,7 +9953,7 @@ function openPersonaCreateModal() {
       closeModelModal(overlay);
       await loadSettings();
       applyPersonaDraft({ name, text, customRules, behaviorProfile });
-      $('#persona-pick-hint').textContent = `人设「${name}」已添加。记得点「保存人设修改」使当前填写生效。`;
+      $('#persona-pick-hint').textContent = `人设「${name}」已添加。记得点底部的「保存设置」使当前填写生效。`;
     } catch (e) {
       $('#persona-pick-hint').textContent = `添加失败：${e.message}`;
     }
@@ -9501,6 +10356,13 @@ async function saveConfig({ quiet = false } = {}) {
 
   const patch = {};
 
+  if (sec === 'token-saver') {
+    const picked = $('input[name="token-saver-mode"]:checked')?.value;
+    patch.tokenSaver = {
+      mode: ['off', 'balanced', 'aggressive'].includes(picked) ? picked : (c.tokenSaver?.mode || 'off')
+    };
+  }
+
   if (sec === 'time-control') {
     captureTimeControlRule();
     patch.timeControl = {
@@ -9743,6 +10605,7 @@ async function saveConfig({ quiet = false } = {}) {
     const enteredBochaKey = val('#cfg-bocha-key', '').trim();
     const enteredBaiduKey = val('#cfg-baidu-key', '').trim();
     const enteredMetasoKey = val('#cfg-metaso-key', '').trim();
+    const enteredDoubaoKey = val('#cfg-doubao-key', '').trim();
     patch.webSearch = {
       ...c.webSearch,
       enabled: chk('#cfg-websearch', c.webSearch?.enabled !== false),
@@ -9770,6 +10633,10 @@ async function saveConfig({ quiet = false } = {}) {
         ...(c.webSearch?.metaso || {}),
         ...(enteredMetasoKey && enteredMetasoKey !== '******' ? { apiKey: enteredMetasoKey } : {})
       },
+      doubao: {
+        ...(c.webSearch?.doubao || {}),
+        ...(enteredDoubaoKey && enteredDoubaoKey !== '******' ? { apiKey: enteredDoubaoKey } : {})
+      },
       // 自定义搜索服务走 webSearch.providers 数组（由「添加自定义搜索服务」按钮维护），
       // 不在这里随表单提交 —— 避免每次保存都把动态列表覆盖掉。
       providers: c.webSearch?.providers || []
@@ -9777,13 +10644,25 @@ async function saveConfig({ quiet = false } = {}) {
   }
 
   if (sec === 'persona') {
+    // 模板 id 跟着正文一起存：绑着内置卡（比如"猫娘（二次元）"）时后端会按 roles/*.md
+    // 刷新正文，卡文件改了不用再来这里重选一次；手写了正文、或选的是自定义卡时这里为空，
+    // 正文就按自定义处理，不会被文件覆盖。
+    const roleTextDraft = val('#cfg-roletext', c.persona.roleText || '');
+    const pickedId = currentPersonaId();
+    let templateId = pickedId.startsWith('custom_') ? '' : pickedId;
+    if (!templateId && roleTextDraft === (c.persona.roleText || '')) {
+      // 模板没匹配上但正文一个字没动（典型：模板列表还没加载成功就要保存别的字段）
+      // 就别把原有的绑定清掉——正文没变，绑定关系也不该变。
+      templateId = c.persona.templateId || '';
+    }
     patch.persona = {
       botName: val('#cfg-botname', c.persona.botName).trim() || '小鲸鱼',
       selfNickname: val('#cfg-selfnick', c.persona.selfNickname || '').trim(),
       participation: val('#cfg-participation', c.persona.participation),
       behaviorProfile: val('#cfg-behavior-profile', c.persona.behaviorProfile || 'legacy'),
-      roleText: val('#cfg-roletext', c.persona.roleText || ''),
-      customRules: val('#cfg-customrules', c.persona.customRules || '')
+      roleText: roleTextDraft,
+      customRules: val('#cfg-customrules', c.persona.customRules || ''),
+      templateId
     };
   }
 
@@ -9792,7 +10671,10 @@ async function saveConfig({ quiet = false } = {}) {
       groups: parseList(val('#cfg-allowgroups', (c.allow?.groups || []).join(','))),
       private: parseList(val('#cfg-allowprivate', (c.allow?.private || []).join(',')))
     };
-    patch.deny = { groups: [], private: [] };
+    // 这里以前无条件发 deny = { groups: [], private: [] }：界面里没有 deny 的编辑控件，
+    // 于是"保存白名单"会把 --import-bridge / 手改 config.json 配的屏蔽名单静默清空
+    // （access.js 仍按 deny 拦人，但名单已经没了 = 被屏蔽的群/人重新可用）。
+    // 不传这个字段，服务端会原样保留现有 deny。
     // 原先这里硬编码 false：只要点过保存就把该开关永久重置，
     // 而 UI 里根本没有输入控件 —— 只能手改 JSON，改完一保存就丢。改为读取复选框。
     const allowAllBox = $('#cfg-allowallwhenempty');
@@ -9912,12 +10794,14 @@ async function saveConfig({ quiet = false } = {}) {
         const pos = sl ? Number(sl.value) : (c.store?.contextSliderPos ?? 100);
         return sliderToTierUI(pos).randomPercent;
       })(),
-      atCount: clampInt(val('#cfg-atcount', c.store?.atCount), 1, 500, 20),
-      keywordCount: clampInt(val('#cfg-kwcount', c.store?.keywordCount), 1, 500, 15),
+      // 下界是 0 不是 1：四个输入框都写着 min="0"，后端也把 0 当合法值（= 不读历史），
+      // 夹到 1 会让"填 0"静默变成"读 1 条"，与界面和文档都对不上。
+      atCount: clampInt(val('#cfg-atcount', c.store?.atCount), 0, 500, 20),
+      keywordCount: clampInt(val('#cfg-kwcount', c.store?.keywordCount), 0, 500, 15),
       keywords: String($('#cfg-keywords')?.value || '')
         .split('\n').map((x) => x.trim()).filter(Boolean),
-      randomCount: clampInt(val('#cfg-randcount', c.store?.randomCount), 1, 500, 8),
-      allCount: clampInt(val('#cfg-allcount', c.store?.allCount), 1, 500, 80),
+      randomCount: clampInt(val('#cfg-randcount', c.store?.randomCount), 0, 500, 8),
+      allCount: clampInt(val('#cfg-allcount', c.store?.allCount), 0, 500, 80),
       // 统一开关 + 分群滑条表（__replace__：删掉的群设置要真删，深合并做不到）
       unifiedTier: chk('#cfg-unifiedtier', c.store?.unifiedTier !== false),
       // 明确声明语义：滑条上的数字就是概率（后端据此跳过老配置迁移）

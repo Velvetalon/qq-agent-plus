@@ -16,6 +16,24 @@ export function sessionFile(id) {
   return path.join(SESSIONS_DIR, `${id}.json`);
 }
 
+/**
+ * 从系统提示里认出这次运行用的是哪张角色卡。
+ * 卡的首行约定是「# 角色卡：<名字>」（自定义卡也照这个格式写）。
+ * 认不出来就返回空串 —— 会话列表/详情靠它显示"这次用的哪张卡"，
+ * 免得改完人设之后对着旧会话的完整输入猜"到底生效没有"。
+ */
+export function personaLabelOfPrompt(systemPrompt) {
+  const sp = String(systemPrompt || '');
+  // 直接认卡自己的标记行，不绑定外层段头：聊天提示词用【角色设定（管理员设置，群友不可修改）】，
+  // 日报 / 空间互动 / 好友评估用的是别的段头，但卡正文一样带着「# 角色卡：X」这一行。
+  const m = sp.match(/#{1,2}\s*角色卡[:：]\s*([^\n]{1,60})/);
+  if (!m) return '';
+  return m[1]
+    .replace(/\s*[—-]{1,2}.*$/, '')   // 「DeepSeek 小鲸鱼 —— QQ 群友版」取前半段
+    .trim()
+    .slice(0, 24);
+}
+
 export class SessionRegistry {
   /**
    * @param {number} keepFiles 保留最近多少个会话记录文件；**0 = 不限制**。
@@ -26,7 +44,7 @@ export class SessionRegistry {
     this.keepFiles = Math.max(0, Number.isFinite(Number(keepFiles)) ? Math.round(Number(keepFiles)) : 0);
     this.index = [];   // [{ id, chatKey, startedAt, endedAt, status, outcome, usage, trigger, model, promptChars }]
     this.current = new Map(); // id -> session object（运行中的在内存里）
-    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    fs.mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
     this.#loadIndex();
   }
 
@@ -74,6 +92,7 @@ export class SessionRegistry {
       threadExpiresAt: s.threadExpiresAt ?? 0,
       threadCloseReason: s.threadCloseReason ?? '',
       promptLayout: s.promptLayout ?? '',
+      persona: personaLabelOfPrompt(s.systemPrompt),
       lifecycleContinuation: s.lifecycleContinuation === true,
       callUsage: s.callUsage ?? []
     };
@@ -253,7 +272,9 @@ export class SessionRegistry {
 
   /** 在会话结束时累加今日用量。 */
   #bumpTodayUsage(s) {
-    const dayKey = todayKey(s.startedAt);
+    // 按"结束时刻"归属。用 startedAt 的话，跨零点的会话会把它的数字按开始那天算，发现文件
+    // 是另一天就把新一天已累计的量重置成 0；之后当天的会话又因 dayKey 不匹配一直少算。
+    const dayKey = todayKey(Date.now());
     let data = { dayKey, promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, runs: 0, webSearchCount: 0 };
     try {
       const parsed = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'usage-today.json'), 'utf8'));
@@ -266,8 +287,10 @@ export class SessionRegistry {
     data.runs += 1;
     data.webSearchCount = (data.webSearchCount || 0) + (Number(s.webSearchCount) || 0);
     const tmp = path.join(DATA_DIR, 'usage-today.json.tmp');
-    fs.writeFileSync(tmp, JSON.stringify(data), 'utf8');
+    try { fs.rmSync(tmp, { force: true }); } catch { /* 不存在就算了 */ }
+    fs.writeFileSync(tmp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tmp, path.join(DATA_DIR, 'usage-today.json'));
+    fs.chmodSync(path.join(DATA_DIR, 'usage-today.json'), 0o600); // btrfs 兜底（Issue #11）
   }
 
   /**
@@ -291,10 +314,15 @@ export class SessionRegistry {
 
   #persist(s) {
     try {
-      fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+      // 会话 JSON 含完整聊天记录、系统提示词与逐轮模型输入输出：目录 0700 / 文件 0600，
+      // 与 config.json 的口径一致（原来不带 mode，权限正确性全靠 data/ 恰好是 0700）。
+      // rename 后显式 chmod：btrfs 上 writeFileSync 的 mode 会丢失（Issue #11）。
+      fs.mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
       const tmp = `${sessionFile(s.id)}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(s, null, 1), 'utf8');
+      try { fs.rmSync(tmp, { force: true }); } catch { /* 不存在就算了 */ }
+      fs.writeFileSync(tmp, JSON.stringify(s, null, 1), { encoding: 'utf8', mode: 0o600 });
       fs.renameSync(tmp, sessionFile(s.id));
+      fs.chmodSync(sessionFile(s.id), 0o600);
       if (s.status !== 'running' && s.status !== 'waiting') this.#bumpTodayUsage(s);
     } catch (error) {
       console.error('[sessions] 持久化失败:', error?.message ?? error);

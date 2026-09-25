@@ -21,6 +21,7 @@ import {
   storeConfigForChat,
   updateConfig
 } from './config.js';
+import { cappedByTokenSaver, effectiveRunLimits, tokenSaverCapsOf } from './token-saver.js';
 // ── 主动开话题的时间段：窗口外不主动开口（聊天回复不受影响）──
 
 // 主动开话题的"上次判定时间"要落盘：否则服务一重启，15 秒后的第一个 tick 就又能开一次话题，
@@ -92,7 +93,7 @@ function proactiveWindowState(raw, now) {
 import { canRun } from './access.js';
 import { assertTimeAllowed, isTimeActive, TimeControlError, watchTimeWindow, withTimeScope } from './time-gate.js';
 import { vendorOfConfig } from '../pricing/model-prices.js';
-import { minuteOfDayInZone, randInt, sleep, createEventBus, todayKey } from './util.js';
+import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from '../llm/prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from '../llm/llm.js';
 import { toOpenAiTools, executeTool } from '../tools/tools.js';
@@ -256,6 +257,62 @@ export function shouldAutoConsolidate({
   return memberCounts.some((count) => Number(count) > Math.max(2, Number(maxPerMember) || 5));
 }
 
+/**
+ * 同一份记忆的两条记录合成一条时用（遗留条目反查出的 QQ 与本人记录指向同一个人）：
+ * 按正文去重，保留先出现那条的时间戳与来源。
+ */
+function mergeImpressionLists(base = [], extra = []) {
+  const out = [...(Array.isArray(base) ? base : [])];
+  const seen = new Set(out.map((e) => String(e?.content ?? '')));
+  for (const entry of Array.isArray(extra) ? extra : []) {
+    const content = String(entry?.content ?? '');
+    if (!content || seen.has(content)) continue;
+    seen.add(content);
+    out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * 记忆整理的结果能不能采纳（纯函数，便于单测）。
+ *
+ * 规则（整理模式只在"合并/删减/按事实改写"的范围内可信）：
+ *   - 新建模式：条数不受限（本来就是从零提炼）；
+ *   - 条数减少或持平：采纳；
+ *   - 比原来多 1 条、且总字数没有明显变多（≤20% 或 80 字内）：采纳 —— 这是"把一条混着两件事的印象拆开"
+ *     的正常改写。以前一律按"条数变多 = 疑似幻觉"拒绝，好改写会被旧文本顶回去
+ *     （实测：模型想把"扬言改人设"那条改干净，拆成 4 条就被拦下）；
+ *   - 条数多出 2 条以上、或总字数明显膨胀：拒绝（那才像在编内容）。
+ *
+ * @returns {string} 拒绝原因；可以采纳时返回空串。
+ */
+export function consolidationRejectionReason({ isNew = false, existing = [], next = [] } = {}) {
+  if (isNew) return '';
+  // 结果必须是数组：`{"result":[…]}` 这类坏结构以前会被就地当成 [] 处理，
+  // 于是"模型答歪了"和"模型明说没有可保留的"长得一模一样 —— 前者会把印象全清空。
+  if (!Array.isArray(next)) return '结果不是 impressions 数组（疑似坏结构）';
+  // 非字符串条目（弱模型偶尔返回对象/数字）会把无意义的 `[object Object]` 写进记忆，
+  // 而按 String() 计数的字数护栏又看不见它（对象只算 15 个字符），直接拒绝。
+  if (next.some((item) => typeof item !== 'string')) return '结果里有非字符串条目（疑似坏结构）';
+  const prev = Array.isArray(existing) ? existing : [];
+  const list = next;
+  const prevChars = prev.reduce((n, e) => n + String(e?.content ?? '').length, 0);
+  const nextChars = list.reduce((n, e) => n + String(e ?? '').length, 0);
+  const grew = nextChars - prevChars;
+  if (list.length <= prev.length) {
+    // 条数没变多，但字数翻倍地涨 = 在往里塞新内容（每条上限 120 字、最多 5 条，
+    // 正常改写不会涨这么多），也拒绝
+    if (prevChars > 0 && nextChars > prevChars * 2 + 80) {
+      return `结果字数暴涨（${prevChars}→${nextChars} 字），疑似幻觉`;
+    }
+    return '';
+  }
+  if (list.length === prev.length + 1 && grew <= Math.max(80, Math.round(prevChars * 0.2))) {
+    return '';
+  }
+  return `结果变多（${prev.length}→${list.length} 条、${prevChars}→${nextChars} 字），疑似幻觉`;
+}
+
 export class Orchestrator {
   constructor({
     store,
@@ -404,13 +461,19 @@ export class Orchestrator {
     this.store.recoverExpired();
     this.store.expireConversationThreads?.();
     this.retryTimer = setInterval(() => {
-      this.store.recoverExpired();
-      this.store.expireConversationThreads?.();
-      if (this.paused || this.aborted) return;
-      for (const key of this.store.listChats()) {
-        if (canRun(key) && !this.runningChats.has(key) && !this.pendingWake.has(key)
-          && this.#chatRuntimeDecision(key).allowed
-          && this.store.unreadCount(key) > 0) this.scheduleWake(key);
+      // 兜底回收不能把进程带走：SQLITE_BUSY、磁盘满、库损坏都可能在恢复期间抛出，
+      // 而 server.js 的 uncaughtException 会直接 process.exit(1)。下一个 tick 再试即可。
+      try {
+        this.store.recoverExpired();
+        this.store.expireConversationThreads?.();
+        if (this.paused || this.aborted) return;
+        for (const key of this.store.listChats()) {
+          if (canRun(key) && !this.runningChats.has(key) && !this.pendingWake.has(key)
+            && this.#chatRuntimeDecision(key).allowed
+            && this.store.unreadCount(key) > 0) this.scheduleWake(key);
+        }
+      } catch (error) {
+        console.error('[recovery] 兜底回收这一轮出错（不影响下一轮）:', error?.message ?? error);
       }
     }, 5000);
     this.retryTimer.unref?.();
@@ -499,10 +562,14 @@ export class Orchestrator {
     const conversation = conversationConfigForChat(chatKey);
     const entries = this.store.peekUnread(chatKey, 100) || [];
     if (chatKey.startsWith('private:')) {
+      const caps = tokenSaverCapsOf(cfg);
       return {
         shouldRespond: entries.length > 0,
         tier: 4,
-        count: getConfig().store.atCount,
+        // 私聊与群聊同口径：省 Token 模式下也要夹（以前这里直接取 atCount，模式对它不生效）
+        // 0 是合法值（= 不读历史）：不能写成 `|| 300`，否则 off 档下与升级前不一致、
+        // 界面显示"生效 0"而私聊实际读 300（审查抓出来的"表与实际不符"）。
+        count: cappedByTokenSaver(cfg.store?.atCount, caps?.atCount),
         reason: '私聊',
         conversationMode: conversation.mode
       };
@@ -522,10 +589,10 @@ export class Orchestrator {
     if (entries.some((entry) => Number(entry.attempts) > 0)) {
       return {
         tier: 8,
-        count: Math.min(
+        count: cappedByTokenSaver(Math.min(
           500,
           Math.max(1, Number(conversation.lifecycleContextCount) || result.count || 100)
-        ),
+        ), tokenSaverCapsOf(getConfig())?.allCount),
         reason: '失败批次重试',
         shouldRespond: true,
         conversationMode: conversation.mode
@@ -556,7 +623,11 @@ export class Orchestrator {
   }
 
   #continuationTier(chatKey, entries, fallback, conversation) {
-    const count = Math.min(500, Math.max(1, Number(conversation?.continuationContextCount) || 100));
+    // 与手动/主动唤醒同口径：省 Token 模式夹上限（关闭时上限为 null，原样取会话配置）
+    const count = cappedByTokenSaver(
+      Math.min(500, Math.max(1, Number(conversation?.continuationContextCount) || 100)),
+      tokenSaverCapsOf(getConfig())?.allCount
+    );
     if (this.#isReplyToSelf(entries)) {
       return {
         tier: 5, count, reason: '续接：引用机器人',
@@ -582,7 +653,11 @@ export class Orchestrator {
   }
 
   #lifecycleTier(chatKey, entries, fallback, conversation) {
-    const count = Math.min(500, Math.max(1, Number(conversation?.lifecycleContextCount) || 100));
+    // 同上：生命周期续接读多少条也吃上限
+    const count = cappedByTokenSaver(
+      Math.min(500, Math.max(1, Number(conversation?.lifecycleContextCount) || 100)),
+      tokenSaverCapsOf(getConfig())?.allCount
+    );
     const thread = this.store.getConversationThread?.(chatKey);
     if (thread?.mode === 'lifecycle') {
       if (thread.state === 'rollover_armed') {
@@ -850,14 +925,14 @@ export class Orchestrator {
       this.pendingRolls.delete(chatKey);
       const roll = pendingRoll && Date.now() - pendingRoll.at < 120000 ? pendingRoll.roll : undefined;
       const predicted = this.#predictTier(chatKey, roll === undefined ? {} : { roll });
-      const manualContextCount = Math.min(500, Math.max(
+      const manualContextCount = cappedByTokenSaver(Math.min(500, Math.max(
         1,
         Number(conversation.mode === 'lifecycle'
           ? conversation.lifecycleContextCount
           : conversation.mode === 'threaded'
             ? conversation.continuationContextCount
             : storeConfigForChat(chatKey).allCount) || 100
-      ));
+      )), tokenSaverCapsOf(getConfig())?.allCount);
       if (pendingEntries.length === 0) {
         if (!manual) {
           if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted');
@@ -917,14 +992,14 @@ export class Orchestrator {
       // 参与这个会话"（2026-09-22 审查发现）。主动开口一律带全量上下文。
       tierResult = {
         tier: 4,
-        count: Math.min(500, Math.max(
+        count: cappedByTokenSaver(Math.min(500, Math.max(
           1,
           Number(conversation.mode === 'lifecycle'
             ? conversation.lifecycleContextCount
             : conversation.mode === 'threaded'
               ? conversation.continuationContextCount
               : storeConfigForChat(chatKey).allCount) || 100
-        )),
+        )), tokenSaverCapsOf(getConfig())?.allCount),
         shouldRespond: true,
         reason: '主动机会'
       };
@@ -1052,6 +1127,11 @@ export class Orchestrator {
         });
       }
       if (lease) {
+        // 时间窗口关闭打断在途批次：无效果（模型没说话、无发送）时直接归档（ack）——
+        // 这是文档化的刻意设计（README："非活跃期消息仅归档，不积压自动补回复"，
+        // test/time-control-integration.test.mjs "prevents retry" 钉住了该语义），
+        // 管理员可见性由上面的 info 级 incident 记录兜底。有发送效果时走 failLease
+        // 进 held/failed 人工核对，不自动重试。
         if (timeClosed && !this.store.hasEffects(lease.id)) this.store.ackLease(lease.id);
         else this.store.failLease(lease.id, session.error, {
           retryable: !timeClosed && (isRetryableError(error) || controller.signal.aborted)
@@ -1325,6 +1405,8 @@ export class Orchestrator {
     });
     const openAiTools = toOpenAiTools(toolDefs, cfg);
     const systemPrompt = buildSystemPrompt({
+      // 与【此刻状态】用同一个名字（群名片优先），否则同一次请求里会出现两个"你在群里的名字"
+      selfNickname,
       identityPilotAvailable: identityAvailable,
       friendProposalAvailable,
       stickerEntries
@@ -1394,6 +1476,9 @@ export class Orchestrator {
       slangContext,
       incidentContext,
       selfNickname,
+      // 点名标签的文本兜底要用它认「@QQ号」与 CQ 码形态（存档里的 mentionsSelf 才是主判据）。
+      // 取值与上面的档位判定保持一致，否则两处会对同一条消息给出不同判断。
+      selfId: cfg.onebot?.selfId || this.onebot.selfId || '',
       selfLastMessageAt,
       lastMessageAt,
       recentCount,
@@ -1511,7 +1596,9 @@ export class Orchestrator {
       scheduleWake: (delayMs, note) => this.scheduleInitiativeWake(chatKey, delayMs, note)
     };
 
-    const maxRounds = Math.max(1, Number(cfg.api.maxRounds) || 12);
+    // 省 Token 模式：轮数与单次运行预算夹上限（关闭时与升级前逐字一致）
+    const runLimits = effectiveRunLimits(cfg);
+    const maxRounds = runLimits.maxRounds;
     let finish = false;
     let completed = false;
     let roundBudgetExceeded = false;   // 轮次用尽（见下方收尾逻辑，写进 session.roundBudgetStopped）
@@ -1527,10 +1614,7 @@ export class Orchestrator {
       signal.throwIfAborted();
       runSnapshot.signal.throwIfAborted();
       if (this.aborted || !canRun(chatKey)) throw new Error('Run cancelled');
-      const maxRunTokens = Math.min(
-        1000000,
-        Math.max(20000, Number(cfg.api.maxRunTokens) || 160000)
-      );
+      const maxRunTokens = runLimits.maxRunTokens;
       const requestPayloadChars = JSON.stringify({
         messages,
         tools: openAiTools
@@ -1550,7 +1634,10 @@ export class Orchestrator {
         auditMessages: requestAuditMessages
       } = estimate;
       const outputReserveTokens = 2048;
-      if (session.usage.totalTokens + estimatedPromptTokens + outputReserveTokens > maxRunTokens) {
+      // 预算检查要放过第一轮：估算只是"字符数折算"的粗估，一个繁忙会话的
+      // 已读历史 + 触发批就能把估算顶到预算线以上 —— 若在 round 0 就 break，
+      // 这批消息会被 ack 掉、一次模型都没调、也不会重试（用户永远等不到回复）。
+      if (round > 0 && session.usage.totalTokens + estimatedPromptTokens + outputReserveTokens > maxRunTokens) {
         session.budgetStopped = true;
         session.budgetStopReason = 'next-call-budget';
         session.estimatedNextPromptTokens = estimatedPromptTokens;
@@ -2023,9 +2110,13 @@ export class Orchestrator {
     } else {
       // 先整理记忆里已有的人
       const knownUserIds = new Set();
+      // 反查之后，同一个人的两条记录（"只有名字的遗留条目" + 本人的记录）会指向同一个 QQ 号：
+      // 必须并成一条再送给模型 —— 分开整理的话，后写回的那条会把前一条的并集结果覆盖掉。
+      const targetByUid = new Map();
       for (const mem of existing) {
         const resolved = this.#resolveIdentity(chatKey, mem, stats, notes);
-        if (String(resolved.userId || '')) knownUserIds.add(String(resolved.userId));
+        const uid = String(resolved.userId || '');
+        if (uid) knownUserIds.add(uid);
         if (this.#shouldSkip(resolved, force)) {
           skipped.push({
             userId: resolved.userId,
@@ -2034,7 +2125,15 @@ export class Orchestrator {
           });
           continue;
         }
-        targets.push({ ...resolved, isNew: false });
+        const dup = uid ? targetByUid.get(uid) : null;
+        if (dup) {
+          dup.impressions = mergeImpressionLists(dup.impressions, resolved.impressions);
+          if (!dup.name && resolved.name) dup.name = resolved.name;
+          continue;
+        }
+        const target = { ...resolved, isNew: false };
+        if (uid) targetByUid.set(uid, target);
+        targets.push(target);
       }
 
       // 再"发现"聊天记录里的活跃群友：他们发言很多却没有任何印象。
@@ -2117,6 +2216,7 @@ export class Orchestrator {
     const memberMsgCount = new Map();
     const nameMsgCount = new Map();
     const nameToUserId = new Map();
+    const nameToUids = new Map();   // 名字 → 出现过的 QQ 号集合：nameToUserId 是"先见到先赢"，看不出重名
     const uidToName = new Map();
     for (const m of this.store.recent(chatKey, { limit: 2000 })) {
       if (m.self || !m.senderId) continue;
@@ -2127,35 +2227,49 @@ export class Orchestrator {
       if (nm && !PLACEHOLDER_NAMES.has(nm)) {
         nameMsgCount.set(nm, (nameMsgCount.get(nm) || 0) + 1);
         if (!nameToUserId.has(nm)) nameToUserId.set(nm, uid);
+        if (!nameToUids.has(nm)) nameToUids.set(nm, new Set());
+        nameToUids.get(nm).add(uid);
         if (!uidToName.has(uid)) uidToName.set(uid, nm);
       }
     }
-    return { memberMsgCount, nameMsgCount, nameToUserId, uidToName };
+    return { memberMsgCount, nameMsgCount, nameToUserId, nameToUids, uidToName };
   }
 
   /** 确定一个记忆条目的 QQ 号（必要时反查名字并回写记忆文件）。 */
   #resolveIdentity(chatKey, mem, stats, notes) {
-    let userId = String(mem.userId || '').trim();
+    const own = String(mem.userId || '').trim();
+    let userId = own;
+    let impressions = mem.impressions || [];
     let msgCount = userId ? (stats.memberMsgCount.get(userId) || 0) : 0;
 
-    if (msgCount < Orchestrator.MEMBER_MIN_MESSAGES) {
-      const candidates = [notes[userId], mem.name, userId].filter(Boolean);
-      for (const name of candidates) {
+    // 只有"自己没带 QQ 号的遗留条目"才按名字反查：条目已经带了号码就以它为准 ——
+    // 名字映射是"先见到先赢"的启发式，把一个号码改写成同名另一个人的之后，
+    // 这轮整理的结果会写到别人头上（重名时尤其危险）。
+    if (!/^\d{1,15}$/.test(userId) && msgCount < Orchestrator.MEMBER_MIN_MESSAGES) {
+      for (const name of [notes[userId], mem.name, userId].filter(Boolean)) {
+        const uids = stats.nameToUids.get(name);
+        // 同名多个号：不敢猜，宁可这条不整理，也不能把印象挂错人
+        if (!uids || uids.size !== 1) continue;
         const byName = stats.nameMsgCount.get(name) || 0;
-        if (byName >= Orchestrator.MEMBER_MIN_MESSAGES) {
-          const matched = stats.nameToUserId.get(name) || '';
-          if (matched) {
-            userId = matched;
-            msgCount = byName;
-            try {
-              this.memory.replaceMember(chatKey, userId, mem.name, mem.impressions.map((e) => e.content));
-            } catch { /* 回写失败不阻塞整理 */ }
-          }
-          break;
+        if (byName < Orchestrator.MEMBER_MIN_MESSAGES) continue;
+        const matched = [...uids][0];
+        if (matched) {
+          userId = matched;
+          msgCount = byName;
+          try {
+            // 合并写入，不能整份替换：这个人名下可能已经有印象（他也在这个群里说过话），
+            // replace 会拿这条遗留记录的内容把人家原有的印象全部覆盖掉。
+            this.memory.adoptImpressions(chatKey, userId, mem.name, impressions);
+            // 送模型整理的必须是**合并后**的全量印象：否则模型看不到本人原有的印象，
+            // 写回时（replace 是整份替换）那些印象会连同这次整理一起消失。
+            const merged = this.memory.getMember(chatKey, userId);
+            if (merged?.impressions?.length) impressions = merged.impressions;
+          } catch { /* 回写失败不阻塞整理 */ }
         }
+        break;
       }
     }
-    return { ...mem, userId, name: mem.name || stats.uidToName.get(userId) || '', msgCount };
+    return { ...mem, userId, impressions, name: mem.name || stats.uidToName.get(userId) || '', msgCount };
   }
 
   /** 批量整理时是否跳过某人（指定群友 / 强制模式不跳过）。 */
@@ -2238,12 +2352,13 @@ export class Orchestrator {
       return null;
     }
 
-    const raw = Array.isArray(parsed.impressions) ? parsed.impressions : [];
+    const parsedImpressions = parsed.impressions;
+    const raw = Array.isArray(parsedImpressions) ? parsedImpressions : [];
     const maxKeep = Number(getConfig().memory?.maxImpressionsPerMember) || 5;
 
-    // 整理模式：条数变多 = 疑似幻觉，放弃（保留原印象）
-    if (!isNew && raw.length > existing.length) {
-      console.warn(`[memory] 整理 ${chatKey}/${mem.userId} 结果条数变多（${existing.length}→${raw.length}），疑似幻觉，放弃`);
+    const rejection = consolidationRejectionReason({ isNew, existing, next: parsedImpressions });
+    if (rejection) {
+      console.warn(`[memory] 整理 ${chatKey}/${mem.userId} 放弃：${rejection}`);
       return null;
     }
 
@@ -2258,17 +2373,46 @@ export class Orchestrator {
 
   /** 整理模式：合并/删减已有印象。 */
   #buildConsolidatePrompt(mem) {
-    const fmtTs = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
-    const lines = [`群友 QQ：${mem.userId}`, `当前名字：${mem.name}`];
-    for (const e of mem.impressions) lines.push(`- ${e.content} (${fmtTs(e.createdAt)})`);
-    const maxKeep = Number(getConfig().memory?.maxImpressionsPerMember) || 5;
+    // 与"今天"同口径（上海）：原来用 UTC，凌晨产生的印象在模型眼里会算成前一天。
+    // 坏时间戳（负数/纳秒级/超范围）必须先夹住：toISOString 碰到 Invalid Date 会抛 RangeError，
+    // 这条人物会因此永远整理不了（异常被记成 failed，坏值本身没人清理）。
+    // 上界要扣掉时区偏移：格式化时会再加 ZONE_OFFSET_MS，贴着 8.64e15 的值加完就溢出成 Invalid Date
+    const clampTs = (t) => {
+      const raw = Number(t) || 0;
+      return Number.isFinite(raw) && raw > 0 && raw <= 8.64e15 - ZONE_OFFSET_MS ? raw : 0;
+    };
+    const fmtTs = (t) => {
+      const at = clampTs(t);
+      return at ? new Date(at + ZONE_OFFSET_MS).toISOString().slice(0, 16).replace('T', ' ') : '日期未知';
+    };
+    const cfg = getConfig();
+    // 整理这次调用是"另一个进程"：它看不到角色卡，也不知道谁是管理员。
+    // 不点明身份的话，"他改人设、问人设"就容易被写成性格缺陷（"扬言改人设提示词"就是这么来的）。
+    const ownerUin = String(cfg?.admin?.ownerUin || '').trim();
+    // 必须挡住"两边都是空串"：没配管理员时 '' === '' 会把匿名遗留条目当成管理员本人
+    const isOwner = Boolean(ownerUin) && ownerUin === String(mem.userId || '').trim();
+    // 要算"90 天前"就得知道今天，整理这次调用看不到别的时间来源
+    const today = todayKey();
+    const lines = [`群友 QQ：${mem.userId}`, `当前名字：${mem.name}`, `今天：${today}（Asia/Shanghai）`];
+    if (isOwner) lines.push('身份：这是机器人管理员本人（设置角色卡、管这台机器人的人）');
+    for (const e of mem.impressions) {
+      const created = clampTs(e.createdAt);
+      const observed = clampTs(e.lastObservedAt);
+      lines.push(`- ${e.content}（记于 ${fmtTs(created)}${observed && observed !== created ? `，最近观察到 ${fmtTs(observed)}` : ''}）`);
+    }
+    const maxKeep = Number(cfg.memory?.maxImpressionsPerMember) || 5;
     return {
       system: '你是聊天机器人的记忆整理模块，负责整理对某一位群友的长期印象。你只做合并、改写与删除，绝不发明任何新事实。输出必须是严格的 JSON 对象，不要 Markdown 代码块，不要任何解释文字。格式：{"impressions":["…"]}',
       user: [
         '下面是机器人对一位群友的全部印象，请整理：',
-        '1. 把同义/重复的印象合并成一条，以最新的观感为准。',
+        '1. 把同义/重复的印象合并成一条。冲突时以**最近观察到的**为准；拿不准就保留较新的一条，别自己裁量。',
         '2. 明显过时、矛盾、或一次性事件（不会再次影响相处）的印象删除。',
-        `3. 最多保留 ${maxKeep} 条，每条不超过 120 字。`,
+        '3. 只有被反复观察到、或对方明确说出来的，才算稳定特征；只出现过一次的拌嘴、玩笑、临时要求，不要升级成"他是什么人"。',
+        '4. 很久没再被观察到（记于/观察到都在 90 天前）、近期也没新证据提到的，直接删掉。',
+        `5. 最多保留 ${maxKeep} 条，每条不超过 120 字。`,
+        '6. 只写可观察的事实与偏好（爱聊什么、什么口气、玩什么梗、有哪些雷点），不写评价、不揣测动机：',
+        '   写"会反复问人设、爱逗人表演"，不要写"想掌控设定""扬言改人设""喜欢试探规则"这类带立场的说法。',
+        '7. 如果写的是管理员本人：他改人设、问人设、逗你玩都是本职，不是"试探"或"施压"，照事实记就行。',
         '原则：所有信息只能来自原文，语义不变，宁少勿错；没有可保留的时输出空数组。',
         '',
         ...lines
@@ -2289,12 +2433,14 @@ export class Orchestrator {
     return {
       system: '你是聊天机器人的记忆模块，负责从聊天记录里提炼对某一位群友的长期印象。只提炼"以后跟这个人打交道用得上"的稳定特征，严格依据给定的发言，不要编造。输出必须是严格的 JSON 对象，不要 Markdown 代码块，不要任何解释文字。格式：{"impressions":["…"]}',
       user: [
-        `下面是群友（QQ ${uid}${(mem.name && `，名字 ${mem.name}`) || ''}）最近的部分发言，请提炼对他的长期印象：`,
+        `下面是群友（QQ ${uid}${(mem.name && `，名字 ${mem.name}`) || ''}${(uid && String(getConfig()?.admin?.ownerUin || '').trim() === uid) ? '，**这是机器人管理员本人**（设置角色卡、管这台机器人的人）' : ''}）最近的部分发言，请提炼对他的长期印象：`,
         '1. 只保留稳定特征：说话风格、爱玩的梗、常聊话题、雷点、身份关系。',
         '2. 不要记一次性事件、临时话题，也不要记录流水账。',
         `3. 最多 ${maxKeep} 条，每条不超过 120 字，用第一人称视角（"他/她…"）。`,
-        '4. 宁少勿错：信息不足就少写，不要脑补。',
-        '5. 若实在提炼不出任何稳定特征，输出空数组。',
+        '4. 只写可观察的事实与偏好，不写评价、不揣测动机：写"爱反复问人设、爱逗人表演"，',
+        '   不要写"想掌控设定""扬言改人设""喜欢试探规则"这类带立场的说法。',
+        '5. 宁少勿错：信息不足就少写，不要脑补。',
+        '6. 若实在提炼不出任何稳定特征，输出空数组。',
         '',
         sample.length ? sample.join('\n') : '（没有抓到该群友的发言）'
       ].join('\n')

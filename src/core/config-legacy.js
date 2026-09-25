@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PERSONAS, normalizeBehaviorProfile } from '../personas.js';
+import { PERSONAS, normalizeBehaviorProfile, applyPersonaTemplate } from '../personas.js';
 import {
   clampProbability,
   legacySliderToProbability,
@@ -10,6 +10,7 @@ import {
   sliderToTier
 } from './tier-slider.js';   // 零依赖模块，避免循环依赖
 import { DEFAULT_TIME_CONTROL, normalizeTimeControl } from './time-control.js';
+import { normalizeTokenSaverMode } from './token-saver.js';   // 零依赖模块，避免循环依赖
 import { normalizeMomentWindows } from '../features/moment-schedule.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,7 +76,7 @@ export const DEFAULT_CONFIG = {
     enabled: true,
     searchUrl: 'https://cn.bing.com/search',
     maxResults: 6,
-    // 可选：'bing' | 'deepseek' | 'zhipu' | 'bocha' | 'baidu' | 'metaso'
+    // 可选：'bing' | 'deepseek' | 'zhipu' | 'bocha' | 'baidu' | 'metaso' | 'doubao'
     provider: 'bing',
     deepseek: {
       apiKey: '',                     // 留空时回退环境变量 DEEPSEEK_API_KEY
@@ -105,6 +106,12 @@ export const DEFAULT_CONFIG = {
     metaso: {
       apiKey: '',                     // 留空时回退环境变量 METASO_API_KEY（无 key 也尝试官方免费额度）
       baseUrl: 'https://metaso.cn/api/open/v1/search',
+      count: 6,
+      timeoutMs: 20000
+    },
+    doubao: {
+      apiKey: '',                     // 火山 Agent Plan 搜索服务 Key；留空时回退环境变量 DOUBAO_SEARCH_API_KEY
+      baseUrl: 'https://open.feedcoopapi.com/search_api/web_search',
       count: 6,
       timeoutMs: 20000
     },
@@ -142,7 +149,11 @@ export const DEFAULT_CONFIG = {
     roleText: PERSONAS.xiaojingyu.text,     // 默认人设：原版"小鲸鱼"角色卡（适配版）
     behaviorProfile: 'legacy',             // legacy | grounded，选择模板时一起切换
     participation: 'medium',                // low | medium | high —— 参与度参考
-    customRules: ''                         // 追加自定义规则（可选）
+    customRules: '',                        // 追加自定义规则（可选）
+    // 选中的内置卡 id（roles/*.md 的登记名）。非空表示"正文跟着卡文件走"：
+    // 载入配置时若正文与文件不一致就按文件刷新，改了卡不用再去控制台重选一次。
+    // 手改正文、或用自定义卡时是空串（正文不受文件影响）。
+    templateId: 'xiaojingyu'
   },
   // 用户自定义人设库（保存在配置里，可在设置页添加/选择）
   customPersonas: [],
@@ -378,6 +389,12 @@ export const DEFAULT_CONFIG = {
     provider: '',                         // 专用模型所属提供商 id（useChatModel=false 时生效）
     model: ''                             // 专用模型 id（useChatModel=false 时生效）
   },
+  // 省 Token 模式：只给"可控项"夹上限（上下文档位条数、单次运行轮数与预算、
+  // 交接/印象注入字符数、提示词里的表情清单条数），不改写上面那些用户填的值。
+  // off = 完全按用户设置；balanced = 省；aggressive = 很省。见 src/core/token-saver.js
+  tokenSaver: {
+    mode: 'off'
+  },
   // Linux Web 控制台
   server: {
     port: 3210,
@@ -395,7 +412,34 @@ export const DEFAULT_CONFIG = {
 };
 
 function migrateConfig(parsed) {
+  // 顶层必须是对象：手改坏的 config.json 可能是 null / 5 / "x" / true（都是合法 JSON）。
+  // 放它过去，下面 out.persona = … 那一步就会抛（Cannot create property 'persona' on number '5'），
+  // 被 loadConfig 的 catch 吞掉后静默退回默认值、还会被持久化 —— 用户配置整份没了。
+  if (!isPlainObject(parsed)) parsed = {};
   const out = structuredClone(parsed);
+  // 人设段必须是对象：手改坏的 config.json 里可能是 "persona": "小鲸鱼" 这类标量或数组，
+  // 放它过去会在保存时炸（Cannot create property 'behaviorProfile' on string），
+  // 而控制台保存与 scripts/configure-linux.mjs 都要走这条路径 —— 恢复成默认人设对象。
+  // 恢复时把 templateId 清空（未绑定）：坏字段不该被"治好"成绑定默认卡，那会在下一次
+  // 保存时把正文换成默认卡的正文，比报错更难发现。roleText 是空串（故意"不挂卡"）不受影响。
+  if (!isPlainObject(out.persona)) {
+    out.persona = { ...structuredClone(DEFAULT_CONFIG.persona), templateId: '' };
+  }
+  // ── 人设模板绑定：老配置没有 persona.templateId ──
+  // 必须在这里显式补空串（deepMerge 之前）：默认值里带的是 "xiaojingyu"，
+  // 让默认值补上的话，老实例（例如选的是猫娘）载入后会被当成绑定了默认卡、正文被换掉。
+  // 空串 = 未绑定（正文按自定义处理，不改动）；在控制台重选一次卡就会自动绑上。
+  if (out.persona.templateId === undefined) out.persona.templateId = '';
+  // ── 省 Token 模式：老配置没有这个键 ──
+  // 缺键/坏值一律按 off 处理（默认关闭，行为与升级前完全一致）；坏值不许把整份配置带崩。
+  if (!isPlainObject(out.tokenSaver)) out.tokenSaver = { mode: 'off' };
+  else out.tokenSaver.mode = normalizeTokenSaverMode(out.tokenSaver.mode);
+  // identityPilot 及子段同样可能是手改坏的标量（true / "off" / 5）：直接写 .mode 一样会抛，
+  // 落进同一个"静默退回默认值"的坑，所以先归一化成对象再谈迁移。
+  if (out.identityPilot !== undefined && !isPlainObject(out.identityPilot)) out.identityPilot = {};
+  if (out.identityPilot && out.identityPilot.friendProposal !== undefined && !isPlainObject(out.identityPilot.friendProposal)) {
+    out.identityPilot.friendProposal = {};
+  }
   if (
     out.identityPilot?.friendProposal
     && out.identityPilot.friendProposal.mode == null
@@ -462,6 +506,9 @@ function migrateConfig(parsed) {
   return out;
 }
 
+/** 真对象判定（排除 null / 数组 / 标量）——人设段这类"必须是对象"的字段用它兜底。 */
+const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 function deepMerge(base, override) {
   if (override === null || override === undefined) return structuredClone(base);
   if (typeof base !== 'object' || base === null || Array.isArray(base)) return structuredClone(override);
@@ -488,9 +535,19 @@ export function loadConfig() {
     let text = fs.readFileSync(CONFIG_FILE, 'utf8');
     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     const parsed = migrateConfig(JSON.parse(text));
-    return deepMerge(DEFAULT_CONFIG, parsed);
-  } catch {
-    return structuredClone(DEFAULT_CONFIG);
+    const merged = deepMerge(DEFAULT_CONFIG, parsed);
+    applyPersonaTemplate(merged);   // 绑了内置卡就按 roles/*.md 刷新正文（卡文件是唯一来源）
+    return merged;
+  } catch (error) {
+    // 读不动/解析不了就**先把原件留一份**再退回默认值：config.js 的 stabilize 会把结果持久化，
+    // 原来这里只是静默返回默认配置 —— 手改坏一个字符，apiKey、白名单、人设就整份被覆盖掉了。
+    if (fs.existsSync(CONFIG_FILE)) {
+      try { fs.copyFileSync(CONFIG_FILE, `${CONFIG_FILE}.broken-${Date.now()}`); } catch { /* 备份失败不阻断启动 */ }
+      console.warn('[config] 读取 config.json 失败，原文件已备份成 config.json.broken-*：', error?.message ?? error);
+    }
+    const fresh = structuredClone(DEFAULT_CONFIG);
+    applyPersonaTemplate(fresh);
+    return fresh;
   }
 }
 
@@ -552,9 +609,25 @@ export function incidentPilotEnabled(cfg = getConfig()) {
 
 /** 更新并持久化配置（浅合并到当前值；patch 里传对象字段则整体替换该字段）。 */
 export function updateConfig(patch) {
-  const next = migrateConfig(deepMerge(getConfig(), patch));
+  // 人设段传了 null / 数组 / 标量（手写 API 调用、坏客户端）时当"没改人设"处理：
+  // 直接把这个键从 patch 里摘掉，免得它在合并/迁移里被当成"恢复默认人设"，甚至抛错。
+  const safePatch = isPlainObject(patch) ? { ...patch } : {};
+  if ('persona' in safePatch && !isPlainObject(safePatch.persona)) delete safePatch.persona;
+  const next = migrateConfig(deepMerge(getConfig(), safePatch));
   const oldTimeControl = JSON.stringify(getConfig().timeControl);
+  // 人设绑定与正文的优先级，只在配置保存这一层定：
+  //   1) patch 里写了 roleText 但没给 templateId = 手写正文 → 自动解绑，正文按你写的来；
+  //   2) patch 里给了 templateId（控制台选卡）→ 卡文件说了算，正文按 roles/*.md 刷新；
+  //   3) 两者都没给（改别的字段、升级带的正文更新）→ 绑着就刷新。
+  const patchPersona = safePatch.persona ?? {};
+  if (patchPersona.templateId === undefined && patchPersona.roleText !== undefined) {
+    next.persona.templateId = '';
+  }
   next.persona.behaviorProfile = normalizeBehaviorProfile(next.persona.behaviorProfile);
+  if (patchPersona?.templateId !== undefined || patchPersona?.roleText === undefined) {
+    applyPersonaTemplate(next);
+  }
+  next.tokenSaver = { ...(next.tokenSaver || {}), mode: normalizeTokenSaverMode(next.tokenSaver?.mode) };
   next.timeControl = normalizeTimeControl(next.timeControl);
   next.dailyMoments.scheduleWindows = normalizeMomentWindows(next.dailyMoments.scheduleWindows);
   if (!['observe', 'active'].includes(next.runtime?.mode)) throw new Error('Invalid runtime mode');
@@ -910,6 +983,11 @@ export function updateConfig(patch) {
   const tmp = `${CONFIG_FILE}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(currentConfig, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, CONFIG_FILE);
+  // btrfs（部分 NAS）上 writeFileSync 的 mode 参数会丢失（0600→0700）：
+  // 显式 chmod 兜底，不依赖"创建时 mode"在所有文件系统上都生效（Issue #11）。
+  // chmod 失败不向上抛：写入本身已成功，别让一次已成功的 updateConfig 因
+  // 极窄文件系统场景（FUSE/NFS 关闭 mode 支持等）变成全仓调用方的失败。
+  try { fs.chmodSync(CONFIG_FILE, 0o600); } catch { /* 保留已成功写入 */ }
   if (oldTimeControl !== JSON.stringify(next.timeControl)) notifyTimeControlChange();
   return currentConfig;
 }
@@ -964,6 +1042,7 @@ export function scheduleConfigSave() {
       // 否则 rename 会把 updateConfig 落好的 0600 打回 umask 默认（0664）
       fs.writeFileSync(tmp, JSON.stringify(getConfig(), null, 2), { mode: 0o600 });
       fs.renameSync(tmp, CONFIG_FILE);
+      fs.chmodSync(CONFIG_FILE, 0o600); // btrfs 兜底（Issue #11：mode 参数在该文件系统上会丢失）
     } catch (error) {
       console.error('[config] 保存失败:', error);
     }

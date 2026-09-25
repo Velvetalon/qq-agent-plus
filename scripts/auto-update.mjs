@@ -743,13 +743,18 @@ async function run() {
     mode,
     phase,
     lastCheckAt: now,
+    // 阶段推进要续期：这一阶段包含 GitHub 查询与 git fetch，可能几分钟；
+    // 不续期的话控制台进度行会把"整轮耗时"当成"本阶段耗时"显示。
+    progressAt: Date.now(),
     connectivity
   });
 
   // 部署目标只认「已发布的 Release」：branch 上的日常提交不部署。
   // 判定与控制台弹窗共用 checkForUpdate，避免两边口径不一致。
+  // 手动 update-now 是明确的重试意图：绕过"忽略该版本"——否则更新失败一次之后
+  // 同名 Release 永远 no-update，只能手改 state 文件（Issue #7 踩到的坑）。
   const notice = await checkForUpdate(dataDir, cfg, { force: mode === 'manual' });
-  targetVersion = releaseTarget(notice, previous?.ignoredVersion);
+  targetVersion = releaseTarget(notice, mode === 'manual' ? '' : previous?.ignoredVersion);
   if (!targetVersion) {
     console.log(`[auto-update] no released version to deploy (${notice?.reason || 'unknown'})`);
     writeAutoUpdateState(dataDir, {
