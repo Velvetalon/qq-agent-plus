@@ -34,6 +34,32 @@ export function personaLabelOfPrompt(systemPrompt) {
     .slice(0, 24);
 }
 
+/**
+ * P7 可观测性字段的兼容视图。
+ *
+ * 新会话由编排器写入 pluginSnapshot / pluginContext，检索与上下文预算
+ * 目前默认不接入（P7 只暴露状态，不臆造数据）。旧会话文件里没有这些键，
+ * 列表 / SSE / 详情三条路径都要给同一份默认值，否则前端会出现
+ * "有时 undefined、有时 null" 的分叉渲染。
+ */
+export function sessionAuditView(source = {}) {
+  const record = source && typeof source === 'object' ? source : {};
+  return {
+    pluginSnapshot: record.pluginSnapshot ?? null,
+    pluginContext: record.pluginContext ?? null,
+    retrieval: record.retrieval ?? {
+      integrated: false,
+      available: false,
+      reason: 'unavailable',
+      blocks: 0
+    },
+    contextBudget: record.contextBudget ?? {
+      promptChars: Number(record.promptChars) || 0,
+      contextLimit: Number(record.contextLimit) || 0
+    }
+  };
+}
+
 export class SessionRegistry {
   /**
    * @param {number} keepFiles 保留最近多少个会话记录文件；**0 = 不限制**。
@@ -97,7 +123,8 @@ export class SessionRegistry {
       callUsage: s.callUsage ?? [],
       participation: s.participation ?? null,
       termination: s.termination ?? null,
-      outbound: s.outbound ?? null
+      outbound: s.outbound ?? null,
+      ...sessionAuditView(s)
     };
   }
 

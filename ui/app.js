@@ -41,6 +41,13 @@ const state = {
   assetOverview: null,
   assetDetail: null,
   assetLoadSeq: 0,
+  pluginsPage: null,
+  pluginsError: '',
+  pluginsBusy: '',
+  selfEvolutionTab: 'notebook',
+  selfEvolutionData: null,
+  selfEvolutionError: '',
+  selfEvolutionBusy: '',
   groupMembers: [],
   groupMembersLoaded: false,
   // 记忆整理状态：按 chatKey 存，不依赖 DOM。
@@ -746,6 +753,8 @@ function switchTab(name) {
   if (name === 'slang') loadSlangFeaturePage();
   if (name === 'incidents') loadIncidentFeaturePage();
   if (name === 'assets') loadAssetObservatory();
+  if (name === 'plugins') loadPluginsPage();
+  if (name === 'self-evolution') loadSelfEvolutionPage();
   if (name === 'usage') loadUsageView({ force: true });
   if (name === 'settings') loadSettings();
 }
@@ -2212,6 +2221,86 @@ function renderSessionContextInspector(s) {
     </section>`;
 }
 
+/**
+ * 详情重渲染指纹：审计字段（参与/终止/外发/插件快照/上下文/检索）一旦变化
+ * 必须触发重渲染，否则 SSE patch 到了 state 却停在旧的 DOM 上。
+ */
+function sessionDetailFingerprint(s) {
+  const audit = [
+    s.participation ? JSON.stringify(s.participation) : '',
+    s.termination ? JSON.stringify(s.termination) : '',
+    s.outbound ? JSON.stringify(s.outbound) : '',
+    s.pluginSnapshot ? JSON.stringify(s.pluginSnapshot) : '',
+    s.pluginContext ? JSON.stringify(s.pluginContext) : '',
+    s.retrieval ? JSON.stringify(s.retrieval) : '',
+    s.contextBudget ? JSON.stringify(s.contextBudget) : ''
+  ].join('~');
+  return `${s.id}|${s.status}|${s.conversationMode || 'legacy'}|${s.threadState || ''}`
+    + `|${s.lifecycle?.state || ''}|${s.lifecycle?.deadline || 0}|${s.triggerKind || ''}`
+    + `|${s.rounds || 0}|${s.inputRound || 0}|${s.inputPayloadChars || 0}`
+    + `|${(s.messages || []).length}|${(s.sent || []).length}|${s.error ? 1 : 0}`
+    + `|${s.activity || ''}|${s.sessionMetrics?.estimatedCost || 0}`
+    + `|${state.sessionInspectorTab}|${state.sessionJsonMode === s.id ? 'json' : 'ui'}`
+    + `|${audit}`;
+}
+
+/** 运行审计面板：停用/旧会话也要显示默认值，不做"有才画"的条件渲染。 */
+function renderSessionAuditPanels(s) {
+  const participation = s.participation || null;
+  const termination = s.termination || null;
+  const outbound = s.outbound || null;
+  const snapshot = s.pluginSnapshot || null;
+  const context = s.pluginContext || null;
+  const retrieval = s.retrieval
+    || { integrated: false, available: false, reason: 'unavailable' };
+  const budget = s.contextBudget || { promptChars: 0, contextLimit: 0 };
+  const plugins = Array.isArray(snapshot?.plugins) ? snapshot.plugins : [];
+  const blocks = Array.isArray(context?.blocks) ? context.blocks : [];
+  return `
+    <section class="context-inspector session-audit">
+      <div class="context-inspector-head">
+        <div><strong>运行审计</strong><span>参与 / 终止 / 外发 / 插件 / 检索</span></div>
+        <span class="context-layout">${esc(snapshot
+          ? `registry r${snapshot.registryRevision ?? '-'}`
+          : '旧会话未记录')}</span>
+      </div>
+      <div class="context-metrics">
+        <div><span>参与决定</span><strong>${esc(participation?.decision || '-')}</strong><small>${esc(participation?.reasonCode || participation?.mode || '无记录')}</small></div>
+        <div><span>终止</span><strong>${esc(termination?.kind || '-')}</strong><small>${esc(termination?.reasonCode || '无记录')}</small></div>
+        <div><span>外发</span><strong>${outbound
+          ? `${Number(outbound.succeeded) || 0}/${Number(outbound.attempted) || 0}`
+          : '-'}</strong><small>${outbound
+          ? `失败 ${Number(outbound.failed) || 0} · 未知 ${Number(outbound.unknown) || 0} · 挂起 ${Number(outbound.held) || 0}`
+          : '旧会话无记录'}</small></div>
+        <div><span>命中笔记版本</span><strong>${fmtTok(blocks.length)}</strong><small>${esc(blocks
+          .map((block) => `${block.id}@${block.revision ?? '-'}`).slice(0, 3).join(' ')
+          || '无')}</small></div>
+        <div><span>上下文预算</span><strong>${fmtTok(budget.promptChars || 0)}</strong><small>字符 · 限制 ${fmtTok(budget.contextLimit || 0)}</small></div>
+        <div><span>检索审计</span><strong>${retrieval.available ? '已接入' : '不可用'}</strong><small>${esc(
+          retrieval.reason || (retrieval.integrated ? 'integrated' : 'unavailable')
+        )}</small></div>
+      </div>
+      <div class="context-request-summary">
+        插件快照：${plugins.length
+          ? esc(plugins.map((plugin) => `${plugin.id}@${plugin.version || '-'}#${plugin.generation ?? '-'}`).join(' · '))
+          : '旧会话未记录'}
+        ${context?.degraded ? ' · 插件上下文降级' : ''}
+      </div>
+      <details class="collapsible">
+        <summary>审计原始 JSON</summary>
+        <div class="coll-body" style="max-height:none">${esc(JSON.stringify({
+          participation,
+          termination,
+          outbound,
+          pluginSnapshot: snapshot,
+          pluginContext: context,
+          retrieval,
+          contextBudget: budget
+        }, null, 2))}</div>
+      </details>
+    </section>`;
+}
+
 function renderSessionDetail(s, {
   scrollMode = null,
   scrollTop = null,
@@ -2221,7 +2310,7 @@ function renderSessionDetail(s, {
   if (!detail) return;
   // 内容没变（轮询/SSE 重复推送）→ 完全不动 DOM，保住滚动位置和展开状态
   // json 模式切换也要触发重渲染
-  const fp = `${s.id}|${s.status}|${s.conversationMode || 'legacy'}|${s.threadState || ''}|${s.lifecycle?.state || ''}|${s.lifecycle?.deadline || 0}|${s.triggerKind || ''}|${s.rounds || 0}|${s.inputRound || 0}|${s.inputPayloadChars || 0}|${(s.messages || []).length}|${(s.sent || []).length}|${s.error ? 1 : 0}|${s.activity || ''}|${s.sessionMetrics?.estimatedCost || 0}|${state.sessionInspectorTab}|${state.sessionJsonMode === s.id ? 'json' : 'ui'}`;
+  const fp = sessionDetailFingerprint(s);
   if (lastDetailFp === fp) return;
   const firstRender = lastDetailFp === null;
   lastDetailFp = fp;
@@ -2254,7 +2343,8 @@ function renderSessionDetail(s, {
     </div>
     ${renderSessionModeBand(s)}
     ${renderLifecycleOverview(s)}
-    ${renderSessionThreadTimeline(s)}`);
+    ${renderSessionThreadTimeline(s)}
+    ${renderSessionAuditPanels(s)}`);
 
   const jsonMode = state.sessionJsonMode === s.id;
   if (jsonMode) {
@@ -10961,6 +11051,367 @@ function openBlocklistModal() {
 
   renderLeft();
   loadMembers();
+}
+
+// ── P7：插件页 ────────────────────────────────────────────────────────────
+// 只有这两个内置插件允许在控制台启停；其余插件只读展示。
+const CONTROLLABLE_PLUGIN_IDS = new Set(['self-evolution', 'self-evolution-reflection']);
+
+function pluginStateChip(plugin) {
+  if (plugin?.enabled !== true) return '<span class="chip">已停用</span>';
+  return plugin.running === true
+    ? '<span class="chip ok">已启用 · 运行中</span>'
+    : '<span class="chip warn">已启用 · 未运行</span>';
+}
+
+function renderPluginsPage() {
+  const box = $('#plugins-page');
+  if (!box) return;
+  const data = state.pluginsPage || {};
+  const plugins = Array.isArray(data.plugins) ? data.plugins : [];
+  const rows = plugins.map((plugin) => {
+    const capabilities = plugin.capabilities || {};
+    const controllable = CONTROLLABLE_PLUGIN_IDS.has(plugin.id);
+    const busy = state.pluginsBusy === plugin.id;
+    const action = controllable
+      ? `<button type="button" class="btn btn-small${plugin.enabled ? '' : ' btn-primary'}"
+          data-plugin-id="${esc(plugin.id)}" data-plugin-next="${plugin.enabled ? 'false' : 'true'}"
+          ${busy || (plugin.enabled ? plugin.canDisable !== true : plugin.canEnable !== true) ? 'disabled' : ''}>
+          ${plugin.enabled ? '停用' : '启用'}</button>`
+      : '<span class="muted">-</span>';
+    return `<tr>
+      <td><strong>${esc(plugin.name || plugin.id)}</strong><small>${esc(plugin.id)}</small></td>
+      <td>${esc(plugin.version || '-')}<small>API v${esc(plugin.apiVersion ?? '-')}</small></td>
+      <td>${plugin.required ? '是' : '否'}</td>
+      <td>${pluginStateChip(plugin)}<small>代际 ${esc(plugin.generation ?? 0)}</small></td>
+      <td>${(capabilities.tools || []).length} 工具<small>${(capabilities.contextProviders || []).length} 上下文 · ${(capabilities.sessionObservers || []).length} 观察者</small></td>
+      <td>${esc(plugin.lastError || '-')}</td>
+      <td class="r">${action}</td>
+    </tr>`;
+  }).join('');
+  const selfEvolution = data.selfEvolution || {};
+  const retrieval = data.retrieval || {};
+  box.innerHTML = `
+    <div class="asset-head">
+      <div>
+        <h2>插件</h2>
+        <span class="muted">账号命名空间 ${esc(data.accountId || '-')}（${esc(data.accountSource || '-')}）
+          · 自我迭代${selfEvolution.enabled ? '已启用' : '已停用'}
+          · 反思${selfEvolution.reflectionEnabled ? '已启用' : '已停用'}
+          · 检索${retrieval.available ? '已接入' : '不可用'}</span>
+      </div>
+      <button type="button" class="icon-btn" id="plugins-refresh" title="刷新插件状态" aria-label="刷新插件状态">↻</button>
+    </div>
+    ${state.pluginsError ? `<div class="context-warning">${esc(state.pluginsError)}</div>` : ''}
+    ${rows
+      ? `<div class="asset-table-wrap"><table class="asset-table">
+          <thead><tr><th>插件</th><th>版本</th><th>必需</th><th>状态</th><th>能力</th><th>最后错误</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>`
+      : '<div class="empty-hint">没有已注册的插件。</div>'}`;
+  $('#plugins-refresh')?.addEventListener('click', () => loadPluginsPage());
+  $$('#plugins-page [data-plugin-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const pluginId = button.dataset.pluginId;
+      const enabled = button.dataset.pluginNext === 'true';
+      state.pluginsBusy = pluginId;
+      state.pluginsError = '';
+      renderPluginsPage();
+      try {
+        await api(`/api/plugins/${encodeURIComponent(pluginId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ enabled })
+        });
+      } catch (error) {
+        state.pluginsError = `${pluginId}：${error.message}`;
+      } finally {
+        state.pluginsBusy = '';
+        await loadPluginsPage();
+      }
+    });
+  });
+}
+
+async function loadPluginsPage() {
+  const box = $('#plugins-page');
+  if (!box) return;
+  if (!state.pluginsPage) box.innerHTML = '<div class="empty-hint">加载中…</div>';
+  try {
+    const data = await api('/api/plugins');
+    if (state.tab !== 'plugins') return;
+    state.pluginsPage = data;
+    state.pluginsError = '';
+  } catch (error) {
+    if (state.tab !== 'plugins') return;
+    state.pluginsError = `加载失败：${error.message}`;
+  }
+  renderPluginsPage();
+}
+
+// ── P7：自我迭代页（四页签） ──────────────────────────────────────────────
+const SELF_EVOLUTION_TABS = [
+  ['notebook', '笔记'],
+  ['learned', '习得自我'],
+  ['reflection', '反思作业 / 提案'],
+  ['gaps', '能力缺口']
+];
+
+function renderSelfEvolutionNotebook(data = {}) {
+  const notes = Array.isArray(data.notes) ? data.notes : [];
+  if (!notes.length) {
+    return `<div class="empty-hint">${data.disabled
+      ? '自我迭代未启用，且没有历史笔记。'
+      : '还没有笔记本条目。'}</div>`;
+  }
+  return `<div class="asset-table-wrap"><table class="asset-table">
+    <thead><tr><th>正文</th><th>范围</th><th>状态</th><th>版本</th><th>更新时间</th><th></th></tr></thead>
+    <tbody>${notes.map((note) => `<tr>
+      <td>
+        <details><summary>${esc(String(note.content || '').slice(0, 80))}</summary>
+          <textarea class="p7-note-text" data-note-text="${esc(note.id)}" rows="4">${esc(note.content || '')}</textarea>
+          <small>${esc((note.tags || []).join(' · '))}</small>
+        </details>
+        <small>${esc(note.id)}</small>
+      </td>
+      <td>${esc(note.scope || '-')}<small>${esc(note.chatKey || '')}</small></td>
+      <td>${esc(note.status || '-')}</td>
+      <td>${esc(note.revision ?? '-')}</td>
+      <td>${note.updatedAt ? esc(fmtTime(note.updatedAt)) : '-'}</td>
+      <td class="r">
+        <button type="button" class="btn btn-small" data-note-save="${esc(note.id)}"
+          data-note-revision="${esc(note.revision ?? '')}"
+          ${note.status === 'archived' ? 'disabled' : ''}>保存</button>
+        <button type="button" class="btn btn-small" data-note-archive="${esc(note.id)}"
+          data-note-revision="${esc(note.revision ?? '')}"
+          ${note.status === 'archived' ? 'disabled' : ''}>归档</button>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function renderSelfEvolutionLearned(data = {}) {
+  const profiles = data.profiles || {};
+  const entries = Array.isArray(profiles.entries) ? profiles.entries : [];
+  const headRevision = Number(profiles.headRevision) || 0;
+  const status = (data.status || {}).reflection || {};
+  if (!entries.length) {
+    return `<div class="empty-hint">还没有习得自我版本（当前 head revision ${esc(headRevision)}）。</div>`;
+  }
+  return `
+    <div class="context-request-summary">
+      head revision ${esc(headRevision)}${profiles.stale ? ' · 与当前 Base Persona 不匹配' : ''}
+      · 按日预算 ${esc(status.budget?.maxCallsPerDay ?? '-')} 次 · 今日已用 ${esc(status.budget?.callsCount ?? 0)} 次
+    </div>
+    <div class="asset-table-wrap"><table class="asset-table">
+      <thead><tr><th>版本</th><th>父版本</th><th>来源</th><th>写入者</th><th>时间</th><th></th></tr></thead>
+      <tbody>${entries.map((entry) => `<tr>
+        <td>${esc(entry.revision)}</td>
+        <td>${esc(entry.parentRevision ?? '-')}</td>
+        <td>${esc((entry.source || []).map((item) => item.kind || '').filter(Boolean).join(' · ') || '-')}</td>
+        <td>${esc(entry.appliedBy || '-')}</td>
+        <td>${entry.createdAt ? esc(fmtTime(entry.createdAt)) : '-'}</td>
+        <td class="r"><button type="button" class="btn btn-small" data-profile-rollback="${esc(entry.revision)}"
+          ${entry.revision === headRevision ? 'disabled' : ''}>回滚到该版本</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+function renderSelfEvolutionReflection(data = {}) {
+  const jobs = data.jobs || {};
+  const proposals = data.proposals || {};
+  const jobEntries = Array.isArray(jobs.entries) ? jobs.entries : [];
+  const proposalEntries = Array.isArray(proposals.entries) ? proposals.entries : [];
+  const expectedRevision = Number((data.profiles || {}).headRevision) || 0;
+  const jobsHtml = jobEntries.length
+    ? `<div class="asset-table-wrap"><table class="asset-table">
+        <thead><tr><th>作业</th><th>窗口</th><th>状态</th><th>尝试</th><th>错误</th></tr></thead>
+        <tbody>${jobEntries.map((job) => `<tr>
+          <td>${esc(job.id)}<small>${esc(job.sessionId || '')}</small></td>
+          <td>${esc(job.chatKey || '-')}<small>${job.createdAt ? esc(fmtTime(job.createdAt)) : ''}</small></td>
+          <td>${esc(job.status)}</td>
+          <td>${esc(job.attempts)}/${esc(job.maxAttempts)}</td>
+          <td>${esc(job.lastError || '-')}</td>
+        </tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty-hint">没有反思作业。</div>';
+  const proposalsHtml = proposalEntries.length
+    ? `<div class="asset-table-wrap"><table class="asset-table">
+        <thead><tr><th>提案</th><th>类型</th><th>风险</th><th>状态</th><th>内容</th><th></th></tr></thead>
+        <tbody>${proposalEntries.map((proposal) => `<tr>
+          <td>${esc(proposal.id)}<small>batch ${esc(proposal.batchId)}</small></td>
+          <td>${esc(proposal.type)}</td>
+          <td>${esc(proposal.risk)}</td>
+          <td>${esc(proposal.status)}<small>期望 revision ${esc(proposal.expectedProfileRevision ?? 0)}</small></td>
+          <td>${esc(proposal.detail || '')}</td>
+          <td class="r">
+            <button type="button" class="btn btn-small btn-primary" data-proposal-review="${esc(proposal.id)}"
+              data-proposal-decision="approve" data-expected-revision="${esc(expectedRevision)}"
+              ${proposal.status === 'pending' ? '' : 'disabled'}>通过</button>
+            <button type="button" class="btn btn-small" data-proposal-review="${esc(proposal.id)}"
+              data-proposal-decision="reject" data-expected-revision="${esc(expectedRevision)}"
+              ${proposal.status === 'pending' ? '' : 'disabled'}>拒绝</button>
+          </td>
+        </tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty-hint">没有等待审批的提案。</div>';
+  return `<h3 class="p7-subhead">作业</h3>${jobsHtml}
+    <h3 class="p7-subhead">提案（期望 head revision ${esc(expectedRevision)}）</h3>${proposalsHtml}`;
+}
+
+function renderSelfEvolutionGaps(data = {}) {
+  const gaps = data.gaps || {};
+  const entries = Array.isArray(gaps.entries) ? gaps.entries : [];
+  if (!entries.length) return '<div class="empty-hint">没有记录能力缺口。</div>';
+  return `<div class="asset-table-wrap"><table class="asset-table">
+    <thead><tr><th>能力</th><th>类别</th><th>状态</th><th>次数</th><th>最近出现</th></tr></thead>
+    <tbody>${entries.map((gap) => `<tr>
+      <td>${esc(gap.capability)}<small>${esc(gap.requestKey || '')}</small></td>
+      <td>${esc(gap.category)}</td>
+      <td>${esc(gap.status)}</td>
+      <td>${esc(gap.count)}</td>
+      <td>${gap.lastSeenAt ? esc(fmtTime(gap.lastSeenAt)) : '-'}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderSelfEvolutionPage() {
+  const box = $('#self-evolution-page');
+  if (!box) return;
+  const data = state.selfEvolutionData || {};
+  const status = data.status || {};
+  const tab = SELF_EVOLUTION_TABS.some(([value]) => value === state.selfEvolutionTab)
+    ? state.selfEvolutionTab
+    : 'notebook';
+  const body = tab === 'learned' ? renderSelfEvolutionLearned(data)
+    : tab === 'reflection' ? renderSelfEvolutionReflection(data)
+      : tab === 'gaps' ? renderSelfEvolutionGaps(data)
+        : renderSelfEvolutionNotebook(data.notebook || {});
+  box.innerHTML = `
+    <div class="asset-head">
+      <div>
+        <h2>自我迭代</h2>
+        <span class="muted">账号命名空间 ${esc(status.accountId || '-')}
+          · 自我迭代${status.selfEvolution?.enabled ? '已启用' : '已停用'}
+          · 反思${status.reflection?.running ? '运行中' : '未运行'}
+          · 检索${status.retrieval?.available ? '已接入' : '不可用'}</span>
+      </div>
+      <button type="button" class="icon-btn" id="self-evolution-refresh" title="刷新自我迭代数据" aria-label="刷新自我迭代数据">↻</button>
+    </div>
+    ${state.selfEvolutionError ? `<div class="context-warning">${esc(state.selfEvolutionError)}</div>` : ''}
+    ${status.disabled ? '<div class="context-warning">自我迭代已停用：这里只展示历史数据，写入会被拒绝。</div>' : ''}
+    <div class="asset-kinds">
+      ${SELF_EVOLUTION_TABS.map(([value, label]) =>
+        `<button type="button" class="${tab === value ? 'active' : ''}" data-self-evolution-tab="${value}">${label}</button>`
+      ).join('')}
+    </div>
+    <div id="self-evolution-body">${body}</div>`;
+
+  $('#self-evolution-refresh')?.addEventListener('click', () => loadSelfEvolutionPage());
+  $$('#self-evolution-page [data-self-evolution-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selfEvolutionTab = button.dataset.selfEvolutionTab;
+      renderSelfEvolutionPage();
+    });
+  });
+  $$('#self-evolution-page [data-note-save]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const noteId = button.dataset.noteSave;
+      const textarea = $(`#self-evolution-page [data-note-text="${noteId}"]`);
+      state.selfEvolutionBusy = noteId;
+      try {
+        await api(`/api/self-evolution/notebook/${encodeURIComponent(noteId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            expectedRevision: Number(button.dataset.noteRevision),
+            content: textarea ? textarea.value : ''
+          })
+        });
+        state.selfEvolutionError = '';
+      } catch (error) {
+        state.selfEvolutionError = `保存失败：${error.message}`;
+      } finally {
+        state.selfEvolutionBusy = '';
+        await loadSelfEvolutionPage();
+      }
+    });
+  });
+  $$('#self-evolution-page [data-note-archive]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const noteId = button.dataset.noteArchive;
+      try {
+        await api(`/api/self-evolution/notebook/${encodeURIComponent(noteId)}/archive`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedRevision: Number(button.dataset.noteRevision) })
+        });
+        state.selfEvolutionError = '';
+      } catch (error) {
+        state.selfEvolutionError = `归档失败：${error.message}`;
+      } finally {
+        await loadSelfEvolutionPage();
+      }
+    });
+  });
+  $$('#self-evolution-page [data-proposal-review]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const proposalId = button.dataset.proposalReview;
+      try {
+        await api(`/api/self-evolution/reflection/proposals/${encodeURIComponent(proposalId)}/review`, {
+          method: 'POST',
+          body: JSON.stringify({
+            decision: button.dataset.proposalDecision,
+            expectedRevision: Number(button.dataset.expectedRevision) || 0
+          })
+        });
+        state.selfEvolutionError = '';
+      } catch (error) {
+        state.selfEvolutionError = `审批失败：${error.message}`;
+      } finally {
+        await loadSelfEvolutionPage();
+      }
+    });
+  });
+  $$('#self-evolution-page [data-profile-rollback]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const targetRevision = button.dataset.profileRollback;
+      const expectedRevision = Number((state.selfEvolutionData?.profiles || {}).headRevision) || 0;
+      try {
+        await api(`/api/self-evolution/reflection/profiles/${encodeURIComponent(targetRevision)}/rollback`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedRevision })
+        });
+        state.selfEvolutionError = '';
+      } catch (error) {
+        state.selfEvolutionError = `回滚失败：${error.message}`;
+      } finally {
+        await loadSelfEvolutionPage();
+      }
+    });
+  });
+}
+
+async function loadSelfEvolutionPage() {
+  const box = $('#self-evolution-page');
+  if (!box) return;
+  if (!state.selfEvolutionData) box.innerHTML = '<div class="empty-hint">加载中…</div>';
+  const optional = (path, fallback) => api(path).catch((error) => ({
+    ...fallback,
+    unavailable: true,
+    error: error.message
+  }));
+  try {
+    const [status, notebook, jobs, proposals, gaps, profiles] = await Promise.all([
+      api('/api/self-evolution/status'),
+      optional('/api/self-evolution/notebook?includeArchived=1&limit=200', { notes: [], count: 0 }),
+      optional('/api/self-evolution/reflection/jobs?limit=100', { entries: [], count: 0 }),
+      optional('/api/self-evolution/reflection/proposals?limit=100', { entries: [], count: 0 }),
+      optional('/api/self-evolution/reflection/gaps?limit=100', { entries: [], count: 0 }),
+      optional('/api/self-evolution/reflection/profiles?limit=100', { entries: [], count: 0, headRevision: 0 })
+    ]);
+    if (state.tab !== 'self-evolution') return;
+    state.selfEvolutionData = { status, notebook, jobs, proposals, gaps, profiles };
+    state.selfEvolutionError = '';
+  } catch (error) {
+    if (state.tab !== 'self-evolution') return;
+    state.selfEvolutionError = `加载失败：${error.message}`;
+  }
+  renderSelfEvolutionPage();
 }
 
 // ── 标签页切换 ──

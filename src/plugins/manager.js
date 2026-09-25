@@ -23,6 +23,9 @@ export class PluginManager {
     this.generations = new Map();
     this.enabled = new Map();
     this.runtime = new Map();
+    // 最近一次启动/停止失败的原因：状态读模型要把它暴露给控制台，
+    // 否则"插件没在跑"只能靠翻日志解释。
+    this.lastErrors = new Map();
     this.activeSnapshots = new Set();
     this.observerTimer = null;
     this.services = {};
@@ -78,7 +81,8 @@ export class PluginManager {
           controller,
           generation,
           timers: new Set(),
-          services: null
+          services: null,
+          startedAt: 0
         };
         const runtimeServices = this.#servicesFor(
           plugin.id, config, generation, controller.signal, runtime
@@ -86,6 +90,8 @@ export class PluginManager {
         runtime.services = runtimeServices;
         this.runtime.set(plugin.id, runtime);
         if (typeof plugin.start === 'function') await plugin.start(runtimeServices, snapshotPluginConfig(config), controller.signal);
+        runtime.startedAt = Date.now();
+        this.lastErrors.delete(plugin.id);
         started.push(plugin.id);
         startingId = '';
       }
@@ -96,6 +102,9 @@ export class PluginManager {
       const rollbackError = new Error('Plugin startup failed');
       for (const pluginId of rollbackIds) {
         if (preExistingRuntimeIds.has(pluginId)) continue;
+        if (pluginId === startingId) {
+          this.lastErrors.set(pluginId, String(error?.message ?? error));
+        }
         this.enabled.set(pluginId, false);
         this.#invalidateRuntime(pluginId, rollbackError);
       }
@@ -200,11 +209,29 @@ export class PluginManager {
   }
 
   status() {
-    return this.registry.listPlugins().map((plugin) => ({
-      ...plugin,
-      enabled: this.isEnabled(plugin.id),
-      generation: this.generations.get(plugin.id) || 0
-    }));
+    const registrations = new Map(
+      this.registry.getRegistrations().map((item) => [item.plugin.id, item])
+    );
+    return this.registry.listPlugins().map((plugin) => {
+      const registration = registrations.get(plugin.id);
+      const runtime = this.runtime.get(plugin.id);
+      const enabled = this.isEnabled(plugin.id);
+      return {
+        ...plugin,
+        enabled,
+        generation: this.generations.get(plugin.id) || 0,
+        running: Boolean(runtime),
+        startedAt: Number(runtime?.startedAt) || 0,
+        lastError: String(this.lastErrors.get(plugin.id) || ''),
+        capabilities: {
+          tools: (registration?.tools || []).map((tool) => tool.name),
+          contextProviders: (registration?.contextProviders || []).map((provider) => provider.id),
+          sessionObservers: (registration?.sessionObservers || []).map((observer) => observer.id)
+        },
+        canEnable: !enabled,
+        canDisable: plugin.required !== true
+      };
+    });
   }
 
   async collectContext(snapshot, runContext, { budgetChars = 6000, timeoutMs = 500 } = {}) {
@@ -474,8 +501,9 @@ export class PluginManager {
           timer = setTimeout(resolve, STOP_TIMEOUT_MS);
         })
       ]);
-    } catch {
+    } catch (error) {
       // Plugin cleanup is best effort; runtime resources are still released.
+      this.lastErrors.set(plugin.id, String(error?.message ?? error));
     } finally {
       if (timer) clearTimeout(timer);
     }

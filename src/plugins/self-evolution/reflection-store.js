@@ -1596,6 +1596,21 @@ export class ReflectionStore {
     `).all(...params, max).map(proposalView);
   }
 
+  /**
+   * P7 管理端按 id 取单条提案（含所属 batchId），仅限调用方给定的账号命名空间。
+   * 读-only：不写审计、不改状态。
+   */
+  getProposal({ proposalId, accountId = '' } = {}) {
+    const db = this.#requireDb();
+    const id = String(proposalId || '');
+    if (!id) return null;
+    const row = accountId
+      ? db.prepare('SELECT * FROM reflection_proposals WHERE id=? AND account_id=?')
+        .get(id, String(accountId))
+      : db.prepare('SELECT * FROM reflection_proposals WHERE id=?').get(id);
+    return proposalView(row);
+  }
+
   listJobs({ status = '', accountId = '', limit = 100 } = {}) {
     const db = this.#requireDb();
     const filters = [];

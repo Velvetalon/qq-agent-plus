@@ -14,7 +14,7 @@ import { ChatStore } from '../core/store.js';
 import { MemoryStore } from '../memory/memory.js';
 import { StickerManager } from '../onebot/sticker-manager.js';
 import { SendQueue } from '../onebot/sender.js';
-import { SessionRegistry, personaLabelOfPrompt } from '../core/sessions.js';
+import { SessionRegistry, personaLabelOfPrompt, sessionAuditView } from '../core/sessions.js';
 import { Orchestrator } from '../core/orchestrator.js';
 import { DailyMomentsManager } from '../features/daily-moments.js';
 import { QzoneInteractionManager } from '../features/qzone-interactions.js';
@@ -31,6 +31,11 @@ import { assertCanSend } from '../core/access.js';
 import { isTimeActive } from '../core/time-gate.js';
 import { timeControlState, TIME_ZONE } from '../core/time-control.js';
 import { IdentityPilotManager, inactiveIdentityPilotStatus } from '../identity/identity-pilot.js';
+import { createSelfEvolutionPlugin } from '../plugins/builtin/self-evolution.js';
+import { createReflectionPlugin, reflectionConfig } from '../plugins/self-evolution/reflection-plugin.js';
+import { NotebookStore, notebookDatabasePath } from '../plugins/self-evolution/notebook-store.js';
+import { ReflectionStore, hashBasePersona, reflectionDatabasePath } from '../plugins/self-evolution/reflection-store.js';
+import { repairJsonObject } from '../core/json-repair.js';
 
 import { AssetObserver } from './asset-observer.js';
 import { inactiveSlangPilotStatus, SlangPilotManager } from '../pilots/slang-pilot.js';
@@ -60,6 +65,12 @@ try {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.resolve(__dirname, '..', '..', 'ui');
+
+// P7 允许在控制台启停的内置插件白名单。只有这两个自我迭代内置插件
+// 可以在运行时被管理端控制；其余内置插件保持注册即可用，不暴露任意注册/安装。
+const CONTROLLABLE_PLUGIN_IDS = new Set(['self-evolution', 'self-evolution-reflection']);
+const SELF_EVOLUTION_PLUGIN_ID = 'self-evolution';
+const REFLECTION_PLUGIN_ID = 'self-evolution-reflection';
 
 // ── 白名单判断（移植自原版 allowed()） ───────────────────────────────────
 function allowed(kind, id, cfg) {
@@ -192,7 +203,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             endedAt: s.endedAt ?? null,
             participation: s.participation ?? null,
             termination: s.termination ?? null,
-            outbound: s.outbound ?? null
+            outbound: s.outbound ?? null,
+            pluginSnapshot: view.pluginSnapshot ?? null,
+            pluginContext: view.pluginContext ?? null,
+            retrieval: view.retrieval ?? null,
+            contextBudget: view.contextBudget ?? null
           })}\n\n`;
         }
       } catch { /* 失败就退回原 payload */ }
@@ -265,6 +280,312 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     getIdentityPilot: () => identityPilot,
     getIncidentPilot: () => incidentPilot
   });
+
+  // ── P7：自我迭代插件的宿主接线 ─────────────────────────────────────────
+  // 账号命名空间口径：当前 OneBot 自身 QQ 号；拿不到时才显式退回 'default'。
+  // 绝不把"某个群/某个会话"的键当成账号，否则管理端会串库。
+  function accountNamespace() {
+    const selfId = String(onebot.selfId || getConfig().onebot?.selfId || '').trim();
+    return {
+      accountId: selfId || 'default',
+      source: selfId ? 'selfId' : 'default'
+    };
+  }
+
+  /** 反思用的 Base Persona 快照：只取人设本体，不带任何密钥。 */
+  function reflectionBasePersona() {
+    const persona = getConfig().persona || {};
+    return {
+      roleText: String(persona.roleText || ''),
+      behaviorProfile: String(persona.behaviorProfile || 'legacy'),
+      botName: String(persona.botName || ''),
+      selfNickname: String(persona.selfNickname || ''),
+      customRules: String(persona.customRules || ''),
+      tools: Array.isArray(persona.tools) ? persona.tools : []
+    };
+  }
+
+  /**
+   * 反思 worker 的模型适配器：只在 worker 领取到作业时调用，
+   * 不进入聊天请求路径（P7 只接线，不改变聊天语义）。
+   */
+  async function reflectForSelfEvolution({ prompt, signal }) {
+    const response = await chatCompletion({
+      messages: [{ role: 'user', content: String(prompt || '') }],
+      temperature: 0.2,
+      signal,
+      purpose: 'reflection'
+    });
+    const content = String(response?.message?.content ?? '').trim();
+    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(content);
+    const raw = fenced ? fenced[1].trim() : content;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      const repaired = repairJsonObject(raw);
+      if (!repaired) throw new Error('反思输出不是有效 JSON');
+      return repaired;
+    }
+  }
+
+  const selfEvolutionPlugin = createSelfEvolutionPlugin({ dataDir: DATA_DIR });
+  const reflectionPlugin = createReflectionPlugin({
+    dataDir: DATA_DIR,
+    reflector: reflectForSelfEvolution,
+    owner: `console-${process.pid}`,
+    getBasePersona: () => reflectionBasePersona(),
+    getMode: (selected) => selected?.mode || reflectionConfig(getConfig()).mode,
+    getAccountId: () => accountNamespace().accountId
+  });
+  // 注册本身不建库、不起 worker、不发模型调用；是否真的启动由各自
+  // isEnabled(config)（selfEvolution.enabled / reflection.enabled）决定，
+  // 禁用时插件保持 registered+stopped，管理端仍能看见并显式启用。
+  orchestrator.pluginManager.registerAll([selfEvolutionPlugin, reflectionPlugin]);
+
+  function selfEvolutionEnabled() {
+    return getConfig().selfEvolution?.enabled === true;
+  }
+  function reflectionEnabled() {
+    return reflectionConfig(getConfig()).enabled === true;
+  }
+
+  /**
+   * 启用的插件实例优先（读写）；禁用/未运行时只用只读方式打开已存在的库，
+   * 并且用完就关 —— 既不建库也不留句柄。
+   */
+  function withNotebookStore(fn) {
+    const live = selfEvolutionPlugin.getStore?.();
+    if (live) return fn(live, true);
+    const store = NotebookStore.openExisting({
+      dataDir: DATA_DIR,
+      filename: notebookDatabasePath(DATA_DIR)
+    });
+    if (!store) return fn(null, false);
+    try {
+      return fn(store, false);
+    } finally {
+      try { store.close(); } catch { /* 只读库关闭失败不影响结果 */ }
+    }
+  }
+
+  function withReflectionStore(fn) {
+    const live = reflectionPlugin.getStore?.();
+    if (live) return fn(live, true);
+    const store = ReflectionStore.openExisting({
+      dataDir: DATA_DIR,
+      filename: reflectionDatabasePath(DATA_DIR)
+    });
+    if (!store) return fn(null, false);
+    try {
+      return fn(store, false);
+    } finally {
+      try { store.close(); } catch { /* 只读库关闭失败不影响结果 */ }
+    }
+  }
+
+  /**
+   * 检索接入状态。P7 不把 notebook 直接接进聊天上下文：没有安全适配器时
+   * 只如实上报 unavailable，不臆造命中数据。
+   */
+  function retrievalStatus() {
+    return {
+      enabled: false,
+      integrated: false,
+      available: false,
+      mode: 'lexical',
+      adapter: 'unavailable',
+      reason: 'disabled-by-default'
+    };
+  }
+
+  function pluginStatusEntry(pluginId) {
+    return orchestrator.pluginManager.status().find((item) => item.id === pluginId) || null;
+  }
+
+  /**
+   * 启动前把插件开关与配置对齐：
+   *  - createReflectionPlugin 的定义默认 enabled:false（P6 契约），注册时会被
+   *    记成"显式停用"，因此必须在 startAll 之前按配置显式打开/关闭；
+   *  - 自我迭代同样以 selfEvolution.enabled 为准。
+   * 注册本身不建库、不起 worker —— 只有这里打开后才走 start 生命周期。
+   */
+  function syncSelfEvolutionPluginOverrides() {
+    orchestrator.pluginManager.setEnabled(
+      SELF_EVOLUTION_PLUGIN_ID,
+      selfEvolutionEnabled()
+    );
+    orchestrator.pluginManager.setEnabled(
+      REFLECTION_PLUGIN_ID,
+      reflectionConfig(getConfig()).enabled === true
+    );
+  }
+
+  /** 把插件注册信息恢复回来：startAll 失败回滚会 unregister。 */
+  function ensureSelfEvolutionPluginRegistered(pluginId) {
+    const registry = orchestrator.pluginManager.registry;
+    const registered = registry.getRegistrations().some((item) => item.plugin.id === pluginId);
+    if (registered) return;
+    if (pluginId === SELF_EVOLUTION_PLUGIN_ID) orchestrator.pluginManager.register(selfEvolutionPlugin);
+    if (pluginId === REFLECTION_PLUGIN_ID) orchestrator.pluginManager.register(reflectionPlugin);
+  }
+
+  async function startPluginThroughManager(pluginId, res) {
+    const manager = orchestrator.pluginManager;
+    try {
+      await manager.startAll({
+        config: getConfig(),
+        services: { logger: (...args) => log('[self-evolution]', ...args) }
+      });
+      return null;
+    } catch (error) {
+      ensureSelfEvolutionPluginRegistered(pluginId);
+      manager.setEnabled(pluginId, false);
+      return apiFailure(res, 502, 'PLUGIN_START_FAILED', String(error?.message ?? error));
+    }
+  }
+
+  async function setPluginEnabled(pluginId, enabled, res) {
+    const manager = orchestrator.pluginManager;
+    const registration = manager.registry.getRegistrations()
+      .find((item) => item.plugin.id === pluginId);
+    if (!registration) {
+      return apiFailure(res, 404, 'PLUGIN_NOT_FOUND', `未知插件：${pluginId}`);
+    }
+    if (registration.plugin.required === true && enabled === false) {
+      return apiFailure(res, 409, 'PLUGIN_REQUIRED', '必需插件不能停用');
+    }
+    if (!CONTROLLABLE_PLUGIN_IDS.has(pluginId)) {
+      return apiFailure(res, 403, 'PLUGIN_NOT_CONTROLLABLE', '该插件不允许在控制台启停');
+    }
+    const account = accountNamespace();
+
+    if (pluginId === SELF_EVOLUTION_PLUGIN_ID && enabled === true) {
+      updateConfig({ selfEvolution: { enabled: true } });
+      manager.setEnabled(pluginId, true);
+      manager.setEnabled(REFLECTION_PLUGIN_ID, getConfig().selfEvolution?.reflection?.enabled === true);
+      const failed = await startPluginThroughManager(pluginId, res);
+      if (failed) {
+        updateConfig({ selfEvolution: { enabled: false } });
+        return failed;
+      }
+      return json(res, 200, {
+        ok: true,
+        accountId: account.accountId,
+        plugin: pluginStatusEntry(pluginId)
+      });
+    }
+
+    if (pluginId === SELF_EVOLUTION_PLUGIN_ID && enabled === false) {
+      // 停用自我迭代必须连带停掉反思 worker：反思以 selfEvolution.enabled 为前提。
+      await manager.disable(REFLECTION_PLUGIN_ID, 'self-evolution-disabled')
+        .catch((error) => log('[self-evolution] 停止反思插件失败:', error?.message ?? error));
+      manager.setEnabled(REFLECTION_PLUGIN_ID, false);
+      await manager.disable(pluginId, 'console-disabled');
+      updateConfig({ selfEvolution: { enabled: false } });
+      return json(res, 200, {
+        ok: true,
+        accountId: account.accountId,
+        plugin: pluginStatusEntry(pluginId)
+      });
+    }
+
+    if (pluginId === REFLECTION_PLUGIN_ID && enabled === true) {
+      if (!selfEvolutionEnabled()) {
+        return apiFailure(res, 409, 'SELF_EVOLUTION_DISABLED',
+          '需要先启用自我迭代，才能启用反思作业');
+      }
+      updateConfig({ selfEvolution: { reflection: { enabled: true } } });
+      manager.setEnabled(pluginId, true);
+      const failed = await startPluginThroughManager(pluginId, res);
+      if (failed) {
+        updateConfig({ selfEvolution: { reflection: { enabled: false } } });
+        return failed;
+      }
+      return json(res, 200, {
+        ok: true,
+        accountId: account.accountId,
+        plugin: pluginStatusEntry(pluginId)
+      });
+    }
+
+    // pluginId === REFLECTION_PLUGIN_ID && enabled === false
+    await manager.disable(pluginId, 'console-disabled');
+    manager.setEnabled(pluginId, false);
+    updateConfig({ selfEvolution: { reflection: { enabled: false } } });
+    return json(res, 200, {
+      ok: true,
+      accountId: account.accountId,
+      plugin: pluginStatusEntry(pluginId)
+    });
+  }
+
+  function selfEvolutionStatusPayload() {
+    const account = accountNamespace();
+    const enabled = selfEvolutionEnabled();
+    const reflectionOn = reflectionEnabled();
+    const notebook = withNotebookStore((store, live) => {
+      if (!store) return { exists: false, open: false, readOnly: true, counts: null };
+      let counts = null;
+      try { counts = store.counts({ accountId: account.accountId }); } catch { counts = null; }
+      return { exists: true, open: true, readOnly: !live, counts };
+    });
+    const reflection = withReflectionStore((store, live) => {
+      if (!store) {
+        return {
+          exists: false, open: false, readOnly: true, counts: null, worker: null,
+          mode: reflectionConfig(getConfig()).mode, learnedSelf: null
+        };
+      }
+      const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
+      const worker = safe(() => store.workerState(), null);
+      const limits = reflectionConfig(getConfig());
+      return {
+        exists: true,
+        open: true,
+        readOnly: !live,
+        counts: safe(() => store.counts({ accountId: account.accountId }), null),
+        worker,
+        mode: limits.mode,
+        budget: {
+          maxCallsPerDay: Number(limits.maxCallsPerDay) || null,
+          callsDay: worker?.callsDay || '',
+          callsCount: Number(worker?.callsCount) || 0
+        },
+        learnedSelf: safe(() => {
+          const context = store.getLearnedSelfContext({
+            accountId: account.accountId,
+            basePersona: reflectionBasePersona()
+          });
+          return {
+            revision: Number(context.revision) || 0,
+            stale: context.stale === true,
+            reason: context.reason || ''
+          };
+        }, null)
+      };
+    });
+    return {
+      accountId: account.accountId,
+      accountSource: account.source,
+      disabled: !enabled,
+      selfEvolution: {
+        enabled,
+        registered: Boolean(pluginStatusEntry(SELF_EVOLUTION_PLUGIN_ID)),
+        running: pluginStatusEntry(SELF_EVOLUTION_PLUGIN_ID)?.running === true,
+        notebook
+      },
+      reflection: {
+        enabled: reflectionOn,
+        registered: Boolean(pluginStatusEntry(REFLECTION_PLUGIN_ID)),
+        running: pluginStatusEntry(REFLECTION_PLUGIN_ID)?.running === true,
+        ...reflection
+      },
+      retrieval: retrievalStatus(),
+      plugins: orchestrator.pluginManager.status()
+        .filter((plugin) => CONTROLLABLE_PLUGIN_IDS.has(plugin.id))
+    };
+  }
+
   const dailyMoments = new DailyMomentsManager({
     store,
     memory,
@@ -1032,6 +1353,75 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     res.setHeader('set-cookie',
       // 本地改动：加 Max-Age，避免关掉浏览器就要重新输令牌
       `qq_agent_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`);
+  }
+
+  // ── P7：写路由的认证 / 请求体 / 错误口径 ────────────────────────────────
+  const MAX_WRITE_BODY_BYTES = 2 * 1024 * 1024;
+
+  /**
+   * 写路由不接受 URL 里的 token：查询串会进浏览器历史、代理日志和 Referer。
+   * 只认 x-console-token 头或 qq_agent_token Cookie（与 authorize 同源校验口径）。
+   */
+  function authorizeWrite(req) {
+    const token = String(getConfig().server?.token ?? '');
+    const origin = String(req.headers.origin || '');
+    if (origin && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`) {
+      return false;
+    }
+    if (!token) return /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(req.headers.host || '');
+    const cookie = String(req.headers.cookie || '').split(';').map((v) => v.trim())
+      .find((v) => v.startsWith('qq_agent_token='));
+    return sameSecret(req.headers['x-console-token'], token)
+      || sameSecret(cookie?.slice('qq_agent_token='.length), encodeURIComponent(token));
+  }
+
+  /** 结构化错误：始终带 error（人读）与 code（机读），不回显任何凭据。 */
+  function apiFailure(res, status, code, message, details = null) {
+    return json(res, status, {
+      error: String(message ?? code),
+      code: String(code),
+      ...(details && typeof details === 'object' ? { details } : {})
+    });
+  }
+
+  /**
+   * 写路由统一读 body：上限 2 MiB；超大 413；JSON 坏了 400（不是 500）；
+   * 顶层不是对象同样 400，避免把数组/标量带进字段校验。
+   */
+  async function readJsonBody(req, maxBytes = MAX_WRITE_BODY_BYTES) {
+    let parsed;
+    try {
+      parsed = await readBody(req, maxBytes);
+    } catch (error) {
+      if (error?.httpStatus === 413) {
+        throw Object.assign(new Error('请求体过大'), { httpStatus: 413, code: 'BODY_TOO_LARGE' });
+      }
+      throw Object.assign(new Error('请求体不是合法 JSON'), { httpStatus: 400, code: 'INVALID_JSON' });
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw Object.assign(new Error('请求体必须是 JSON 对象'), { httpStatus: 400, code: 'INVALID_BODY' });
+    }
+    return parsed;
+  }
+
+  function storeErrorStatus(error) {
+    const code = String(error?.code || '');
+    if (/_NOT_FOUND$/.test(code)) return 404;
+    const raw = Number(error?.httpStatus);
+    if (Number.isInteger(raw) && raw >= 400 && raw <= 599) return raw;
+    if (/CAS_CONFLICT$/.test(code) || /_CONFLICT$/.test(code) || /_CHANGED$/.test(code)) return 409;
+    return 400;
+  }
+
+  function sendStoreError(res, error, fallbackCode = 'SELF_EVOLUTION_ERROR') {
+    const code = String(error?.code || fallbackCode);
+    return apiFailure(
+      res,
+      storeErrorStatus(error),
+      code,
+      String(error?.message ?? error) || code,
+      error?.details
+    );
   }
 
   function writeConsoleAccess(token) {
@@ -3056,6 +3446,327 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         return json(res, 200, { ok: true, paused: false, marked });
       }
 
+      // ── P7：插件管理端（只读清单 + 受限启停） ──────────────────────────
+      if (pathname === '/api/plugins' && method === 'GET') {
+        const account = accountNamespace();
+        return json(res, 200, {
+          accountId: account.accountId,
+          accountSource: account.source,
+          plugins: orchestrator.pluginManager.status(),
+          selfEvolution: {
+            enabled: selfEvolutionEnabled(),
+            reflectionEnabled: reflectionEnabled()
+          },
+          retrieval: retrievalStatus()
+        });
+      }
+
+      const pluginMatch = /^\/api\/plugins\/([A-Za-z0-9._-]{1,80})$/.exec(pathname);
+      if (pluginMatch && method === 'PUT') {
+        // 写路由不认 URL token（全局 authorize 认；这里再收紧一次）。
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        if (typeof body.enabled !== 'boolean') {
+          return apiFailure(res, 400, 'INVALID_BODY', 'enabled 必须是布尔值');
+        }
+        return await setPluginEnabled(pluginMatch[1], body.enabled, res);
+      }
+
+      // ── P7：自我迭代状态 ────────────────────────────────────────────────
+      if (pathname === '/api/self-evolution/status' && method === 'GET') {
+        return json(res, 200, selfEvolutionStatusPayload());
+      }
+
+      // ── P7：Notebook（管理员可见，可含归档） ────────────────────────────
+      if (pathname === '/api/self-evolution/notebook' && method === 'GET') {
+        const account = accountNamespace();
+        const includeArchived = ['1', 'true'].includes(
+          String(url.searchParams.get('includeArchived') || '').toLowerCase()
+        );
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100));
+        const query = String(url.searchParams.get('query') || '').slice(0, 500);
+        const scope = String(url.searchParams.get('scope') || '').slice(0, 20);
+        const disabled = !selfEvolutionEnabled();
+        try {
+          return withNotebookStore((store) => {
+            if (!store) {
+              return json(res, 200, {
+                accountId: account.accountId,
+                notes: [],
+                count: 0,
+                includeArchived,
+                archivedExcluded: !includeArchived,
+                disabled,
+                reason: 'notebook-unavailable'
+              });
+            }
+            const result = store.search({
+              accountId: account.accountId,
+              scope: scope || undefined,
+              query,
+              limit,
+              includeArchived,
+              admin: true
+            });
+            return json(res, 200, {
+              accountId: account.accountId,
+              ...result,
+              includeArchived,
+              disabled
+            });
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      const notebookNoteMatch = /^\/api\/self-evolution\/notebook\/([A-Za-z0-9._-]{1,128})$/.exec(pathname);
+      if (notebookNoteMatch && method === 'PUT') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        if (!selfEvolutionEnabled()) {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_DISABLED', '自我迭代已停用，写入被拒绝');
+        }
+        const expectedRevision = Number(body.expectedRevision);
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是正整数');
+        }
+        if (body.content !== undefined && typeof body.content !== 'string') {
+          return apiFailure(res, 400, 'INVALID_BODY', 'content 必须是字符串');
+        }
+        if (body.body !== undefined && typeof body.body !== 'string') {
+          return apiFailure(res, 400, 'INVALID_BODY', 'body 必须是字符串');
+        }
+        if (body.tags !== undefined
+          && (!Array.isArray(body.tags) || body.tags.some((tag) => typeof tag !== 'string'))) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'tags 必须是字符串数组');
+        }
+        const account = accountNamespace();
+        const store = selfEvolutionPlugin.getStore?.();
+        if (!store) {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_UNAVAILABLE', '自我迭代存储未运行');
+        }
+        try {
+          const result = store.update({
+            accountId: account.accountId,
+            noteId: notebookNoteMatch[1],
+            expectedRevision,
+            content: body.content,
+            body: body.body,
+            tags: body.tags,
+            source: { kind: 'console', accountId: account.accountId, actor: 'console' },
+            currentChatKey: '',
+            idempotencyKey: `console:${crypto.randomUUID()}`
+          });
+          return json(res, 200, { accountId: account.accountId, ...result });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      const notebookArchiveMatch
+        = /^\/api\/self-evolution\/notebook\/([A-Za-z0-9._-]{1,128})\/archive$/.exec(pathname);
+      if (notebookArchiveMatch && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        if (!selfEvolutionEnabled()) {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_DISABLED', '自我迭代已停用，写入被拒绝');
+        }
+        const expectedRevision = Number(body.expectedRevision);
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是正整数');
+        }
+        const account = accountNamespace();
+        const store = selfEvolutionPlugin.getStore?.();
+        if (!store) {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_UNAVAILABLE', '自我迭代存储未运行');
+        }
+        try {
+          const result = store.archive({
+            accountId: account.accountId,
+            noteId: notebookArchiveMatch[1],
+            expectedRevision,
+            source: { kind: 'console', accountId: account.accountId, actor: 'console' },
+            currentChatKey: '',
+            idempotencyKey: `console:${crypto.randomUUID()}`
+          });
+          return json(res, 200, { accountId: account.accountId, ...result });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      // ── P7：反思作业 / 提案 / 能力缺口 / 习得自我（只读历史） ────────────
+      const reflectionListRoutes = new Map([
+        ['/api/self-evolution/reflection/jobs', 'jobs'],
+        ['/api/self-evolution/reflection/proposals', 'proposals'],
+        ['/api/self-evolution/reflection/gaps', 'gaps'],
+        ['/api/self-evolution/reflection/profiles', 'profiles']
+      ]);
+      if (reflectionListRoutes.has(pathname) && method === 'GET') {
+        const kind = reflectionListRoutes.get(pathname);
+        const account = accountNamespace();
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100));
+        const status = String(url.searchParams.get('status') || '').slice(0, 40);
+        const category = String(url.searchParams.get('category') || '').slice(0, 40);
+        const batchId = String(url.searchParams.get('batchId') || '').slice(0, 128);
+        const disabled = !selfEvolutionEnabled();
+        try {
+          return withReflectionStore((store) => {
+            if (!store) {
+              return json(res, 200, {
+                accountId: account.accountId,
+                kind,
+                entries: [],
+                count: 0,
+                disabled,
+                reason: 'reflection-unavailable'
+              });
+            }
+            if (kind === 'jobs') {
+              const entries = store.listJobs({ status, accountId: account.accountId, limit });
+              return json(res, 200, {
+                accountId: account.accountId, kind, entries, count: entries.length, disabled
+              });
+            }
+            if (kind === 'proposals') {
+              const entries = store.listProposals({
+                batchId, status, accountId: account.accountId, limit
+              });
+              return json(res, 200, {
+                accountId: account.accountId, kind, entries, count: entries.length, disabled
+              });
+            }
+            if (kind === 'gaps') {
+              const entries = store.listCapabilityGaps({ accountId: account.accountId, category, limit });
+              return json(res, 200, {
+                accountId: account.accountId, kind, entries, count: entries.length, disabled
+              });
+            }
+            const entries = store.listProfileVersions({ accountId: account.accountId, limit });
+            const head = store.getLearnedSelfContext({
+              accountId: account.accountId,
+              basePersona: reflectionBasePersona()
+            });
+            return json(res, 200, {
+              accountId: account.accountId,
+              kind,
+              entries,
+              count: entries.length,
+              headRevision: Number(head.revision) || 0,
+              stale: head.stale === true,
+              disabled
+            });
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      const proposalReviewMatch
+        = /^\/api\/self-evolution\/reflection\/proposals\/([A-Za-z0-9._-]{1,128})\/review$/.exec(pathname);
+      if (proposalReviewMatch && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        if (!selfEvolutionEnabled()) {
+          return apiFailure(res, 409, 'REFLECTION_DISABLED', '自我迭代已停用，审批被拒绝');
+        }
+        const decision = String(body.decision || '').toLowerCase();
+        if (!['approve', 'reject'].includes(decision)) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'decision 必须是 approve 或 reject');
+        }
+        const expectedRevision = Number(body.expectedRevision);
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是非负整数');
+        }
+        const account = accountNamespace();
+        const store = reflectionPlugin.getStore?.();
+        if (!store) {
+          return apiFailure(res, 409, 'REFLECTION_DISABLED', '反思插件未运行，审批被拒绝');
+        }
+        try {
+          const proposal = store.getProposal({ accountId: account.accountId, proposalId: proposalReviewMatch[1] });
+          if (!proposal) return apiFailure(res, 404, 'REFLECTION_NOT_FOUND', '找不到反思提案');
+          const result = store.reviewBatch({
+            batchId: proposal.batchId,
+            decision,
+            actor: 'console',
+            expectedProfileRevision: expectedRevision,
+            basePersona: reflectionBasePersona(),
+            notebook: selfEvolutionPlugin.getStore?.() || null
+          });
+          if (result.reviewed !== true) {
+            return apiFailure(res, 409, `REFLECTION_REVIEW_${String(result.reason || 'not-applied').toUpperCase()}`,
+              `审批未应用：${String(result.reason || 'not-applied')}`, { batchId: proposal.batchId });
+          }
+          return json(res, 200, { accountId: account.accountId, proposalId: proposal.id, ...result });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      const profileRollbackMatch
+        = /^\/api\/self-evolution\/reflection\/profiles\/(\d{1,9})\/rollback$/.exec(pathname);
+      if (profileRollbackMatch && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        if (!selfEvolutionEnabled()) {
+          return apiFailure(res, 409, 'REFLECTION_DISABLED', '自我迭代已停用，回滚被拒绝');
+        }
+        const expectedRevision = Number(body.expectedRevision);
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是非负整数');
+        }
+        const account = accountNamespace();
+        const store = reflectionPlugin.getStore?.();
+        if (!store) {
+          return apiFailure(res, 409, 'REFLECTION_DISABLED', '反思插件未运行，回滚被拒绝');
+        }
+        try {
+          const result = store.rollbackProfile({
+            accountId: account.accountId,
+            targetRevision: Number(profileRollbackMatch[1]),
+            expectedCurrentRevision: expectedRevision,
+            basePersona: reflectionBasePersona(),
+            actor: 'console',
+            reason: 'console rollback'
+          });
+          return json(res, 200, { accountId: account.accountId, ...result });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
       return json(res, 404, { error: `未知 API：${method} ${pathname}` });
     }
 
@@ -3173,6 +3884,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       }
     }
     refreshTimeControl();
+    syncSelfEvolutionPluginOverrides();
     await orchestrator.startPlugins();
     orchestrator.startRecoveryLoop();
     if (getConfig().dailyMoments?.enabled) dailyMoments.start();
@@ -3459,7 +4171,9 @@ function buildSessionView(s, store, options = {}) {
     persona: s.persona || personaLabelOfPrompt(s.systemPrompt),
     threadState: lifecycle?.state || s.threadState || null,
     lifecycle,
-    sessionMetrics: buildSessionMetrics(s)
+    sessionMetrics: buildSessionMetrics(s),
+    // 旧会话没有 P7 审计字段：统一补默认值，三条读取路径（列表/SSE/详情）口径一致。
+    ...sessionAuditView(s)
   };
 }
 

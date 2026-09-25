@@ -1,0 +1,10 @@
+node --check src/console/app.js -> exit 0 
+node --check src/plugins/manager.js -> exit 0 
+node --check src/core/sessions.js -> exit 0 
+node --check src/plugins/self-evolution/reflection-store.js -> exit 0 
+node --check ui/app.js -> exit 0 
+node --check test/p7-console-observability.test.mjs -> exit 0 
+
+git diff --check:
+
+exit 0

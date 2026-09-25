@@ -1,0 +1,55 @@
+(node:81196) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 真实服务已启动 :40995（接口全部真实，无 mock）===
+
+=== 模拟启动：拉配置与价格 ===
+  OK   配置已加载
+  OK   价格已加载（prices=140）
+
+=== switchTab("usage") 完整流程 ===
+  页面长度: 4841 字符
+  OK   页面有实质内容（>1000 字符）
+  OK   包含「用量与成本」标题
+  OK   包含「估算成本」卡片
+  OK   包含「搜索次数」卡片
+  OK   包含「调用次数」卡片
+  OK   不是错误提示
+  OK   不是空页面
+  OK   统计卡共 5 张
+  OK   卡片无跨列布局（单行五列）
+
+=== 数值填充（真实数据）===
+  成本=¥0  调用=0  搜索=0  输入=0
+  OK   成本已填（¥ 开头）
+  OK   调用次数已填（数字）
+  OK   搜索次数已填（数字）
+  OK   输入 token 已填
+
+=== 各时间范围 ===
+  OK   range=today  4841 字符
+  OK   range=7      4841 字符
+  OK   range=30     4841 字符
+  OK   range=all    4841 字符
+
+=== 下钻明细（点行）===
+  （无按天数据，跳过）
+
+=== 回归：模拟真实点击「用量」页签 ===
+  OK   用量页签已绑定点击事件
+  OK   点击后 state.tab = usage
+  OK   点击后页面有实质内容（含「用量与成本」）
+  OK   点击后不是错误提示
+
+=== 回归：模拟真实点击「观测」页签 ===
+  OK   观测页签已绑定点击事件
+  OK   点击后 state.tab = assets
+  OK   观测页只展示共享表情与黑话资产
+  OK   观测页不是错误提示
+
+=== 回归：模拟真实点击「控制」页签 ===
+  OK   控制页签已绑定点击事件
+  OK   点击后 state.tab = control
+  OK   控制页展示服务入口与密钥控制
+  OK   控制页不是错误提示
+
+ALL PASSED 31

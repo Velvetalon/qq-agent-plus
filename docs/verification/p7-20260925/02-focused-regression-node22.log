@@ -1,0 +1,550 @@
+TAP version 13
+# Subtest: ROOT 指向仓库根（用自身位置推算的路径不能少退一层）
+ok 1 - ROOT 指向仓库根（用自身位置推算的路径不能少退一层）
+  ---
+  duration_ms: 18.8082
+  type: 'test'
+  ...
+# Subtest: 仓库根的关键文件/目录都在
+ok 2 - 仓库根的关键文件/目录都在
+  ---
+  duration_ms: 5.2727
+  type: 'test'
+  ...
+# Subtest: src/ 下所有相对 import 都能解析到真实文件
+ok 3 - src/ 下所有相对 import 都能解析到真实文件
+  ---
+  duration_ms: 172.4502
+  type: 'test'
+  ...
+# Subtest: 按硬编码路径部署/更新的入口文件没被挪走
+ok 4 - 按硬编码路径部署/更新的入口文件没被挪走
+  ---
+  duration_ms: 2.3488
+  type: 'test'
+  ...
+# Subtest: memory navigation exposes independent session and person pages
+ok 5 - memory navigation exposes independent session and person pages
+  ---
+  duration_ms: 2.7362
+  type: 'test'
+  ...
+# Subtest: global person memory renders only inside the dedicated people page
+ok 6 - global person memory renders only inside the dedicated people page
+  ---
+  duration_ms: 0.3364
+  type: 'test'
+  ...
+# Subtest: session memory page suppresses person-memory controls and keeps handoff visible
+ok 7 - session memory page suppresses person-memory controls and keeps handoff visible
+  ---
+  duration_ms: 0.2363
+  type: 'test'
+  ...
+# Subtest: stay_silent validates strictly and only records a pending request
+ok 8 - stay_silent validates strictly and only records a pending request
+  ---
+  duration_ms: 3.5698
+  type: 'test'
+  ...
+# Subtest: terminal batch preflight is independent of scheduler enablement
+ok 9 - terminal batch preflight is independent of scheduler enablement
+  ---
+  duration_ms: 2.3954
+  type: 'test'
+  ...
+# Subtest: stay_silent commits explicit silence only with zero outbound effects
+ok 10 - stay_silent commits explicit silence only with zero outbound effects
+  ---
+  duration_ms: 1.3602
+  type: 'test'
+  ...
+# Subtest: stay_silent accepts the boundary reason length and rejects malformed enums
+ok 11 - stay_silent accepts the boundary reason length and rejects malformed enums
+  ---
+  duration_ms: 0.1794
+  type: 'test'
+  ...
+# Subtest: inline and native tool calls share the same terminal preflight
+ok 12 - inline and native tool calls share the same terminal preflight
+  ---
+  duration_ms: 1.1231
+  type: 'test'
+  ...
+# Subtest: participation policy is present once and exposes explicit silence without role-text edits
+ok 13 - participation policy is present once and exposes explicit silence without role-text edits
+  ---
+  duration_ms: 4.4931
+  type: 'test'
+  ...
+# (node:89084) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: disabled self-evolution serves historical reads without creating a new database or worker
+ok 14 - disabled self-evolution serves historical reads without creating a new database or worker
+  ---
+  duration_ms: 443.4755
+  type: 'test'
+  ...
+# Subtest: write routes require a header/cookie credential and reject query-token auth
+ok 15 - write routes require a header/cookie credential and reject query-token auth
+  ---
+  duration_ms: 82.032
+  type: 'test'
+  ...
+# Subtest: plugin inventory exposes the P7 read model and restricts runtime control
+ok 16 - plugin inventory exposes the P7 read model and restricts runtime control
+  ---
+  duration_ms: 84.9537
+  type: 'test'
+  ...
+# Subtest: notebook write and archive routes enforce revision CAS
+ok 17 - notebook write and archive routes enforce revision CAS
+  ---
+  duration_ms: 112.4919
+  type: 'test'
+  ...
+# Subtest: reflection review and rollback routes return 409 on revision conflicts
+ok 18 - reflection review and rollback routes return 409 on revision conflicts
+  ---
+  duration_ms: 253.7432
+  type: 'test'
+  ...
+# Subtest: session list and detail expose audit fields with defaults for old files
+ok 19 - session list and detail expose audit fields with defaults for old files
+  ---
+  duration_ms: 70.9238
+  type: 'test'
+  ...
+# Subtest: session detail fingerprint tracks audit fields and audit rendering escapes HTML
+ok 20 - session detail fingerprint tracks audit fields and audit rendering escapes HTML
+  ---
+  duration_ms: 44.7329
+  type: 'test'
+  ...
+# (node:85172) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: real createApp startup starts and stops a scoped probe plugin
+ok 21 - real createApp startup starts and stops a scoped probe plugin
+  ---
+  duration_ms: 484.5414
+  type: 'test'
+  ...
+# (node:85268) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: disabled plugin has no start, context, timer, or tool side effects
+ok 22 - disabled plugin has no start, context, timer, or tool side effects
+  ---
+  duration_ms: 5.3314
+  type: 'test'
+  ...
+# Subtest: start failure removes the staged plugin and does not leave runtime state
+ok 23 - start failure removes the staged plugin and does not leave runtime state
+  ---
+  duration_ms: 2.7212
+  type: 'test'
+  ...
+# Subtest: startAll failure atomically rolls back every plugin started by that call
+ok 24 - startAll failure atomically rolls back every plugin started by that call
+  ---
+  duration_ms: 1.7851
+  type: 'test'
+  ...
+# Subtest: startAll failure preserves plugins that were already running
+ok 25 - startAll failure preserves plugins that were already running
+  ---
+  duration_ms: 1.0285
+  type: 'test'
+  ...
+# Subtest: provider failure degrades without failing the run context
+ok 26 - provider failure degrades without failing the run context
+  ---
+  duration_ms: 1.3592
+  type: 'test'
+  ...
+# Subtest: provider timeout aborts the provider and preserves the shared run context
+ok 27 - provider timeout aborts the provider and preserves the shared run context
+  ---
+  duration_ms: 6.7678
+  type: 'test'
+  ...
+# Subtest: stop invalidates snapshots before plugin cleanup and clears plugin timers
+ok 28 - stop invalidates snapshots before plugin cleanup and clears plugin timers
+  ---
+  duration_ms: 153.6478
+  type: 'test'
+  ...
+# Subtest: config-based enablement is evaluated when the manager starts
+ok 29 - config-based enablement is evaluated when the manager starts
+  ---
+  duration_ms: 0.8966
+  type: 'test'
+  ...
+# Subtest: startAll explicit config controls dynamic plugin enablement
+ok 30 - startAll explicit config controls dynamic plugin enablement
+  ---
+  duration_ms: 0.4674
+  type: 'test'
+  ...
+# Subtest: hard disable rejects a late tool result from an old run snapshot
+ok 31 - hard disable rejects a late tool result from an old run snapshot
+  ---
+  duration_ms: 3.8697
+  type: 'test'
+  ...
+# Subtest: ChatStore completion events are transactional, at-least-once, and retryable
+ok 32 - ChatStore completion events are transactional, at-least-once, and retryable
+  ---
+  duration_ms: 110.4047
+  type: 'test'
+  ...
+# Subtest: enabled observer delivery is at-least-once and delivered events are not replayed
+ok 33 - enabled observer delivery is at-least-once and delivered events are not replayed
+  ---
+  duration_ms: 118.2774
+  type: 'test'
+  ...
+# Subtest: hung observers time out as retryable failures and do not block stopAll
+ok 34 - hung observers time out as retryable failures and do not block stopAll
+  ---
+  duration_ms: 1152.5493
+  type: 'test'
+  ...
+# Subtest: Orchestrator composition accepts a probe manager through the real constructor path
+ok 35 - Orchestrator composition accepts a probe manager through the real constructor path
+  ---
+  duration_ms: 3.5039
+  type: 'test'
+  ...
+# Subtest: legacy adapter preserves the 23 tool names, order, and OpenAI schemas
+ok 36 - legacy adapter preserves the 23 tool names, order, and OpenAI schemas
+  ---
+  duration_ms: 6.2594
+  type: 'test'
+  ...
+# Subtest: registry stages atomically and rejects duplicate owners, tools, invalid schemas, and reserved names
+ok 37 - registry stages atomically and rejects duplicate owners, tools, invalid schemas, and reserved names
+  ---
+  duration_ms: 1.513
+  type: 'test'
+  ...
+# Subtest: published registrations have stable plugin/tool ordering independent of registration order
+ok 38 - published registrations have stable plugin/tool ordering independent of registration order
+  ---
+  duration_ms: 0.4437
+  type: 'test'
+  ...
+# Subtest: manager snapshots freeze config, plugin enablement, generations, and tool handles per run
+ok 39 - manager snapshots freeze config, plugin enablement, generations, and tool handles per run
+  ---
+  duration_ms: 1.5416
+  type: 'test'
+  ...
+# Subtest: generic plugin tool callbacks receive only the safe base context
+ok 40 - generic plugin tool callbacks receive only the safe base context
+  ---
+  duration_ms: 3.6247
+  type: 'test'
+  ...
+# Subtest: ownerless tool definitions receive the restricted generic context
+ok 41 - ownerless tool definitions receive the restricted generic context
+  ---
+  duration_ms: 0.6028
+  type: 'test'
+  ...
+# Subtest: ExperimentalToolBatch prestart uses the restricted tool callback context
+ok 42 - ExperimentalToolBatch prestart uses the restricted tool callback context
+  ---
+  duration_ms: 1.8414
+  type: 'test'
+  ...
+# Subtest: legacy owner still receives the raw host context
+ok 43 - legacy owner still receives the raw host context
+  ---
+  duration_ms: 0.2065
+  type: 'test'
+  ...
+# Subtest: legacy buildToolDefs wrapper marks core definitions for raw compatibility
+ok 44 - legacy buildToolDefs wrapper marks core definitions for raw compatibility
+  ---
+  duration_ms: 25.3679
+  type: 'test'
+  ...
+# Subtest: trusted owner facades require both owner id and built-in tool name
+ok 45 - trusted owner facades require both owner id and built-in tool name
+  ---
+  duration_ms: 0.4844
+  type: 'test'
+  ...
+# Subtest: messaging facade remains functional and binds chat, run, signal, and session
+ok 46 - messaging facade remains functional and binds chat, run, signal, and session
+  ---
+  duration_ms: 6.4303
+  type: 'test'
+  ...
+# Subtest: memory and runtime-control facades bind current chat, run, and signal
+ok 47 - memory and runtime-control facades bind current chat, run, and signal
+  ---
+  duration_ms: 4.0391
+  type: 'test'
+  ...
+# Subtest: snapshotPluginConfig redacts auth material and token-shaped values
+ok 48 - snapshotPluginConfig redacts auth material and token-shaped values
+  ---
+  duration_ms: 1.3823
+  type: 'test'
+  ...
+# (node:87632) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Chinese short terms, mixed terms, and person QQ IDs use deterministic lexical matching
+ok 49 - Chinese short terms, mixed terms, and person QQ IDs use deterministic lexical matching
+  ---
+  duration_ms: 13.3775
+  type: 'test'
+  ...
+# Subtest: permission, scope, status, expiry, dedupe, ranking, and budget are enforced before selection
+ok 50 - permission, scope, status, expiry, dedupe, ranking, and budget are enforced before selection
+  ---
+  duration_ms: 17.6049
+  type: 'test'
+  ...
+# Subtest: FTS5 detection and query escaping never interpolate user text
+ok 51 - FTS5 detection and query escaping never interpolate user text
+  ---
+  duration_ms: 3.341
+  type: 'test'
+  ...
+# Subtest: FTS5 bm25 ranks are converted to a deterministic bounded fusion score
+ok 52 - FTS5 bm25 ranks are converted to a deterministic bounded fusion score
+  ---
+  duration_ms: 1.195
+  type: 'test'
+  ...
+# Subtest: embedding metadata is validated and stale responses cannot overwrite newer revisions
+ok 53 - embedding metadata is validated and stale responses cannot overwrite newer revisions
+  ---
+  duration_ms: 2.1485
+  type: 'test'
+  ...
+# Subtest: stale embedding index entries are ignored for a newer note revision
+ok 54 - stale embedding index entries are ignored for a newer note revision
+  ---
+  duration_ms: 1.3238
+  type: 'test'
+  ...
+# Subtest: disabled, unavailable, and failed embedding degrade without blocking lexical retrieval
+ok 55 - disabled, unavailable, and failed embedding degrade without blocking lexical retrieval
+  ---
+  duration_ms: 1.5192
+  type: 'test'
+  ...
+# Subtest: unconfigured and unauthorized embedding paths make zero external calls
+ok 56 - unconfigured and unauthorized embedding paths make zero external calls
+  ---
+  duration_ms: 1.2488
+  type: 'test'
+  ...
+# Subtest: FTS5 unavailable uses pure lexical fallback with an observable degradation reason
+ok 57 - FTS5 unavailable uses pure lexical fallback with an observable degradation reason
+  ---
+  duration_ms: 0.8273
+  type: 'test'
+  ...
+# Subtest: FTS5 query failures fall back to lexical retrieval
+ok 58 - FTS5 query failures fall back to lexical retrieval
+  ---
+  duration_ms: 0.895
+  type: 'test'
+  ...
+# Subtest: private note embedding requires explicit adapter authorization
+ok 59 - private note embedding requires explicit adapter authorization
+  ---
+  duration_ms: 0.3898
+  type: 'test'
+  ...
+# (node:89468) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: declares exactly four notebook tools with local-write/read effects
+ok 60 - declares exactly four notebook tools with local-write/read effects
+  ---
+  duration_ms: 2.3615
+  type: 'test'
+  ...
+# Subtest: disabled plugin creates no database, directory, timers, or registered tools
+ok 61 - disabled plugin creates no database, directory, timers, or registered tools
+  ---
+  duration_ms: 2.308
+  type: 'test'
+  ...
+# Subtest: enabled plugin exposes persistent tool callbacks through the P2 manager
+ok 62 - enabled plugin exposes persistent tool callbacks through the P2 manager
+  ---
+  duration_ms: 74.1742
+  type: 'test'
+  ...
+# Subtest: append is idempotent and restart preserves note, revision, and audit source
+ok 63 - append is idempotent and restart preserves note, revision, and audit source
+  ---
+  duration_ms: 73.5406
+  type: 'test'
+  ...
+# Subtest: same idempotency key cannot silently represent a different write
+ok 64 - same idempotency key cannot silently represent a different write
+  ---
+  duration_ms: 73.7289
+  type: 'test'
+  ...
+# Subtest: concurrent revisions use CAS and persist the losing conflict for audit
+ok 65 - concurrent revisions use CAS and persist the losing conflict for audit
+  ---
+  duration_ms: 74.2652
+  type: 'test'
+  ...
+# Subtest: chat scope, account namespace, and tags cannot widen search visibility
+ok 66 - chat scope, account namespace, and tags cannot widen search visibility
+  ---
+  duration_ms: 72.8041
+  type: 'test'
+  ...
+# Subtest: archive advances revision, remains in history, and is excluded from recall
+ok 67 - archive advances revision, remains in history, and is excluded from recall
+  ---
+  duration_ms: 68.3971
+  type: 'test'
+  ...
+# Subtest: body, capacity, and per-run limits reject explicitly without claiming saved
+ok 68 - body, capacity, and per-run limits reject explicitly without claiming saved
+  ---
+  duration_ms: 61.0012
+  type: 'test'
+  ...
+# Subtest: invalid chat source is rejected and chat writes require host run identity
+ok 69 - invalid chat source is rejected and chat writes require host run identity
+  ---
+  duration_ms: 52.1405
+  type: 'test'
+  ...
+# Subtest: existing Notebook can be read in stopped read-only mode without enabling writes
+ok 70 - existing Notebook can be read in stopped read-only mode without enabling writes
+  ---
+  duration_ms: 63.2007
+  type: 'test'
+  ...
+# (node:90044) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: same observation window creates one idempotent job and rejects direct reflection sources
+ok 71 - same observation window creates one idempotent job and rejects direct reflection sources
+  ---
+  duration_ms: 80.9885
+  type: 'test'
+  ...
+# Subtest: expired job leases are recoverable and the old owner cannot commit late
+ok 72 - expired job leases are recoverable and the old owner cannot commit late
+  ---
+  duration_ms: 100.872
+  type: 'test'
+  ...
+# Subtest: budget defers without spending a model attempt and failures retry finitely
+ok 73 - budget defers without spending a model attempt and failures retry finitely
+  ---
+  duration_ms: 253.184
+  type: 'test'
+  ...
+# Subtest: empty reflection is a noop, duplicate evidence is not called again, and invalid output changes no business state
+ok 74 - empty reflection is a noop, duplicate evidence is not called again, and invalid output changes no business state
+  ---
+  duration_ms: 197.1451
+  type: 'test'
+  ...
+# Subtest: review mode can approve or reject a proposal without mutating Base Persona
+ok 75 - review mode can approve or reject a proposal without mutating Base Persona
+  ---
+  duration_ms: 120.3235
+  type: 'test'
+  ...
+# Subtest: bounded_auto applies only allowlisted low-risk traits and leaves the rest pending
+ok 76 - bounded_auto applies only allowlisted low-risk traits and leaves the rest pending
+  ---
+  duration_ms: 96.0303
+  type: 'test'
+  ...
+# Subtest: review approval respects Notebook CAS and does not create a profile on a stale note
+ok 77 - review approval respects Notebook CAS and does not create a profile on a stale note
+  ---
+  duration_ms: 151.5048
+  type: 'test'
+  ...
+# Subtest: review approval cannot widen a chat note into global scope
+ok 78 - review approval cannot widen a chat note into global scope
+  ---
+  duration_ms: 141.9026
+  type: 'test'
+  ...
+# Subtest: stale profile CAS and Base Persona changes invalidate old proposals without applying them
+ok 79 - stale profile CAS and Base Persona changes invalidate old proposals without applying them
+  ---
+  duration_ms: 118.9655
+  type: 'test'
+  ...
+# Subtest: profile rollback creates a new traceable version and changes the learned context
+ok 80 - profile rollback creates a new traceable version and changes the learned context
+  ---
+  duration_ms: 102.3075
+  type: 'test'
+  ...
+# Subtest: capability gaps dedupe by real request and keep failure categories separate from interest
+ok 81 - capability gaps dedupe by real request and keep failure categories separate from interest
+  ---
+  duration_ms: 101.2032
+  type: 'test'
+  ...
+# Subtest: stop releases the lease and a late model result cannot commit
+ok 82 - stop releases the lease and a late model result cannot commit
+  ---
+  duration_ms: 74.5119
+  type: 'test'
+  ...
+# Subtest: disabled reflection creates no database or model call, while old data remains read-only readable
+ok 83 - disabled reflection creates no database or model call, while old data remains read-only readable
+  ---
+  duration_ms: 120.9649
+  type: 'test'
+  ...
+# Subtest: 认得内置卡与自定义卡的名字
+ok 84 - 认得内置卡与自定义卡的名字
+  ---
+  duration_ms: 1.4245
+  type: 'test'
+  ...
+# Subtest: 卡名后面的副标题不算进名字
+ok 85 - 卡名后面的副标题不算进名字
+  ---
+  duration_ms: 0.1632
+  type: 'test'
+  ...
+# Subtest: 日报/空间互动/好友评估提示词里的卡也认（段头不同，卡正文一样）
+ok 86 - 日报/空间互动/好友评估提示词里的卡也认（段头不同，卡正文一样）
+  ---
+  duration_ms: 0.1578
+  type: 'test'
+  ...
+# Subtest: 没有角色设定段/空提示词：返回空串，不瞎猜
+ok 87 - 没有角色设定段/空提示词：返回空串，不瞎猜
+  ---
+  duration_ms: 0.2333
+  type: 'test'
+  ...
+# Subtest: 角色设定里没按约定写「角色卡：」也能容忍
+ok 88 - 角色设定里没按约定写「角色卡：」也能容忍
+  ---
+  duration_ms: 0.1252
+  type: 'test'
+  ...
+1..88
+# tests 88
+# suites 0
+# pass 88
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2602.7329

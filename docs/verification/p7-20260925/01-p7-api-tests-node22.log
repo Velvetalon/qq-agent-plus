@@ -1,0 +1,54 @@
+TAP version 13
+# (node:81032) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: disabled self-evolution serves historical reads without creating a new database or worker
+ok 1 - disabled self-evolution serves historical reads without creating a new database or worker
+  ---
+  duration_ms: 814.7161
+  type: 'test'
+  ...
+# Subtest: write routes require a header/cookie credential and reject query-token auth
+ok 2 - write routes require a header/cookie credential and reject query-token auth
+  ---
+  duration_ms: 79.9658
+  type: 'test'
+  ...
+# Subtest: plugin inventory exposes the P7 read model and restricts runtime control
+ok 3 - plugin inventory exposes the P7 read model and restricts runtime control
+  ---
+  duration_ms: 70.9041
+  type: 'test'
+  ...
+# Subtest: notebook write and archive routes enforce revision CAS
+ok 4 - notebook write and archive routes enforce revision CAS
+  ---
+  duration_ms: 97.638
+  type: 'test'
+  ...
+# Subtest: reflection review and rollback routes return 409 on revision conflicts
+ok 5 - reflection review and rollback routes return 409 on revision conflicts
+  ---
+  duration_ms: 217.8034
+  type: 'test'
+  ...
+# Subtest: session list and detail expose audit fields with defaults for old files
+ok 6 - session list and detail expose audit fields with defaults for old files
+  ---
+  duration_ms: 62.1641
+  type: 'test'
+  ...
+# Subtest: session detail fingerprint tracks audit fields and audit rendering escapes HTML
+ok 7 - session detail fingerprint tracks audit fields and audit rendering escapes HTML
+  ---
+  duration_ms: 29.287
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2369.6725

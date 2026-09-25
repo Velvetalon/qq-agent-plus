@@ -2987,3 +2987,27 @@ dialog { margin: auto; max-height: 88vh; }
 }
 #update-notice-result { margin: 0; font-size: 12px; }
 #update-notice-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* P7：自我迭代页（笔记正文编辑、分段标题、运行审计面板） */
+.p7-subhead {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.p7-note-text {
+  width: 100%;
+  min-height: 72px;
+  margin-top: 6px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-1, transparent);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.session-audit .context-metrics div strong { word-break: break-word; }
+.session-audit .coll-body { max-height: 320px; overflow: auto; }
