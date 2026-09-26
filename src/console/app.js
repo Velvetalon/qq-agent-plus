@@ -335,7 +335,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     owner: `console-${process.pid}`,
     getBasePersona: () => reflectionBasePersona(),
     getMode: (selected) => selected?.mode || reflectionConfig(getConfig()).mode,
-    getAccountId: () => accountNamespace().accountId
+    getAccountId: () => {
+      const selfId = String(onebot.selfId || getConfig().onebot?.selfId || '').trim();
+      if (!selfId) throw new Error('OneBot selfId is unavailable; reflection accountId is required');
+      return selfId;
+    }
   });
   // 注册本身不建库、不起 worker、不发模型调用；是否真的启动由各自
   // isEnabled(config)（selfEvolution.enabled / reflection.enabled）决定，
@@ -458,6 +462,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       return apiFailure(res, 403, 'PLUGIN_NOT_CONTROLLABLE', '该插件不允许在控制台启停');
     }
     const account = accountNamespace();
+
+    if (account.source !== 'selfId') {
+      return apiFailure(res, 409, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED',
+        '无法确认 OneBot selfId，自我迭代写入被拒绝');
+    }
 
     if (pluginId === SELF_EVOLUTION_PLUGIN_ID && enabled === true) {
       updateConfig({ selfEvolution: { enabled: true } });

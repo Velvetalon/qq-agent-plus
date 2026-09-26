@@ -1397,6 +1397,7 @@ export class Orchestrator {
     signal
   }) {
     const liveConfig = getConfig();
+    const accountId = String(this.onebot.selfId || '');
     const runSnapshot = this.pluginManager.createRunSnapshot(liveConfig);
     this.pluginRunSnapshots.set(session.id, runSnapshot);
     const cfg = runSnapshot.config;
@@ -1500,6 +1501,7 @@ export class Orchestrator {
     // 首轮带完整上下文；生命周期后续轮只附加增量，旧消息保持字节级稳定以命中 DeepSeek 前缀缓存。
     const pluginContext = createRunContext(runSnapshot, {
       chatKey,
+      accountId,
       sessionId: session.id,
       signal: runSnapshot.signal,
       currentMessageIds: (triggerEntries || []).map((entry) => entry.id)
@@ -1618,6 +1620,7 @@ export class Orchestrator {
     signal = combinedSignal;
     const ctx = {
       chatKey, kind, chatId,
+      accountId,
       selfId: this.onebot.selfId,
       selfNickname,
       botName: cfg.persona.botName,

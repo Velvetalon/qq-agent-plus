@@ -121,6 +121,7 @@ test('enabled plugin exposes persistent tool callbacks through the P2 manager', 
     ]);
     const context = {
       chatKey: 'group:100',
+      accountId: 'bot-1',
       kind: 'group',
       session: {
         id: 'session-tool',
@@ -164,6 +165,63 @@ test('enabled plugin exposes persistent tool callbacks through the P2 manager', 
       })
     );
     assert.equal(JSON.parse(archived.content).saved, true);
+  } finally {
+    manager.releaseRunSnapshot(snapshot);
+    await manager.stopAll();
+  }
+});
+
+test('chat tools reject a missing host account and isolate stored notes by account', async () => {
+  const dataDir = path.join(root, `account-${++sequence}`);
+  const plugin = createSelfEvolutionPlugin({ dataDir });
+  const manager = new PluginManager({
+    configProvider: () => ({ selfEvolution: { enabled: true } })
+  });
+  manager.register(plugin);
+  await manager.startAll();
+  let snapshot = null;
+  try {
+    snapshot = manager.createRunSnapshot({ selfEvolution: { enabled: true } });
+    const tool = snapshot.tools.find((item) => item.name === 'notebook_append');
+    const session = { id: 'session-account', leaseId: 'run-account' };
+    const missingAccount = await tool.execute({
+      chatKey: 'group:100',
+      session,
+      toolCallId: 'missing-account'
+    }, { content: 'must not save', scope: 'global' });
+    assert.equal(missingAccount.isError, true);
+    assert.equal(missingAccount.errorCode, 'NOTEBOOK_INVALID_SOURCE');
+
+    const context = {
+      chatKey: 'group:100',
+      accountId: '3000000001',
+      kind: 'group',
+      session,
+      toolCallId: 'host-account-write'
+    };
+    const appended = await executeTool(
+      snapshot.tools,
+      context,
+      'notebook_append',
+      JSON.stringify({ content: 'account A tool note', scope: 'chat' })
+    );
+    const appendResult = JSON.parse(appended.content);
+    assert.equal(appendResult.saved, true);
+    assert.equal(appendResult.note.accountId, '3000000001');
+    assert.equal(appendResult.note.source.accountId, '3000000001');
+
+    const store = plugin.getStore();
+    const accountA = store.search({
+      accountId: '3000000001',
+      currentChatKey: 'group:100'
+    });
+    const accountB = store.search({
+      accountId: '3000000002',
+      currentChatKey: 'group:100'
+    });
+    assert.equal(accountA.count, 1);
+    assert.deepEqual(accountA.notes.map((note) => note.id), [appendResult.note.id]);
+    assert.equal(accountB.count, 0);
   } finally {
     manager.releaseRunSnapshot(snapshot);
     await manager.stopAll();

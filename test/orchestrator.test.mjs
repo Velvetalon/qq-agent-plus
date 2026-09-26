@@ -15,6 +15,7 @@ const {
 const { ChatStore } = await import('../src/core/store.js');
 const { SessionRegistry } = await import('../src/core/sessions.js');
 const { setRuntimeConfig, DEFAULT_CONFIG } = await import('../src/core/config.js');
+const { createSelfEvolutionPlugin } = await import('../src/plugins/builtin/self-evolution.js');
 
 describe('Orchestrator', () => {
   it('draws the debounce delay inside the configured range', () => {
@@ -135,6 +136,58 @@ describe('Orchestrator', () => {
     assert.equal(calls, 1);
     assert.equal(store.findByMid('group:1', 1).read, true);
     assert.equal(store.findByMid('group:1', 2).read, false);
+  });
+
+  it('stores chat Notebook writes in the host account namespace and isolates account reads', async (t) => {
+    const { cfg, runner, store, append } = fixture(t);
+    const dataDir = fs.mkdtempSync(path.join(root, 'account-'));
+    cfg.selfEvolution = { enabled: true };
+    setRuntimeConfig(cfg);
+    runner.pluginManager.register(createSelfEvolutionPlugin({ dataDir }));
+    await runner.startPlugins();
+
+    let calls = 0;
+    globalThis.fetch = async () => {
+      if (++calls === 1) {
+        return Response.json({
+          choices: [{
+            message: {
+              tool_calls: [{
+                id: 'notebook-call',
+                type: 'function',
+                function: {
+                  name: 'notebook_append',
+                  arguments: JSON.stringify({ content: 'host namespace note', scope: 'chat' })
+                }
+              }]
+            }
+          }],
+          usage: { prompt_tokens: 50, total_tokens: 60 }
+        });
+      }
+      return Response.json({
+        choices: [{ message: { content: 'No reply needed' } }],
+        usage: { prompt_tokens: 10, total_tokens: 10 }
+      });
+    };
+
+    append(1, 'remember this');
+    await runner.wake('group:1');
+
+    try {
+      const notebook = runner.pluginManager.registry.getRegistrations()
+        .find((item) => item.plugin.id === 'self-evolution')?.plugin.getStore();
+      assert.ok(notebook);
+      const accountA = notebook.search({ accountId: '888', currentChatKey: 'group:1' });
+      const accountB = notebook.search({ accountId: '999', currentChatKey: 'group:1' });
+      assert.equal(accountA.count, 1);
+      assert.equal(accountA.notes[0].source.accountId, '888');
+      assert.equal(accountA.notes[0].source.chatKey, 'group:1');
+      assert.equal(accountB.count, 0);
+      assert.equal(notebook.counts({ accountId: '888' }).notes, 1);
+    } finally {
+      await runner.stopPlugins();
+    }
   });
 
   it('preserves failed input and recorded token usage without clearing a run', async (t) => {

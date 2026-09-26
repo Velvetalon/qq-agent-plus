@@ -280,6 +280,24 @@ test('write routes require a header/cookie credential and reject query-token aut
 });
 
 // ── 3. 插件清单与受限启停 ──────────────────────────────────────────────────
+test('plugin enable requires the host account when OneBot selfId is absent', async () => {
+  const { port, stop } = await startApp({ selfId: '' });
+  try {
+    const before = await request(port, 'GET', '/api/plugins');
+    assert.equal(before.status, 200);
+    assert.equal(before.json.accountId, 'default');
+    assert.equal(before.json.accountSource, 'default');
+
+    const enable = await request(port, 'PUT', '/api/plugins/self-evolution', {
+      body: { enabled: true }
+    });
+    assert.equal(enable.status, 409);
+    assert.equal(enable.json.code, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED');
+  } finally {
+    await stop();
+  }
+});
+
 test('plugin inventory exposes the P7 read model and restricts runtime control', async () => {
   const { port, stop } = await startApp({ selfId: '20002' });
   try {

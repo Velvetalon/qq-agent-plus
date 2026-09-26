@@ -49,7 +49,7 @@ function hostIdempotencyKey(ctx, action, args) {
 function toolSource(ctx) {
   return {
     kind: 'chat',
-    accountId: String(ctx?.accountId || 'default'),
+    accountId: String(ctx?.accountId || ''),
     chatKey: String(ctx?.chatKey || ''),
     sessionId: String(ctx?.sessionId || ctx?.session?.id || ''),
     runId: String(ctx?.runId || ctx?.session?.leaseId || ctx?.session?.id || ''),

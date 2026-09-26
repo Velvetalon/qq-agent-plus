@@ -196,6 +196,7 @@ test('generic plugin tool callbacks receive only the safe base context', async (
   assert.equal(result.content, 'ok');
   assert.ok(observed);
   assert.equal(observed.chatKey, 'group:100');
+  assert.equal(observed.accountId, '999');
   assert.equal(observed.kind, 'group');
   assert.equal(observed.chatId, '100');
   assert.equal(observed.selfId, '999');

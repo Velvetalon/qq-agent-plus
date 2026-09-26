@@ -72,6 +72,7 @@ function genericToolCallbackContext(hostCtx = {}) {
   const session = hostCtx?.session && typeof hostCtx.session === 'object' ? hostCtx.session : {};
   return {
     chatKey: String(hostCtx?.chatKey || ''),
+    accountId: String(hostCtx?.accountId ?? hostCtx?.selfId ?? ''),
     kind: String(hostCtx?.kind || ''),
     chatId: String(hostCtx?.chatId || ''),
     selfId: String(hostCtx?.selfId || ''),
