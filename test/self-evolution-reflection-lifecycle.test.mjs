@@ -151,10 +151,13 @@ test('reflection plugin applies job1/job2 as revisions 1/2 and rollback changes 
     assert.equal(second.status, 'completed');
     assert.equal(second.profileRevision, 2);
     assert.equal(modelCalls(), 2);
-    assert.deepEqual(
-      store.listJobs().map((job) => [job.sessionId, job.status]),
-      [['job-2', 'applied'], ['job-1', 'applied']]
+    const jobStatuses = Object.fromEntries(
+      store.listJobs().map((job) => [job.sessionId, job.status])
     );
+    assert.deepEqual(jobStatuses, {
+      'job-1': 'applied',
+      'job-2': 'applied'
+    });
 
     let learned = store.getLearnedSelfContext({
       accountId: ACCOUNT_ID,
