@@ -1561,6 +1561,7 @@ export class Orchestrator {
     );
     const retrievalEnabled = cfg.selfEvolution?.enabled === true
       && cfg.selfEvolution?.retrieval?.enabled === true;
+    const notebookCapabilityEnabled = retrievalEnabled && Boolean(retrievalProvider);
     const retrievalConfig = cfg.selfEvolution?.retrieval
       && typeof cfg.selfEvolution.retrieval === 'object'
       ? cfg.selfEvolution.retrieval
@@ -1649,6 +1650,7 @@ export class Orchestrator {
       threadCheckpoint,
       conversationMode: conversationCfg.mode,
       lifecycleContinuation,
+      notebookCapabilityEnabled,
       session
     }) + contextText;
 

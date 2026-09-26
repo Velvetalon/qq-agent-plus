@@ -22,7 +22,7 @@ import {
 export { _sliderToTier as sliderToTier, _tierToSlider as tierToSlider };
 import { formatFullTime, formatShortTime, sanitizeUserText, resolveSelfName } from '../core/util.js';
 import { buildStickerContext, buildStickerStrategyHint } from '../onebot/stickers.js';
-import { participationPolicyText } from './participation-policy.js';
+import { notebookCapabilityText, participationPolicyText } from './participation-policy.js';
 
 // ── 系统提示 ─────────────────────────────────────────────────────────────
 
@@ -763,6 +763,9 @@ export function buildUserPrompt(ctx) {
   if (ctx.conversationMode === 'lifecycle' && checkpointText) parts.push(checkpointText);
   else if (handoffText) parts.push(handoffText);
   else if (checkpointText) parts.push(checkpointText);
+
+  const notebookGuidance = notebookCapabilityText(ctx.notebookCapabilityEnabled);
+  if (notebookGuidance) parts.push(notebookGuidance);
 
   parts.push(`【当前时间】${formatFullTime(now)}`);
 
