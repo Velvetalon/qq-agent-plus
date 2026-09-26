@@ -1,0 +1,14 @@
+RUN:
+E:\node22\node.exe --test test/self-evolution-notebook.test.mjs test/self-evolution-retrieval.test.mjs test/self-evolution-reflection.test.mjs test/self-evolution-account.test.mjs test/self-evolution-retrieval-e2e.test.mjs test/self-evolution-reflection-lifecycle.test.mjs test/orchestrator.test.mjs
+
+RESULT:
+PASS
+83 tests passed
+0 failed
+0 skipped
+
+New closure tests:
+- real orchestrator tool calls stay in the host account and cannot widen scope
+- Notebook survives close/reopen and reaches a real Orchestrator model request
+- reflection plugin applies job1/job2 as revisions 1/2 and rollback changes learned context
+- disabled self-evolution creates no new DB/worker/model/embedding calls and reads old data

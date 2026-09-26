@@ -1,0 +1,6 @@
+RUN:
+E:\node22\node.exe test/test-prompt.mjs
+
+RESULT:
+PASS
+提示词自测全部通过

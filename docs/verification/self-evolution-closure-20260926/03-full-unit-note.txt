@@ -1,0 +1,14 @@
+RUN:
+E:\node22\npm.cmd run test:unit
+
+RESULT:
+FAIL outside the P6 closure scope.
+
+Observed carry-forward environment/platform failures include:
+- deployment and preflight tests requiring /bin/bash on Windows
+- Windows SQLite temporary-file EBUSY cleanup in unrelated identity/incident tests
+- updater tests requiring external GitHub/network behavior
+- Linux/systemd/Docker assertions and platform-specific process expectations
+
+The focused closure command remains PASS (83/83), and no new closure-specific
+failure was observed.

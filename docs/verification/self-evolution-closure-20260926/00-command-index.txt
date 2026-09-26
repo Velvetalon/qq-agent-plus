@@ -1,0 +1,12 @@
+node=E:\node22\node.exe
+node_version=v22.22.2
+cwd=E:\Code\qq-agent-plus-closure-p6
+baseline=1a00a89
+branch=closure-p6-verification
+date=2026-09-26
+
+01-focused-closure|exit=0|PASS|83/83
+02-prompt-self-test|exit=0|PASS
+03-full-unit|exit=1|environment carry-forward failures outside P6 closure
+04-node-check|exit=0|PASS
+05-git-diff-check|exit=0|PASS
