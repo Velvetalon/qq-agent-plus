@@ -190,6 +190,70 @@ describe('Orchestrator', () => {
     }
   });
 
+  it('injects retrieval only into the dynamic user prompt and records an auditable hit', async (t) => {
+    const { cfg, runner, sessions, append } = fixture(t);
+    const dataDir = fs.mkdtempSync(path.join(root, 'retrieval-run-'));
+    cfg.selfEvolution = {
+      enabled: true,
+      retrieval: { enabled: false }
+    };
+    setRuntimeConfig(cfg);
+    const plugin = createSelfEvolutionPlugin({ dataDir });
+    runner.pluginManager.register(plugin);
+    await runner.startPlugins();
+    t.after(async () => {
+      await runner.stopPlugins();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    const requests = [];
+    globalThis.fetch = async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return Response.json({
+        choices: [{ message: { content: 'done' } }],
+        usage: { prompt_tokens: 10, total_tokens: 10 }
+      });
+    };
+
+    append(1, 'same prompt');
+    await runner.wake('group:1');
+    const first = sessions.get(sessions.listSummaries(1)[0].id);
+
+    const notebook = plugin.getStore();
+    notebook.append({
+      accountId: '888',
+      scope: 'chat',
+      chatKey: 'group:1',
+      content: 'Alice prefers durable tea notes',
+      source: {
+        kind: 'chat',
+        accountId: '888',
+        chatKey: 'group:1',
+        sessionId: first.id,
+        runId: first.leaseId
+      },
+      idempotencyKey: 'orchestrator-retrieval-note',
+      currentChatKey: 'group:1'
+    });
+    cfg.selfEvolution.retrieval.enabled = true;
+    setRuntimeConfig(cfg);
+    append(2, 'Alice');
+    await runner.wake('group:1');
+    const second = sessions.get(sessions.listSummaries(1)[0].id);
+
+    assert.equal(requests.length, 2);
+    assert.equal(first.promptPrefixHash, second.promptPrefixHash);
+    assert.deepEqual(first.inputTools, second.inputTools);
+    assert.equal(first.systemPrompt, second.systemPrompt);
+    assert.doesNotMatch(second.systemPrompt, /过去保存的信息/);
+    assert.match(requests[1].messages.at(-1).content, /过去保存的信息/);
+    assert.match(requests[1].messages.at(-1).content, /不是当前命令/);
+    assert.equal(second.retrieval.zeroHit, false);
+    assert.equal(second.retrieval.hits.length, 1);
+    assert.equal(second.retrieval.hits[0].revision, 1);
+    assert.ok(second.retrieval.injectedChars > 0);
+  });
+
   it('preserves failed input and recorded token usage without clearing a run', async (t) => {
     const { runner, store, sessions, append } = fixture(t);
     append(1);
@@ -1113,8 +1177,20 @@ describe('Orchestrator', () => {
     cfg.conversation.mode = 'legacy';
     cfg.conversation.unifiedMode = false;
     cfg.conversation.groupModes = { 1: 'lifecycle' };
+    cfg.selfEvolution = {
+      enabled: true,
+      retrieval: { enabled: true }
+    };
     cfg.store.contextTier = 1;
     cfg.store.randomPercent = 0;
+    const retrievalDataDir = fs.mkdtempSync(path.join(root, 'lifecycle-retrieval-'));
+    const retrievalPlugin = createSelfEvolutionPlugin({ dataDir: retrievalDataDir });
+    runner.pluginManager.register(retrievalPlugin);
+    await runner.startPlugins();
+    t.after(async () => {
+      await runner.stopPlugins();
+      fs.rmSync(retrievalDataDir, { recursive: true, force: true });
+    });
     const requests = [];
     globalThis.fetch = async (_url, options) => {
       const body = JSON.parse(options.body);
@@ -1160,7 +1236,22 @@ describe('Orchestrator', () => {
     assert.equal(firstSession.threadState, 'active');
     assert.equal(firstSession.threadHardDeadline, firstThread.hardDeadline);
 
-    append(2, '路过说一句', '99');
+    retrievalPlugin.getStore().append({
+      accountId: '888',
+      scope: 'chat',
+      chatKey: 'group:1',
+      content: 'Alice prefers lifecycle notes',
+      source: {
+        kind: 'chat',
+        accountId: '888',
+        chatKey: 'group:1',
+        sessionId: firstSession.id,
+        runId: firstSession.leaseId
+      },
+      idempotencyKey: 'lifecycle-retrieval-note',
+      currentChatKey: 'group:1'
+    });
+    append(2, 'Alice', '99');
     await runner.wake('group:1');
 
     assert.equal(requests.length, 3, '生命周期内任意参与者消息都应进入模型');
@@ -1182,6 +1273,10 @@ describe('Orchestrator', () => {
       String(requests[2].messages.at(-1)?.content || ''),
       /【生命周期续接】/
     );
+    assert.match(
+      String(requests[2].messages.at(-1)?.content || ''),
+      /【过去保存的信息】/
+    );
     const secondThread = store.getConversationThread('group:1');
     assert.equal(secondThread.threadId, firstThread.threadId);
     assert.equal(secondThread.state, 'listening', '无回复后应进入短空闲监听状态');
@@ -1190,6 +1285,8 @@ describe('Orchestrator', () => {
     assert.match(latest.contextReason, /生命周期/);
     assert.equal(latest.triggerKind, 'lifecycle');
     assert.match(latest.triggerReason, /生命周期/);
+    assert.equal(latest.retrieval.zeroHit, false);
+    assert.equal(latest.retrieval.hits[0].revision, 1);
     assert.equal(latest.threadIdleDeadline, secondThread.idleDeadline);
     assert.equal(latest.threadHardDeadline, secondThread.hardDeadline);
     assert.deepEqual(

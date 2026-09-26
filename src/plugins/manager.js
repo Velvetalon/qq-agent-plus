@@ -185,7 +185,9 @@ export class PluginManager {
       tools: Object.freeze(tools),
       toolHandles,
       contextProviders: Object.freeze(registrySnapshot.contextProviders
-        .filter((provider) => plugins.some((plugin) => plugin.id === provider.ownerPluginId))),
+        .filter((provider) => plugins.some((plugin) => plugin.id === provider.ownerPluginId))
+        .filter((provider) => typeof provider.isEnabled !== 'function'
+          || provider.isEnabled(configSnapshot) === true)),
       sessionObservers: Object.freeze(registrySnapshot.sessionObservers
         .filter((observer) => plugins.some((plugin) => plugin.id === observer.ownerPluginId))),
       generations,

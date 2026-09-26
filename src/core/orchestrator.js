@@ -108,6 +108,13 @@ import { runtimeControlPlugin } from '../plugins/builtin/runtime-control.js';
 import { messagingPlugin } from '../plugins/builtin/messaging.js';
 import { memoryToolsPlugin } from '../plugins/builtin/memory-tools.js';
 import {
+  DEFAULT_RETRIEVAL_MAX_CHARS,
+  DEFAULT_RETRIEVAL_MAX_NOTES,
+  DEFAULT_RETRIEVAL_MAX_SNIPPET_CHARS,
+  SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID,
+  parseSourceRef
+} from '../plugins/self-evolution/retrieval-provider.js';
+import {
   preflightToolCalls,
   commitStaySilent,
   recordOutboundObservation,
@@ -185,6 +192,38 @@ function modelMessagesForAudit(messages) {
     });
     return message;
   });
+}
+
+function retrievalAuditFallback({
+  enabled = false,
+  query = '',
+  currentMessageIds = [],
+  maxNotes = DEFAULT_RETRIEVAL_MAX_NOTES,
+  maxChars = DEFAULT_RETRIEVAL_MAX_CHARS,
+  maxSnippetChars = DEFAULT_RETRIEVAL_MAX_SNIPPET_CHARS,
+  reason = enabled ? 'unavailable' : 'disabled'
+} = {}) {
+  return {
+    integrated: false,
+    available: false,
+    reason,
+    query,
+    currentMessageIds: [...currentMessageIds],
+    hitNoteIds: [],
+    hits: [],
+    injectedChars: 0,
+    budget: {
+      maxNotes,
+      maxChars,
+      maxSnippetChars,
+      usedNotes: 0,
+      usedChars: 0,
+      truncated: false
+    },
+    degradationReasons: reason && reason !== 'disabled' ? [reason] : [],
+    zeroHit: true,
+    diagnostics: {}
+  };
 }
 
 export function estimateNextPromptTokens({
@@ -1499,14 +1538,89 @@ export class Orchestrator {
     const lifecycleContinuation = priorProviderMessages.length > 0;
 
     // 首轮带完整上下文；生命周期后续轮只附加增量，旧消息保持字节级稳定以命中 DeepSeek 前缀缓存。
-    const pluginContext = createRunContext(runSnapshot, {
-      chatKey,
-      accountId,
-      sessionId: session.id,
-      signal: runSnapshot.signal,
-      currentMessageIds: (triggerEntries || []).map((entry) => entry.id)
+    const currentMessageIds = (triggerEntries || []).map((entry) => entry.id);
+    const retrievalQuery = (triggerEntries || [])
+      .map((entry) => String(entry?.text || '').trim())
+      .filter(Boolean)
+      .join('\n');
+    const pluginContext = Object.freeze({
+      ...createRunContext(runSnapshot, {
+        chatKey,
+        accountId,
+        sessionId: session.id,
+        signal: runSnapshot.signal,
+        currentMessageIds
+      }),
+      retrievalQuery
     });
     const extensionContext = await this.pluginManager.collectContext(runSnapshot, pluginContext);
+    const retrievalProvider = (runSnapshot.contextProviders || [])
+      .find((provider) => provider.id === SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID);
+    const retrievalBlocks = extensionContext.blocks.filter((block) =>
+      String(block?.id || '').startsWith(`${SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID}:`)
+    );
+    const retrievalEnabled = cfg.selfEvolution?.enabled === true
+      && cfg.selfEvolution?.retrieval?.enabled === true;
+    const retrievalConfig = cfg.selfEvolution?.retrieval
+      && typeof cfg.selfEvolution.retrieval === 'object'
+      ? cfg.selfEvolution.retrieval
+      : {};
+    const providerAudit = retrievalProvider?.consumeAudit?.(session.id) || null;
+    const fallbackAudit = retrievalAuditFallback({
+      enabled: retrievalEnabled && Boolean(retrievalProvider),
+      query: retrievalQuery,
+      currentMessageIds,
+      maxNotes: Math.max(
+        0,
+        Number(retrievalConfig.maxNotes) || DEFAULT_RETRIEVAL_MAX_NOTES
+      ),
+      maxChars: Math.max(
+        0,
+        Number(retrievalConfig.maxChars) || DEFAULT_RETRIEVAL_MAX_CHARS
+      ),
+      maxSnippetChars: Math.max(
+        0,
+        Number(retrievalConfig.maxSnippetChars) || DEFAULT_RETRIEVAL_MAX_SNIPPET_CHARS
+      )
+    });
+    const retrievalAudit = providerAudit || fallbackAudit;
+    retrievalAudit.integrated = Boolean(retrievalProvider);
+    retrievalAudit.available = Boolean(retrievalProvider) && retrievalEnabled
+      && retrievalAudit.reason !== 'notebook-unavailable'
+      && retrievalAudit.reason !== 'provider-failed';
+    retrievalAudit.query = retrievalQuery;
+    retrievalAudit.currentMessageIds = [...currentMessageIds];
+    retrievalAudit.hitNoteIds = Array.isArray(retrievalAudit.hitNoteIds)
+      ? retrievalAudit.hitNoteIds.map(String)
+      : [];
+    retrievalAudit.hits = Array.isArray(retrievalAudit.hits)
+      ? retrievalAudit.hits.map((hit) => ({
+        noteId: String(hit?.noteId || ''),
+        revision: hit?.revision ?? null,
+        rankingSource: String(hit?.rankingSource || 'lexical'),
+        snippetChars: Number(hit?.snippetChars) || 0
+      }))
+      : retrievalBlocks.map((block) => {
+        const meta = parseSourceRef(block.sourceRefs);
+        return {
+          noteId: String(meta?.noteId || ''),
+          revision: meta?.revision ?? block.revision ?? null,
+          rankingSource: String(meta?.rankingSource || 'lexical'),
+          snippetChars: Number(meta?.chars) || String(block.text || '').length
+        };
+      });
+    retrievalAudit.hitNoteIds = retrievalAudit.hits
+      .map((hit) => hit.noteId)
+      .filter(Boolean);
+    retrievalAudit.injectedChars = retrievalBlocks
+      .reduce((total, block) => total + String(block?.text || '').length, 0);
+    retrievalAudit.zeroHit = retrievalBlocks.length === 0;
+    if (retrievalAudit.zeroHit && !retrievalAudit.degradationReasons?.length) {
+      retrievalAudit.degradationReasons = ['no-matches'];
+    }
+    if (retrievalAudit.zeroHit && !retrievalAudit.reason) {
+      retrievalAudit.reason = 'no-matches';
+    }
     const contextText = extensionContext.blocks.length
       ? `\n\n【插件上下文】\n${extensionContext.blocks.map((block) => `${block.title}: ${block.text}`).join('\n')}`
       : '';
@@ -1545,6 +1659,7 @@ export class Orchestrator {
     session.model = cfg.api.model;
     session.conversationMode = conversationCfg.mode;
     session.lifecycleContinuation = lifecycleContinuation;
+    session.retrieval = retrievalAudit;
     session.threadId = thread?.threadId || null;
     // 记录本次调用走的是哪个渠道（A6API / openrouter / 本地中转…）。
     // 同名模型在不同渠道是不同商品，用量与价格要分开统计。
