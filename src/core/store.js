@@ -129,7 +129,8 @@ export class ChatStore {
       CREATE TABLE IF NOT EXISTS extension_events (
         event_id TEXT PRIMARY KEY, observer_id TEXT NOT NULL, observer_plugin_id TEXT NOT NULL,
         account_id TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '',
-        chat_key TEXT NOT NULL, plugin_generation INTEGER NOT NULL DEFAULT 0,
+        chat_key TEXT NOT NULL, origin_kind TEXT NOT NULL DEFAULT 'chat_run',
+        plugin_generation INTEGER NOT NULL DEFAULT 0,
         result_class TEXT NOT NULL, action_summary TEXT NOT NULL DEFAULT '{}',
         source_message_ids TEXT NOT NULL DEFAULT '[]', completed_at INTEGER NOT NULL,
         state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
@@ -152,6 +153,7 @@ export class ChatStore {
     ensureColumn(this.db, 'messages', 'mentions_self', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn(this.db, 'messages', 'target_user_id', "TEXT NOT NULL DEFAULT ''");
     ensureColumn(this.db, 'messages', 'event_kind', "TEXT NOT NULL DEFAULT 'message'");
+    ensureColumn(this.db, 'extension_events', 'origin_kind', "TEXT NOT NULL DEFAULT 'chat_run'");
     this.#importJson(dataDir);
   }
 
@@ -363,8 +365,8 @@ export class ChatStore {
     if (!list.length) return 0;
     const insert = this.db.prepare(`INSERT OR IGNORE INTO extension_events
       (event_id,observer_id,observer_plugin_id,account_id,session_id,run_id,chat_key,
-       plugin_generation,result_class,action_summary,source_message_ids,completed_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+       origin_kind,plugin_generation,result_class,action_summary,source_message_ids,completed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     let added = 0;
     for (const event of list) {
       const sourceIds = (Array.isArray(event.sourceMessageIds) ? event.sourceMessageIds : [])
@@ -372,7 +374,8 @@ export class ChatStore {
       const result = insert.run(
         String(event.eventId || ''), String(event.observerId || ''), String(event.observerPluginId || ''),
         String(event.accountId || ''), String(event.sessionId || ''), String(event.runId || ''),
-        String(event.chatKey || ''), Math.max(0, Number(event.pluginGeneration) || 0),
+        String(event.chatKey || ''), String(event.originKind || 'chat_run'),
+        Math.max(0, Number(event.pluginGeneration) || 0),
         String(event.resultClass || '').slice(0, 80), JSON.stringify(event.actionSummary || {}),
         JSON.stringify(sourceIds), Math.max(0, Number(event.completedAt) || Date.now())
       );
@@ -403,6 +406,7 @@ export class ChatStore {
           sessionId: row.session_id,
           runId: row.run_id,
           chatKey: row.chat_key,
+          originKind: String(row.origin_kind || 'chat_run'),
           pluginGeneration: Number(row.plugin_generation) || 0,
           resultClass: row.result_class,
           actionSummary,
@@ -435,6 +439,7 @@ export class ChatStore {
       eventId: row.event_id,
       observerId: row.observer_id,
       observerPluginId: row.observer_plugin_id,
+      originKind: String(row.origin_kind || 'chat_run'),
       state: row.state,
       attempts: Number(row.attempts) || 0,
       lastError: row.last_error || ''

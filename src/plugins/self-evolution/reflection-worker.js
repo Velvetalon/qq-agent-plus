@@ -139,7 +139,12 @@ export class ReflectionWorker {
       workerLeaseMs: this.limits.workerLeaseMs
     });
     if (!claimed.job) {
-      return { status: claimed.status, modelCalls: 0, committed: false };
+      return {
+        status: claimed.status,
+        modelCalls: 0,
+        committed: false,
+        budgetBlockedUntil: Number(claimed.budgetBlockedUntil) || 0
+      };
     }
     const job = claimed.job;
     if (this.store.hasProcessedEvidence({
@@ -211,14 +216,16 @@ export class ReflectionWorker {
         job,
         owner: this.owner,
         generation: this.generation,
-        reason: `reflection budget: ${budget.reason}`
+        reason: `reflection budget: ${budget.reason}`,
+        availableAt: budget.blockedUntil
       });
       return {
         status: 'budget',
         modelCalls: 0,
         committed: false,
         jobId: job.id,
-        retry: deferred.status
+        retry: deferred.status,
+        budgetBlockedUntil: Number(budget.blockedUntil) || 0
       };
     }
     let raw;
@@ -381,14 +388,15 @@ export class ReflectionWorker {
 
   #schedule(delayMs) {
     if (!this.active) return;
-    const callback = () => {
+    const callback = async () => {
       this.timer = null;
       if (!this.active) return;
-      this.runOnce()
-        .catch(() => {})
-        .finally(() => {
-          if (this.active) this.#schedule(this.options.pollIntervalMs);
-        });
+      try {
+        const result = await this.runOnce();
+        if (this.active) this.#schedule(this.#nextDelay(result));
+      } catch {
+        if (this.active) this.#schedule(this.options.pollIntervalMs);
+      }
     };
     if (this.services?.resources?.setTimer) {
       this.timer = this.services.resources.setTimer(callback, delayMs);
@@ -396,6 +404,17 @@ export class ReflectionWorker {
       this.timer = setTimeout(callback, delayMs);
       this.timer.unref?.();
     }
+  }
+
+  #nextDelay(result) {
+    const blockedUntil = Number(result?.budgetBlockedUntil) || 0;
+    if (blockedUntil <= 0) return this.options.pollIntervalMs;
+    const clock = Number(this.now());
+    const current = Number.isFinite(clock) ? Math.max(0, clock) : Date.now();
+    return Math.max(
+      this.options.pollIntervalMs,
+      blockedUntil - current
+    );
   }
 
   #clearTimer() {

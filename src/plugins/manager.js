@@ -308,13 +308,15 @@ export class PluginManager {
 
   buildCompletionEvents(snapshot, {
     accountId = '', sessionId = '', runId = '', chatKey = '', resultClass = '',
-    actionSummary = {}, sourceMessageIds = [], completedAt = Date.now()
+    actionSummary = {}, sourceMessageIds = [], completedAt = Date.now(),
+    originKind = 'chat_run'
   } = {}) {
     if (!snapshot || snapshot.signal.aborted) return [];
     return snapshot.sessionObservers
       .filter((observer) => snapshot.isActive(observer.ownerPluginId, snapshot.generations[observer.ownerPluginId]))
       .map((observer) => ({
         eventId: `${sessionId}:${observer.id}`,
+        originKind: String(originKind || 'chat_run'),
         accountId: String(accountId || ''),
         sessionId: String(sessionId || ''),
         runId: String(runId || ''),

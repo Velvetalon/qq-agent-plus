@@ -33,6 +33,21 @@ export const REFLECTION_PROPOSAL_STATUSES = Object.freeze([
   'stale',
   'invalid'
 ]);
+export const REFLECTION_INVALID_EVIDENCE_KINDS = Object.freeze([
+  'timeout',
+  'api',
+  'api_failure',
+  'tool',
+  'tool_failure',
+  'no_reply',
+  'noreply',
+  'not_called',
+  'unknown_external_write',
+  'held_external_write',
+  'never_woken',
+  'failure',
+  'aborted'
+]);
 
 export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
   maxNoteOperations: 8,
@@ -51,6 +66,8 @@ export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
   maxModelInputChars: 12000,
   maxAttempts: 3,
   maxCallsPerDay: 100,
+  minValidSessions: 1,
+  observationWindowMs: 0,
   leaseMs: 30000,
   workerLeaseMs: 60000,
   backoffMs: 1000
@@ -183,6 +200,8 @@ function normalizeLimits(limits = {}) {
   }
   result.maxAttempts = Math.max(1, result.maxAttempts);
   result.maxCallsPerDay = Math.max(1, result.maxCallsPerDay);
+  result.minValidSessions = Math.max(1, result.minValidSessions);
+  result.observationWindowMs = Math.max(0, result.observationWindowMs);
   result.leaseMs = Math.max(1, result.leaseMs);
   result.workerLeaseMs = Math.max(1, result.workerLeaseMs);
   result.backoffMs = Math.max(0, result.backoffMs);
@@ -206,6 +225,11 @@ function sourceLineage(event) {
     && observerPluginId !== 'self-evolution-reflection') {
     fail('REFLECTION_INVALID_EVENT', 'completion event is not owned by self-evolution');
   }
+  const originKind = optionalText(event.originKind, 'event.originKind', 40) || 'chat_run';
+  if (originKind !== 'chat_run') {
+    fail('REFLECTION_SOURCE_LINEAGE',
+      'reflection observations require a chat_run completion origin', { originKind });
+  }
   const chatKey = optionalText(event.chatKey, 'event.chatKey', 100);
   if (chatKey && !/^(group|private):\d+$/.test(chatKey)) {
     fail('REFLECTION_INVALID_EVENT', 'event.chatKey must be group:<QQ> or private:<QQ>');
@@ -214,11 +238,20 @@ function sourceLineage(event) {
     eventId: optionalText(event.eventId, 'event.eventId', 240),
     observerId,
     observerPluginId,
+    originKind,
     accountId,
     sessionId,
     runId: optionalText(event.runId, 'event.runId', 160),
     chatKey,
-    pluginGeneration: Math.max(0, Math.round(Number(event.pluginGeneration) || 0))
+    pluginGeneration: Math.max(0, Math.round(Number(event.pluginGeneration) || 0)),
+    observationWindowId: optionalText(
+      event.observationWindowId
+        ?? event.observationWindowKey
+        ?? event.windowKey
+        ?? event.windowId,
+      'event.observationWindowId',
+      160
+    )
   };
 }
 
@@ -254,16 +287,80 @@ function boundedOutbound(value) {
   };
 }
 
-function failureKinds(resultClass, finishReason, outbound, neverWoken) {
+function failureKinds(
+  resultClass,
+  finishReason,
+  outbound,
+  neverWoken,
+  participation,
+  termination,
+  actionSummary
+) {
   const values = [];
-  const combined = `${resultClass} ${finishReason}`.toLowerCase();
+  const combined = [
+    resultClass,
+    finishReason,
+    participation?.decision,
+    participation?.reasonCode,
+    participation?.reason,
+    termination?.kind,
+    termination?.reasonCode,
+    termination?.reason,
+    actionSummary?.error,
+    actionSummary?.apiError,
+    actionSummary?.toolError
+  ].filter(Boolean).join(' ').toLowerCase();
   if (/timeout|timed out|deadline/.test(combined)) values.push('timeout');
   if (/abort|interrupt/.test(combined)) values.push('aborted');
   if (/error|failed|failure/.test(combined)) values.push('failure');
+  if (/(api|provider|http|upstream|gateway)/.test(combined)) values.push('api_failure');
+  if (/(tool|function[_ -]?call|tool[_ -]?call)/.test(combined)
+    || actionSummary?.toolFailed === true
+    || actionSummary?.toolFailure === true) {
+    values.push('tool_failure');
+  }
+  if (/^no[_ -]?reply$|^noreply$|no response|silent/.test(String(resultClass || '').toLowerCase())
+    || actionSummary?.noreply === true
+    || actionSummary?.noReply === true
+    || (Number(actionSummary?.sentCount) === 0 && actionSummary?.outboundAttempted !== true)
+    || /^(no[_ -]?reply|noreply|silent)$/.test(
+      String(participation?.decision || participation?.reasonCode || '').toLowerCase()
+    )) {
+    values.push('noreply');
+  }
+  if (actionSummary?.notCalled === true
+    || /^(not[_ -]?called|not[_ -]?invoked|not[_ -]?woken)$/.test(
+      String(
+        participation?.mode
+        || participation?.decision
+        || participation?.reasonCode
+        || ''
+      ).toLowerCase()
+    )) {
+    values.push('not_called');
+  }
   if (Number(outbound.unknown) > 0) values.push('unknown_external_write');
   if (Number(outbound.held) > 0) values.push('held_external_write');
   if (neverWoken) values.push('never_woken');
   return [...new Set(values)];
+}
+
+function behaviorChangeSignal(event, actionSummary) {
+  const explicit = [
+    event.behaviorChange,
+    event.behaviorChanged,
+    actionSummary.behaviorChange,
+    actionSummary.behaviorChanged
+  ].some((value) => value === true);
+  const evidence = event.behaviorChangeEvidence
+    ?? event.behaviorChangeReason
+    ?? actionSummary.behaviorChangeEvidence
+    ?? actionSummary.behaviorChangeReason
+    ?? '';
+  return {
+    detected: explicit || Boolean(String(evidence || '').trim()),
+    evidence: optionalText(evidence, 'behaviorChangeEvidence', 300)
+  };
 }
 
 export function reflectionDatabasePath(dataDir = DATA_DIR) {
@@ -297,7 +394,21 @@ export function normalizeCompletionObservation(event) {
   const finishReason = optionalText(actionSummary.finishReason, 'actionSummary.finishReason', 300);
   const outbound = boundedOutbound(actionSummary.outbound);
   const neverWoken = actionSummary.neverWoken === true;
-  const failures = failureKinds(resultClass, finishReason, outbound, neverWoken);
+  const participation = boundedParticipation(actionSummary.participation);
+  const termination = boundedTermination(actionSummary.termination);
+  const behaviorChange = behaviorChangeSignal(event, actionSummary);
+  const failures = failureKinds(
+    resultClass,
+    finishReason,
+    outbound,
+    neverWoken,
+    participation,
+    termination,
+    actionSummary
+  );
+  const invalidEvidenceKinds = failures.filter((kind) =>
+    REFLECTION_INVALID_EVIDENCE_KINDS.includes(kind)
+  );
   const sourceMessageIds = (Array.isArray(event.sourceMessageIds) ? event.sourceMessageIds : [])
     .map(String)
     .map((item) => item.trim())
@@ -314,18 +425,20 @@ export function normalizeCompletionObservation(event) {
     eventId: lineage.eventId,
     observerId: lineage.observerId,
     observerPluginId: lineage.observerPluginId,
+    originKind: lineage.originKind,
     accountId: lineage.accountId,
     sessionId: lineage.sessionId,
     runId: lineage.runId,
     chatKey: lineage.chatKey,
     pluginGeneration: lineage.pluginGeneration,
+    observationWindowId: lineage.observationWindowId,
     resultClass,
     actionSummary: {
       sentCount: Math.max(0, Number(actionSummary.sentCount) || 0),
       finishReason,
       outboundAttempted: actionSummary.outboundAttempted === true,
-      participation: boundedParticipation(actionSummary.participation),
-      termination: boundedTermination(actionSummary.termination),
+      participation,
+      termination,
       outbound
     },
     sourceMessageIds,
@@ -333,16 +446,32 @@ export function normalizeCompletionObservation(event) {
     evidenceIds: [...new Set(evidenceIds)],
     reliability: failures.length > 0 ? 'unreliable' : 'normal',
     failureKinds: failures,
+    invalidEvidenceKinds,
+    traitEligible: invalidEvidenceKinds.length === 0,
+    validSession: invalidEvidenceKinds.length === 0,
+    behaviorChange: behaviorChange.detected,
+    behaviorChangeEvidence: behaviorChange.evidence,
     neverWoken
   };
 }
 
-export function observationWindowKey(event) {
-  const normalized = event?.sourceKind === 'run_completion' ? event : normalizeCompletionObservation(event);
+function observationWindowToken(normalized, windowMs = 0) {
+  if (normalized.observationWindowId) return `explicit:${normalized.observationWindowId}`;
+  const duration = Math.max(0, Number(windowMs) || 0);
+  const completedAt = Number(normalized.completedAt) || 0;
+  if (duration > 0 && completedAt > 0) {
+    return `bucket:${Math.floor(completedAt / duration)}`;
+  }
+  return `session:${normalized.sessionId}`;
+}
+
+export function observationWindowKey(event, { windowMs = 0 } = {}) {
+  const normalized = normalizeCompletionObservation(event);
   return hash(stableJson({
     observerId: normalized.observerId,
     accountId: normalized.accountId,
-    sessionId: normalized.sessionId
+    chatKey: normalized.chatKey,
+    window: observationWindowToken(normalized, windowMs)
   }));
 }
 
@@ -520,6 +649,17 @@ function validateTraitProposal(raw, index, evidence, limits) {
   } else if (raw.value !== undefined) {
     fail('REFLECTION_INVALID_OUTPUT', `${pathName}.value is not allowed for remove`);
   }
+  const invalidKinds = Array.isArray(evidence.invalidEvidenceKinds)
+    ? evidence.invalidEvidenceKinds
+    : (Array.isArray(evidence.failureKinds)
+      ? evidence.failureKinds.filter((kind) => REFLECTION_INVALID_EVIDENCE_KINDS.includes(kind))
+      : []);
+  if (invalidKinds.length > 0 || evidence.traitEligible === false) {
+    fail('REFLECTION_PROHIBITED_INFERENCE',
+      `${pathName} requires valid chat evidence`,
+      { invalidEvidenceKinds: invalidKinds }
+    );
+  }
   const unreliable = evidence.reliability !== 'normal';
   if (unreliable && (disinterestLike(key) || disinterestLike(result.value || ''))) {
     fail('REFLECTION_PROHIBITED_INFERENCE',
@@ -627,6 +767,7 @@ function jobView(row) {
   return {
     id: String(row.id),
     observationKey: String(row.observation_key),
+    observationWindowKey: String(row.observation_key),
     observerId: String(row.observer_id),
     observerPluginId: String(row.observer_plugin_id),
     accountId: String(row.account_id),
@@ -644,6 +785,8 @@ function jobView(row) {
     leaseGeneration: Number(row.lease_generation) || 0,
     leaseExpiresAt: Number(row.lease_expires_at) || 0,
     availableAt: Number(row.available_at) || 0,
+    validSessionCount: Number(parseJson(row.evidence_json, {}).validSessionCount) || 0,
+    behaviorChange: parseJson(row.evidence_json, {}).behaviorChange === true,
     createdAt: Number(row.created_at) || 0,
     updatedAt: Number(row.updated_at) || 0,
     lastError: String(row.last_error || '')
@@ -761,6 +904,59 @@ function validateJobStatus(status) {
   return status;
 }
 
+function ensureColumn(db, table, name, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (columns.some((column) => column.name === name)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+}
+
+function nextUtcPeriod(ts) {
+  const value = Math.max(0, Number(ts) || 0);
+  const date = new Date(value);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+}
+
+function aggregateObservations(rows, observationKey) {
+  const observations = rows.map((row) => parseJson(row.evidence_json, {}))
+    .sort((left, right) => (
+      (Number(left.completedAt) || 0) - (Number(right.completedAt) || 0)
+      || String(left.sessionId || '').localeCompare(String(right.sessionId || ''))
+    ));
+  const first = observations[0] || {};
+  const evidenceIds = [...new Set(observations.flatMap((item) => (
+    Array.isArray(item.evidenceIds) ? item.evidenceIds : []
+  )))];
+  const failureKinds = [...new Set(observations.flatMap((item) => (
+    Array.isArray(item.failureKinds) ? item.failureKinds : []
+  )))];
+  const invalidEvidenceKinds = [...new Set(observations.flatMap((item) => (
+    Array.isArray(item.invalidEvidenceKinds) ? item.invalidEvidenceKinds : []
+  )))];
+  const sessionIds = [...new Set(observations.map((item) => String(item.sessionId || '')).filter(Boolean))];
+  const behaviorChangeObservation = observations.find((item) => item.behaviorChange === true);
+  const validSessionCount = observations.filter((item) => item.validSession === true).length;
+  const aggregate = {
+    ...first,
+    observationWindowKey: String(observationKey || ''),
+    sessionIds,
+    observations,
+    validSessionCount,
+    behaviorChange: Boolean(behaviorChangeObservation),
+    behaviorChangeEvidence: String(
+      behaviorChangeObservation?.behaviorChangeEvidence
+      || first.behaviorChangeEvidence
+      || ''
+    ).slice(0, 300),
+    evidenceIds,
+    failureKinds,
+    invalidEvidenceKinds,
+    reliability: failureKinds.length > 0 ? 'unreliable' : 'normal',
+    traitEligible: invalidEvidenceKinds.length === 0,
+    validSession: validSessionCount > 0
+  };
+  return aggregate;
+}
+
 export class ReflectionError extends Error {
   constructor(code, message, details = {}) {
     super(message);
@@ -851,6 +1047,26 @@ export class ReflectionStore {
         CREATE INDEX IF NOT EXISTS reflection_jobs_pending
           ON reflection_jobs(status, available_at, created_at);
 
+        CREATE TABLE IF NOT EXISTS reflection_observations (
+          id TEXT PRIMARY KEY,
+          observation_window_key TEXT NOT NULL,
+          observer_id TEXT NOT NULL,
+          observer_plugin_id TEXT NOT NULL,
+          account_id TEXT NOT NULL,
+          chat_key TEXT NOT NULL DEFAULT '',
+          session_id TEXT NOT NULL,
+          run_id TEXT NOT NULL DEFAULT '',
+          origin_kind TEXT NOT NULL DEFAULT 'chat_run',
+          evidence_json TEXT NOT NULL,
+          evidence_hash TEXT NOT NULL,
+          valid_session INTEGER NOT NULL DEFAULT 0,
+          behavior_change INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          UNIQUE(observation_window_key, session_id)
+        );
+        CREATE INDEX IF NOT EXISTS reflection_observations_window
+          ON reflection_observations(observation_window_key, created_at);
+
         CREATE TABLE IF NOT EXISTS reflection_worker_state (
           singleton INTEGER PRIMARY KEY CHECK(singleton=1),
           generation INTEGER NOT NULL DEFAULT 0,
@@ -861,6 +1077,7 @@ export class ReflectionStore {
           stop_reason TEXT NOT NULL DEFAULT '',
           calls_day TEXT NOT NULL DEFAULT '',
           calls_count INTEGER NOT NULL DEFAULT 0,
+          budget_blocked_until INTEGER NOT NULL DEFAULT 0,
           updated_at INTEGER NOT NULL
         );
         INSERT OR IGNORE INTO reflection_worker_state
@@ -962,6 +1179,8 @@ export class ReflectionStore {
           created_at INTEGER NOT NULL
         );
       `);
+      ensureColumn(this.db, 'reflection_worker_state', 'budget_blocked_until',
+        'INTEGER NOT NULL DEFAULT 0');
     } else {
       this.db.exec('PRAGMA busy_timeout=5000;');
     }
@@ -1027,23 +1246,121 @@ export class ReflectionStore {
     );
   }
 
-  enqueueObservation(event, { sourceKind = 'run_completion' } = {}) {
+  enqueueObservation(event, {
+    sourceKind = 'run_completion',
+    observationWindowId = ''
+  } = {}) {
     if (sourceKind !== 'run_completion') {
       fail('REFLECTION_SOURCE_LINEAGE', 'only host-verified run completion observations may enqueue jobs');
     }
-    const evidence = normalizeCompletionObservation(event);
-    const observationKey = observationWindowKey(evidence);
+    const input = observationWindowId
+      ? { ...event, observationWindowId }
+      : event;
+    const evidence = normalizeCompletionObservation(input);
+    const observationKey = observationWindowKey(evidence, {
+      windowMs: this.limits.observationWindowMs
+    });
     const evidenceJson = safeJson(evidence);
     if (evidenceJson.length > this.limits.maxEvidenceChars) {
       fail('REFLECTION_LIMIT_EXCEEDED', 'completion evidence exceeds the reflection budget');
     }
     const evidenceHash = hash(stableJson(evidence));
     return this.#transaction((db) => {
+      const ts = nowValue(this.now);
+      const inserted = db.prepare(`
+        INSERT OR IGNORE INTO reflection_observations (
+          id,observation_window_key,observer_id,observer_plugin_id,account_id,chat_key,
+          session_id,run_id,origin_kind,evidence_json,evidence_hash,valid_session,
+          behavior_change,created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        `refobs_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`,
+        observationKey,
+        evidence.observerId,
+        evidence.observerPluginId,
+        evidence.accountId,
+        evidence.chatKey,
+        evidence.sessionId,
+        evidence.runId,
+        evidence.originKind,
+        evidenceJson,
+        evidenceHash,
+        evidence.validSession === true ? 1 : 0,
+        evidence.behaviorChange === true ? 1 : 0,
+        ts
+      ).changes;
+      if (inserted !== 1) {
+        const existing = db.prepare(
+          'SELECT * FROM reflection_jobs WHERE observation_key=?'
+        ).get(observationKey);
+        return { created: false, reason: 'duplicate', job: jobView(existing) };
+      }
       const existing = db.prepare(
         'SELECT * FROM reflection_jobs WHERE observation_key=?'
       ).get(observationKey);
-      if (existing) return { created: false, reason: 'duplicate', job: jobView(existing) };
-      const ts = nowValue(this.now);
+      const rows = db.prepare(`
+        SELECT * FROM reflection_observations
+        WHERE observation_window_key=?
+        ORDER BY created_at,id
+      `).all(observationKey);
+      const validSessionCount = rows.filter((row) => row.valid_session === 1).length;
+      const behaviorChange = rows.some((row) => row.behavior_change === 1);
+      if (existing) {
+        if (existing.status === 'pending') {
+          const aggregate = aggregateObservations(rows, observationKey);
+          const aggregateJson = safeJson(aggregate);
+          if (aggregateJson.length > this.limits.maxEvidenceChars) {
+            fail('REFLECTION_LIMIT_EXCEEDED',
+              'aggregated completion evidence exceeds the reflection budget');
+          }
+          db.prepare(`
+            UPDATE reflection_jobs
+            SET evidence_json=?,evidence_hash=?,updated_at=?
+            WHERE id=? AND status='pending'
+          `).run(aggregateJson, hash(stableJson(aggregate)), ts, existing.id);
+        }
+        return {
+          created: false,
+          reason: existing.status === 'pending' ? 'aggregated' : 'duplicate-window',
+          job: jobView(db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(existing.id)),
+          validSessionCount,
+          behaviorChange
+        };
+      }
+      // The legacy P6 default reflects every completed session, including an
+      // unreliable one, so existing failure/capability-gap handling remains
+      // observable. Configured multi-session windows use valid sessions only.
+      const thresholdSatisfied = validSessionCount >= this.limits.minValidSessions
+        || (this.limits.minValidSessions === 1 && rows.length > 0);
+      if (!behaviorChange && !thresholdSatisfied) {
+        this.#audit(db, {
+          accountId: evidence.accountId,
+          event: 'observation-threshold',
+          code: 'REFLECTION_OBSERVATION_THRESHOLD',
+          message: 'observation window has not reached the valid-session threshold',
+          details: {
+            observationWindowKey: observationKey,
+            validSessionCount,
+            minValidSessions: this.limits.minValidSessions,
+            behaviorChange
+          },
+          ts
+        });
+        return {
+          created: false,
+          reason: 'threshold',
+          job: null,
+          observationWindowKey: observationKey,
+          validSessionCount,
+          behaviorChange
+        };
+      }
+      const aggregate = aggregateObservations(rows, observationKey);
+      const aggregateJson = safeJson(aggregate);
+      if (aggregateJson.length > this.limits.maxEvidenceChars) {
+        fail('REFLECTION_LIMIT_EXCEEDED',
+          'aggregated completion evidence exceeds the reflection budget');
+      }
       const id = `refjob_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
       db.prepare(`
         INSERT INTO reflection_jobs (
@@ -1054,16 +1371,16 @@ export class ReflectionStore {
       `).run(
         id,
         observationKey,
-        evidence.observerId,
-        evidence.observerPluginId,
+        aggregate.observerId,
+        aggregate.observerPluginId,
         evidence.accountId,
-        evidence.chatKey,
-        evidence.sessionId,
-        evidence.runId,
-        evidence.pluginGeneration,
-        evidence.sourceKind,
-        evidenceJson,
-        evidenceHash,
+        aggregate.chatKey,
+        aggregate.sessionId,
+        aggregate.runId,
+        aggregate.pluginGeneration,
+        aggregate.sourceKind,
+        aggregateJson,
+        hash(stableJson(aggregate)),
         this.limits.maxAttempts,
         ts,
         ts,
@@ -1119,6 +1436,13 @@ export class ReflectionStore {
         return { status: 'stale-generation', job: null };
       }
       if (state.stop_requested === 1) return { status: 'stopped', job: null };
+      if (Number(state.budget_blocked_until) > ts) {
+        return {
+          status: 'budget-blocked',
+          job: null,
+          budgetBlockedUntil: Number(state.budget_blocked_until)
+        };
+      }
       const held = String(state.lease_owner || '');
       const heldGeneration = Number(state.lease_generation) || 0;
       const expired = Number(state.lease_expires_at) <= ts;
@@ -1197,7 +1521,8 @@ export class ReflectionStore {
       stopRequested: row?.stop_requested === 1,
       stopReason: String(row?.stop_reason || ''),
       callsDay: String(row?.calls_day || ''),
-      callsCount: Number(row?.calls_count) || 0
+      callsCount: Number(row?.calls_count) || 0,
+      budgetBlockedUntil: Number(row?.budget_blocked_until) || 0
     };
   }
 
@@ -1213,19 +1538,43 @@ export class ReflectionStore {
       if (Number(state.generation) !== Number(generation)
         || String(state.lease_owner || '') !== String(owner || '')
         || state.stop_requested === 1) {
-        return { allowed: false, reason: 'stale-generation', calls: 0 };
+        return { allowed: false, reason: 'stale-generation', calls: 0, blockedUntil: 0 };
       }
+      const periodEnd = nextUtcPeriod(ts);
       const currentDay = String(state.calls_day || '');
       const currentCount = currentDay === String(dayKey) ? Number(state.calls_count) || 0 : 0;
+      if (currentDay !== String(dayKey)) {
+        db.prepare(`
+          UPDATE reflection_worker_state
+          SET calls_day=?,calls_count=0,budget_blocked_until=0,updated_at=?
+          WHERE singleton=1
+        `).run(String(dayKey), ts);
+      } else if (Number(state.budget_blocked_until) > ts) {
+        return {
+          allowed: false,
+          reason: 'budget-blocked',
+          calls: currentCount,
+          blockedUntil: Number(state.budget_blocked_until)
+        };
+      }
       if (currentCount >= Math.max(1, Number(maxCallsPerDay) || 1)) {
-        return { allowed: false, reason: 'budget-exhausted', calls: currentCount };
+        db.prepare(`
+          UPDATE reflection_worker_state
+          SET budget_blocked_until=?,updated_at=? WHERE singleton=1
+        `).run(periodEnd, ts);
+        return {
+          allowed: false,
+          reason: 'budget-exhausted',
+          calls: currentCount,
+          blockedUntil: periodEnd
+        };
       }
       const next = currentCount + 1;
       db.prepare(`
         UPDATE reflection_worker_state
-        SET calls_day=?,calls_count=?,updated_at=? WHERE singleton=1
+        SET calls_day=?,calls_count=?,budget_blocked_until=0,updated_at=? WHERE singleton=1
       `).run(String(dayKey), next, ts);
-      return { allowed: true, reason: null, calls: next };
+      return { allowed: true, reason: null, calls: next, blockedUntil: 0 };
     });
   }
 

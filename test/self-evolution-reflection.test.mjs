@@ -12,8 +12,10 @@ import {
   createReflectionObserver,
   createReflectionPlugin,
   hashBasePersona,
+  normalizeCompletionObservation,
   openReflectionStore,
-  reflectionDatabasePath
+  reflectionDatabasePath,
+  validateReflectionOutput
 } from '../src/plugins/self-evolution/index.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-p6-reflection-'));
@@ -980,4 +982,186 @@ test('disabled reflection creates no database or model call, while old data rema
   } finally {
     disabledStore.close();
   }
+});
+
+test('budget blocking persists until the next UTC period and then recovers', async () => {
+  const { store, clock } = fixture({ limits: { maxCallsPerDay: 1 } });
+  let calls = 0;
+  const worker = startWorker(store, async ({ job }) => {
+    calls += 1;
+    return reflectionOutput(job.sessionId);
+  }, { maxCallsPerDay: 1 });
+  try {
+    store.enqueueObservation(completionEvent('session-budget-period-1'));
+    store.enqueueObservation(completionEvent('session-budget-period-2'));
+    assert.equal((await runQueued(worker, store)).status, 'noop');
+
+    const blocked = await runQueued(worker, store);
+    assert.equal(blocked.status, 'budget');
+    const state = store.workerState();
+    assert.equal(state.budgetBlockedUntil, 86400000);
+    assert.equal(store.listJobs().find((job) => job.status === 'pending')
+      .availableAt, state.budgetBlockedUntil);
+    assert.equal((await runQueued(worker, store)).status, 'budget-blocked');
+    assert.equal(calls, 1);
+
+    clock.value = state.budgetBlockedUntil;
+    const recovered = await runQueued(worker, store);
+    assert.equal(recovered.status, 'noop');
+    assert.equal(calls, 2);
+    assert.equal(store.workerState().budgetBlockedUntil, 0);
+  } finally {
+    await worker.stop();
+    store.close();
+  }
+});
+
+test('multi-session observation windows aggregate once at the valid-session threshold', async () => {
+  const { store } = fixture({
+    limits: {
+      minValidSessions: 2,
+      observationWindowMs: 10000
+    }
+  });
+  let calls = 0;
+  const worker = startWorker(store, async ({ job }) => {
+    calls += 1;
+    assert.deepEqual(job.evidence.sessionIds, [
+      'session-window-1',
+      'session-window-2',
+      'session-window-3'
+    ]);
+    return reflectionOutput(job.sessionId);
+  });
+  try {
+    const first = store.enqueueObservation(completionEvent('session-window-1', {
+      completedAt: 1000
+    }));
+    assert.equal(first.created, false);
+    assert.equal(first.reason, 'threshold');
+    assert.equal(store.listJobs().length, 0);
+
+    const second = store.enqueueObservation(completionEvent('session-window-2', {
+      completedAt: 2000
+    }));
+    assert.equal(second.created, true);
+    assert.equal(second.job.validSessionCount, 2);
+    assert.deepEqual(second.job.evidence.sessionIds, [
+      'session-window-1',
+      'session-window-2'
+    ]);
+    const duplicate = store.enqueueObservation(completionEvent('session-window-2', {
+      eventId: 'different-window-event',
+      completedAt: 3000
+    }));
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.reason, 'duplicate');
+    const third = store.enqueueObservation(completionEvent('session-window-3', {
+      completedAt: 4000
+    }));
+    assert.equal(third.created, false);
+    assert.equal(third.reason, 'aggregated');
+    assert.deepEqual(third.job.evidence.sessionIds, [
+      'session-window-1',
+      'session-window-2',
+      'session-window-3'
+    ]);
+    assert.equal((await runQueued(worker, store)).status, 'noop');
+    assert.equal(calls, 1);
+  } finally {
+    await worker.stop();
+    store.close();
+  }
+});
+
+test('behavior-change evidence bypasses the valid-session threshold', () => {
+  const { store } = fixture({
+    limits: {
+      minValidSessions: 3,
+      observationWindowMs: 10000
+    }
+  });
+  try {
+    const result = store.enqueueObservation(completionEvent('session-behavior-change', {
+      completedAt: 1000,
+      behaviorChange: true,
+      behaviorChangeEvidence: 'user explicitly changed the preferred response format'
+    }));
+    assert.equal(result.created, true);
+    assert.equal(result.job.behaviorChange, true);
+    assert.equal(result.job.evidence.behaviorChangeEvidence,
+      'user explicitly changed the preferred response format');
+    assert.equal(result.job.validSessionCount, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test('invalid evidence matrix rejects every trait proposal category', () => {
+  const cases = [
+    ['timeout', { resultClass: 'timeout' }],
+    ['api_failure', { resultClass: 'api_error' }],
+    ['tool_failure', { resultClass: 'tool_error' }],
+    ['noreply', { resultClass: 'noreply' }],
+    ['not_called', {
+      actionSummary: {
+        participation: { decision: 'not_called' }
+      }
+    }],
+    ['unknown_external_write', {
+      actionSummary: {
+        outbound: { unknown: 1 }
+      }
+    }],
+    ['held_external_write', {
+      actionSummary: {
+        outbound: { held: 1 }
+      }
+    }]
+  ];
+  for (const [kind, overrides] of cases) {
+    const evidence = normalizeCompletionObservation(completionEvent(`session-invalid-${kind}`, {
+      ...overrides,
+      actionSummary: {
+        ...completionEvent(`session-invalid-${kind}`).actionSummary,
+        ...(overrides.actionSummary || {})
+      }
+    }));
+    assert.ok(evidence.invalidEvidenceKinds.includes(kind), `${kind} was not classified`);
+    assert.throws(
+      () => validateReflectionOutput({
+        noteOperations: [],
+        traitProposals: [{
+          action: 'set',
+          key: 'communication_style',
+          value: 'concise',
+          scope: 'global',
+          confidence: 0.95,
+          evidenceRefs: [`session:session-invalid-${kind}`]
+        }],
+        capabilityGapProposals: [],
+        summary: 'invalid evidence'
+      }, { evidence }),
+      (error) => error.code === 'REFLECTION_PROHIBITED_INFERENCE'
+    );
+  }
+});
+
+test('completion provenance defaults to chat_run and rejects reflection origins', () => {
+  const event = completionEvent('session-origin-default');
+  assert.equal(normalizeCompletionObservation(event).originKind, 'chat_run');
+  assert.throws(
+    () => normalizeCompletionObservation({
+      ...event,
+      originKind: 'reflection'
+    }),
+    (error) => error.code === 'REFLECTION_SOURCE_LINEAGE'
+  );
+  assert.throws(
+    () => normalizeCompletionObservation({
+      ...event,
+      originKind: 'internal'
+    }),
+    (error) => error.code === 'REFLECTION_SOURCE_LINEAGE'
+  );
 });

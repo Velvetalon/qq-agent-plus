@@ -327,9 +327,11 @@ test('ChatStore completion events are transactional, at-least-once, and retryabl
     };
     store.completeRun('run-1', { completionEvents: [event, event] });
     assert.equal(store.listExtensionEvents({ state: 'pending' }).length, 1);
+    assert.equal(store.listExtensionEvents({ state: 'pending' })[0].originKind, 'chat_run');
     const claimed = store.claimExtensionEvents(10);
     assert.equal(claimed.length, 1);
     assert.equal(claimed[0].eventId, event.eventId);
+    assert.equal(claimed[0].originKind, 'chat_run');
     store.failExtensionEvent(event.eventId, 'temporary failure');
     const retried = store.claimExtensionEvents(10, Date.now() + 2000);
     assert.equal(retried.length, 1);
@@ -353,6 +355,7 @@ test('enabled observer delivery is at-least-once and delivered events are not re
     accountId: 'bot-1', sessionId: 'session-2', runId: 'run-2', chatKey: 'group:1',
     resultClass: 'done'
   });
+  assert.equal(events[0].originKind, 'chat_run');
   store.completeRun('run-2', { completionEvents: events });
   await manager.startAll();
   await manager.drainCompletionEvents();

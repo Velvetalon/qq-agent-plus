@@ -5,6 +5,7 @@ import {
   notebookDatabasePath
 } from './notebook-store.js';
 import {
+  DEFAULT_REFLECTION_LIMITS,
   REFLECTION_OBSERVER_ID,
   ReflectionStore,
   createReflectionObserver,
@@ -28,7 +29,15 @@ export function reflectionConfig(config = {}) {
     ...reflection,
     enabled: selfEvolution.enabled === true && reflection.enabled !== false,
     mode: reflection.mode === 'bounded_auto' ? 'bounded_auto' : 'review',
-    pollIntervalMs: Math.max(1, Number(reflection.pollIntervalMs) || 1000)
+    pollIntervalMs: Math.max(1, Number(reflection.pollIntervalMs) || 1000),
+    minValidSessions: Math.max(
+      1,
+      Number(reflection.minValidSessions) || DEFAULT_REFLECTION_LIMITS.minValidSessions
+    ),
+    observationWindowMs: Math.max(
+      0,
+      Number(reflection.observationWindowMs) || DEFAULT_REFLECTION_LIMITS.observationWindowMs
+    )
   };
 }
 
@@ -77,13 +86,14 @@ export function createReflectionPlugin({
     start(_services, config = {}) {
       const selected = reflectionConfig(config);
       if (!selected.enabled) return null;
-      store ||= new ReflectionStore({ dataDir, filename, limits, now });
+      const selectedLimits = { ...limits, ...selected };
+      store ||= new ReflectionStore({ dataDir, filename, limits: selectedLimits, now });
       notebook ||= new NotebookStore({ dataDir, filename: notebookFilename, now });
       worker ||= new ReflectionWorker({
         store,
         reflector,
         owner,
-        limits: { ...limits, ...selected },
+        limits: selectedLimits,
         now
       });
       worker.start({
