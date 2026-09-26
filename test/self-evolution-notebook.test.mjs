@@ -51,7 +51,7 @@ function append(store, overrides = {}) {
   return store.append({
     accountId: 'bot-1',
     content: 'A durable note',
-    scope: 'global',
+    scope: 'chat',
     tags: ['stable'],
     source: source(),
     idempotencyKey: `append-${cryptoRandom()}`,
@@ -314,7 +314,11 @@ test('concurrent revisions use CAS and persist the losing conflict for audit', a
 test('chat scope, account namespace, and tags cannot widen search visibility', () => {
   const { store } = fixture();
   try {
-    const global = append(store, { idempotencyKey: 'host:global' });
+    const global = append(store, {
+      idempotencyKey: 'host:global',
+      scope: 'global',
+      source: source('group:100', { kind: 'console', actor: 'admin-1' })
+    });
     const privateNote = append(store, {
       idempotencyKey: 'host:chat-1',
       scope: 'chat',
@@ -492,6 +496,123 @@ test('existing Notebook can be read in stopped read-only mode without enabling w
     );
     existing.close();
     assert.equal(fs.existsSync(filename), true);
+  } finally {
+    store.close();
+  }
+});
+
+test('chat append defaults to the current chat and rejects model-created global', () => {
+  const { store } = fixture();
+  try {
+    const created = store.append({
+      accountId: 'bot-1',
+      content: 'No scope supplied',
+      source: source('private:900'),
+      idempotencyKey: 'host:chat-default'
+    });
+    assert.equal(created.note.scope, 'chat');
+    assert.equal(created.note.chatKey, 'private:900');
+    assert.throws(
+      () => store.append({
+        accountId: 'bot-1',
+        content: 'global forgery',
+        scope: 'global',
+        source: source('private:900'),
+        currentChatKey: 'private:900',
+        idempotencyKey: 'host:chat-global'
+      }),
+      (error) => error instanceof NotebookError && error.code === 'NOTEBOOK_SCOPE_DENIED'
+    );
+    const audit = store.listOperations({ accountId: 'bot-1', action: 'append' })
+      .find((item) => item.errorCode === 'NOTEBOOK_SCOPE_DENIED');
+    assert.equal(audit?.request?.scope, 'global');
+    assert.equal(audit?.source?.chatKey, 'private:900');
+  } finally {
+    store.close();
+  }
+});
+
+test('chat append rejects forged chat keys and updates cannot cross chats', () => {
+  const { store } = fixture();
+  try {
+    const created = append(store);
+    assert.equal(created.note.chatKey, 'group:100');
+    assert.throws(
+      () => store.append({
+        accountId: 'bot-1',
+        content: 'forged destination',
+        scope: 'chat',
+        chatKey: 'group:200',
+        source: source('group:100'),
+        currentChatKey: 'group:100',
+        idempotencyKey: 'host:forged-append-chat'
+      }),
+      (error) => error.code === 'NOTEBOOK_SCOPE_DENIED'
+    );
+    assert.throws(
+      () => store.update({
+        accountId: 'bot-1',
+        noteId: created.note.id,
+        expectedRevision: 1,
+        content: 'cross chat edit',
+        source: source('group:200'),
+        currentChatKey: 'group:200',
+        idempotencyKey: 'host:forged-update-chat'
+      }),
+      (error) => error.code === 'NOTEBOOK_SCOPE_DENIED'
+    );
+    assert.equal(store.counts({ accountId: 'bot-1' }).active, 1);
+    assert.equal(store.get({
+      accountId: 'bot-1',
+      noteId: created.note.id,
+      currentChatKey: 'group:100'
+    }).content, 'A durable note');
+  } finally {
+    store.close();
+  }
+});
+
+test('console global writes require authorization while system global is attributed', () => {
+  const { store } = fixture();
+  try {
+    const created = store.append({
+      accountId: 'bot-1',
+      scope: 'global',
+      content: 'Account-wide preference',
+      source: source('group:100', { kind: 'console', actor: 'admin-1' }),
+      currentChatKey: 'group:100',
+      idempotencyKey: 'host:authorized-global'
+    });
+    assert.equal(created.note.scope, 'global');
+    assert.equal(created.note.chatKey, '');
+    assert.equal(created.note.source.actor, 'admin-1');
+    assert.deepEqual(store.search({
+      accountId: 'bot-1',
+      currentChatKey: 'private:800',
+      scope: 'global'
+    }).notes.map((note) => note.id), [created.note.id]);
+    const system = store.append({
+      accountId: 'bot-1',
+      scope: 'global',
+      content: 'Low-risk system preference',
+      source: source('group:100', { kind: 'system', runId: 'system-run' }),
+      currentChatKey: 'group:100',
+      idempotencyKey: 'host:system-global'
+    });
+    assert.equal(system.note.scope, 'global');
+    assert.equal(system.note.source.kind, 'system');
+    assert.throws(
+      () => store.append({
+        accountId: 'bot-1',
+        scope: 'global',
+        content: 'unauthorized global',
+        source: source('group:100', { kind: 'console', actor: '' }),
+        currentChatKey: 'group:100',
+        idempotencyKey: 'host:unauthorized-global'
+      }),
+      (error) => error.code === 'NOTEBOOK_INVALID_SOURCE'
+    );
+    assert.equal(store.counts({ accountId: 'bot-1' }).notes, 2);
   } finally {
     store.close();
   }

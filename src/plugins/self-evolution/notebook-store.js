@@ -76,7 +76,7 @@ function chatKey(value, { optional = false } = {}) {
 }
 
 function scope(value) {
-  const result = String(value || 'global');
+  const result = String(value ?? 'global');
   if (!NOTEBOOK_SCOPES.includes(result)) {
     fail('NOTEBOOK_INVALID_ARGUMENT', 'scope 必须是 global 或 chat');
   }
@@ -399,6 +399,9 @@ export class NotebookStore {
     if (!['chat', 'console', 'system'].includes(kind)) {
       fail('NOTEBOOK_INVALID_SOURCE', 'source.kind 必须是 chat、console 或 system');
     }
+    if (kind === 'console' && !optionalText(source.actor, 'source.actor', 160)) {
+      fail('NOTEBOOK_INVALID_SOURCE', 'console 写入必须显式声明 actor 授权来源');
+    }
     if (source.accountId === undefined || source.accountId === null || source.accountId === '') {
       fail('NOTEBOOK_INVALID_SOURCE', 'source.accountId 必须由宿主提供');
     }
@@ -433,12 +436,25 @@ export class NotebookStore {
   }
 
   #scopeForWrite(rawScope, rawChatKey, source) {
+    if (source.kind === 'chat') {
+      if (rawScope !== undefined && rawScope !== null && rawScope !== '') {
+        const requested = String(rawScope).trim().toLowerCase();
+        if (requested === 'global') {
+          fail('NOTEBOOK_SCOPE_DENIED', '聊天模型不能创建 global Notebook');
+        }
+        if (requested !== 'chat') {
+          fail('NOTEBOOK_INVALID_ARGUMENT', 'scope 必须是 global 或 chat');
+        }
+      }
+      const noteChat = chatKey(rawChatKey || source.chatKey);
+      if (rawChatKey && noteChat !== source.chatKey) {
+        fail('NOTEBOOK_SCOPE_DENIED', 'chat 笔记只能写入当前会话');
+      }
+      return { scope: 'chat', chatKey: noteChat };
+    }
     const noteScope = scope(rawScope);
     if (noteScope === 'global') return { scope: noteScope, chatKey: '' };
     const requestedChat = chatKey(rawChatKey || source.chatKey);
-    if (source.kind === 'chat' && source.chatKey !== requestedChat) {
-      fail('NOTEBOOK_SCOPE_DENIED', 'chat 笔记只能写入当前会话');
-    }
     return { scope: noteScope, chatKey: requestedChat };
   }
 
@@ -538,7 +554,7 @@ export class NotebookStore {
     request,
     noteId: id = '',
     expectedRevision = 0,
-    apply
+      apply
   }) {
     const account = accountId(rawAccount);
     const source = this.#normalizeSource(rawSource, {
@@ -562,7 +578,22 @@ export class NotebookStore {
       }
       try {
         this.#checkQuota(db, source, account);
-        const result = apply(db, { account, source, operationId, createdAt });
+        this.#scopeForWrite(request.scope, request.chatKey, source);
+        const { scope: noteScope, chatKey: noteChatKey } = this.#scopeForWrite(
+          request.scope,
+          request.chatKey,
+          source
+        );
+        request.scope = noteScope;
+        request.chatKey = noteChatKey;
+        const result = apply(db, {
+          account,
+          source,
+          operationId,
+          createdAt,
+          noteScope,
+          noteChatKey
+        });
         this.#insertOperation(db, {
           operationId,
           account,
@@ -606,7 +637,7 @@ export class NotebookStore {
 
   append({
     accountId: rawAccount,
-    scope: rawScope = 'global',
+    scope: rawScope = 'chat',
     chatKey: rawChatKey = '',
     content,
     body: rawBody,
@@ -621,19 +652,14 @@ export class NotebookStore {
       currentChatKey,
       write: true
     });
-    const { scope: noteScope, chatKey: noteChatKey } = this.#scopeForWrite(
-      rawScope,
-      rawChatKey,
-      sourceViewValue
-    );
     if (content !== undefined && rawBody !== undefined && content !== rawBody) {
       fail('NOTEBOOK_INVALID_ARGUMENT', 'content 与 body 不能同时指向不同正文');
     }
     const noteBody = body(content !== undefined ? content : rawBody, this.limits.maxBodyChars);
     const noteTags = tags(rawTags, this.limits);
     const request = {
-      scope: noteScope,
-      chatKey: noteChatKey,
+      scope: scope(rawScope),
+      chatKey: String(rawChatKey || ''),
       body: noteBody,
       tags: noteTags
     };
@@ -643,7 +669,14 @@ export class NotebookStore {
       currentChatKey,
       idempotencyKey: rawKey,
       request,
-      apply: (db, { account: namespace, source: normalizedSource, operationId, createdAt }) => {
+      apply: (db, {
+        account: namespace,
+        source: normalizedSource,
+        operationId,
+        createdAt,
+        noteScope,
+        noteChatKey
+      }) => {
         const total = Number(db.prepare(
           'SELECT COUNT(*) AS n FROM notebook_notes WHERE account_id=?'
         ).get(namespace)?.n) || 0;

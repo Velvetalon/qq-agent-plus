@@ -70,14 +70,22 @@ function makeTools(getStore) {
   return [
     {
       name: 'notebook_append',
-      description: '把一条长期有效的事实、偏好或经验写入 Notebook。正文只写可复用内容；scope 可选 global 或当前 chat。写入是本地持久化，不会向聊天发送消息。',
+      description: '把一条当前会话有效的可复用事实或偏好写入 Notebook。正文只写当前会话可用的内容，不要写入跨会话或全局偏好。写入是本地持久化，不会向聊天发送消息。',
       parameters: {
         type: 'object',
         properties: {
           content: { type: 'string', description: 'Notebook 正文；最多 4000 字符' },
           body: { type: 'string', description: 'content 的兼容别名；不要与 content 同时使用' },
           tags: { type: 'array', items: { type: 'string' }, description: '可选标签；标签不能改变可见范围' },
-          scope: { type: 'string', enum: ['global', 'chat'], description: 'global=账号共享；chat=当前会话' }
+          scope: {
+            type: 'string',
+            enum: ['chat'],
+            description: '可选；固定为当前会话，宿主会强制绑定当前 chatKey'
+          },
+          chatKey: {
+            type: 'string',
+            description: '只作为当前会话校验用的兼容字段；必须与宿主当前 chatKey 完全一致'
+          }
         },
         required: ['content'],
         additionalProperties: false
@@ -96,6 +104,7 @@ function makeTools(getStore) {
             accountId: source.accountId,
             scope: args.scope,
             content: contentOrBody(args),
+            chatKey: args.chatKey,
             tags: args.tags,
             source,
             currentChatKey: source.chatKey,
