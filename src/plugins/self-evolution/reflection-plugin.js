@@ -100,11 +100,8 @@ export function createReflectionPlugin({
           ? () => getExpectedProfileRevision(selected, _services)
           : () => {
               const accountId = selected.accountId || getAccountId?.(selected, _services) || '';
-              if (!accountId || !selected.basePersonaHash) return 0;
-              return store.getLearnedSelfContext({
-                accountId,
-                basePersonaHash: selected.basePersonaHash
-              }).revision || 0;
+              if (!accountId) return null;
+              return store.getLearnedSelfRevision({ accountId });
             },
         notebook: notebookAdapter || notebook
       });

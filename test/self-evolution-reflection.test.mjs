@@ -813,6 +813,122 @@ test('stop releases the lease and a late model result cannot commit', async () =
   }
 });
 
+test('plugin reads the live account head without basePersonaHash and preserves stale CAS rollback semantics', async () => {
+  const dataDir = path.join(root, `plugin-revision-${++sequence}`);
+  const base = persona();
+  const baseSnapshot = structuredClone(base);
+  let staleStarted;
+  let releaseStale;
+  const staleStartedPromise = new Promise((resolve) => { staleStarted = resolve; });
+  const staleResultPromise = new Promise((resolve) => { releaseStale = resolve; });
+  const plugin = createReflectionPlugin({
+    dataDir,
+    reflector: async ({ job }) => {
+      if (job.sessionId === 'plugin-revision-stale') {
+        staleStarted();
+        return staleResultPromise;
+      }
+      const value = job.sessionId === 'plugin-revision-1' ? 'concise' : 'Chinese';
+      const key = job.sessionId === 'plugin-revision-1'
+        ? 'communication_style'
+        : 'language_preference';
+      return reflectionOutput(job.sessionId, {
+        traitProposals: [{
+          action: 'set',
+          key,
+          value,
+          scope: 'global',
+          confidence: 0.95,
+          evidenceRefs: [evidenceRef(job.sessionId)]
+        }]
+      });
+    },
+    getBasePersona: () => base,
+    getAccountId: () => ACCOUNT_ID,
+    now: () => 1000,
+    limits: {
+      leaseMs: 10,
+      workerLeaseMs: 10,
+      maxCallsPerDay: 20,
+      backoffMs: 0
+    }
+  });
+  const started = plugin.start({}, {
+    selfEvolution: {
+      enabled: true,
+      reflection: {
+        enabled: true,
+        mode: 'bounded_auto',
+        pollIntervalMs: 100000
+      }
+    }
+  });
+  assert.ok(started);
+  const { store, worker } = started;
+  try {
+    store.enqueueObservation(completionEvent('plugin-revision-1'));
+    const first = await worker.runOnce();
+    assert.equal(first.status, 'completed');
+    assert.equal(first.profileRevision, 1);
+
+    store.enqueueObservation(completionEvent('plugin-revision-2'));
+    const second = await worker.runOnce();
+    assert.equal(second.status, 'completed');
+    assert.equal(second.profileRevision, 2);
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 2);
+
+    store.enqueueObservation(completionEvent('plugin-revision-stale'));
+    const pending = worker.runOnce();
+    await staleStartedPromise;
+    const rolledBack = store.rollbackProfile({
+      accountId: ACCOUNT_ID,
+      targetRevision: 1,
+      expectedCurrentRevision: 2,
+      basePersona: base,
+      actor: 'revision-test',
+      reason: 'stale CAS fixture'
+    });
+    assert.equal(rolledBack.revision, 3);
+    releaseStale(reflectionOutput('plugin-revision-stale', {
+      traitProposals: [{
+        action: 'set',
+        key: 'working_habit',
+        value: 'stale result',
+        scope: 'global',
+        confidence: 0.95,
+        evidenceRefs: [evidenceRef('plugin-revision-stale')]
+      }]
+    }));
+    const stale = await pending;
+    assert.equal(stale.status, 'cas-conflict');
+    assert.equal(stale.committed, false);
+    assert.equal(store.listJobs().find((job) => job.sessionId === 'plugin-revision-stale').status, 'stale');
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 3);
+
+    const context = store.getLearnedSelfContext({
+      accountId: ACCOUNT_ID,
+      basePersona: base
+    });
+    assert.equal(context.revision, 3);
+    assert.equal(context.context.communication_style.value, 'concise');
+    assert.equal(context.context.language_preference, undefined);
+    assert.equal(context.context.working_habit, undefined);
+    assert.deepEqual(base, baseSnapshot);
+
+    const changedBase = persona({ roleText: 'changed only for stale read' });
+    const staleContext = store.getLearnedSelfContext({
+      accountId: ACCOUNT_ID,
+      basePersona: changedBase
+    });
+    assert.equal(staleContext.revision, 3);
+    assert.equal(staleContext.stale, true);
+    assert.deepEqual(staleContext.context, {});
+    assert.equal(store.getLearnedSelfRevision({ accountId: 'other-bot' }), 0);
+  } finally {
+    await plugin.stop('test-finished');
+  }
+});
+
 test('disabled reflection creates no database or model call, while old data remains read-only readable', async () => {
   const dataDir = path.join(root, `disabled-${++sequence}`);
   const filename = reflectionDatabasePath(dataDir);

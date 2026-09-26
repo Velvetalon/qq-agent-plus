@@ -1773,6 +1773,12 @@ export class ReflectionStore {
     };
   }
 
+  getLearnedSelfRevision({ accountId } = {}) {
+    const db = this.#requireDb();
+    const account = text(String(accountId || ''), 'accountId', 100);
+    return this.#headRevision(db, account);
+  }
+
   listProfileVersions({ accountId, limit = 100 } = {}) {
     const db = this.#requireDb();
     const account = text(String(accountId || ''), 'accountId', 100);

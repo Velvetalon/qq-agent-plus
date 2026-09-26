@@ -376,11 +376,7 @@ export class ReflectionWorker {
   }
 
   #headRevision(accountId) {
-    const context = this.store.getLearnedSelfContext({
-      accountId,
-      basePersonaHash: '0'.repeat(64)
-    });
-    return Number(context.revision) || 0;
+    return this.store.getLearnedSelfRevision({ accountId });
   }
 
   #schedule(delayMs) {
