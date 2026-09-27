@@ -3009,5 +3009,29 @@ dialog { margin: auto; max-height: 88vh; }
   border-radius: 8px;
   padding: 8px 10px;
 }
+.learned-profile-detail {
+  display: grid;
+  gap: 8px;
+  min-width: 300px;
+  max-width: 620px;
+}
+.learned-profile-group {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+.learned-profile-traits {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.learned-profile-trait {
+  margin: 3px 0;
+  word-break: break-word;
+}
+.learned-profile-trait-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
 .session-audit .context-metrics div strong { word-break: break-word; }
 .session-audit .coll-body { max-height: 320px; overflow: auto; }

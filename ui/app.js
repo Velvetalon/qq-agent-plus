@@ -11208,24 +11208,43 @@ function renderSelfEvolutionLearned(data = {}) {
     return `<div class="empty-hint">还没有习得自我版本（当前 head revision ${esc(headRevision)}）。</div>`;
   }
   const profileDetail = (profile = {}) => {
-    const valueOf = (item) => (
-      item && typeof item === 'object' && Object.hasOwn(item, 'value')
-        ? item.value
-        : item
-    );
-    const global = Object.entries(profile.global || {})
-      .map(([key, item]) => `<li><strong>${esc(key)}</strong>：${esc(valueOf(item))}</li>`)
-      .join('');
-    const chats = Object.entries(profile.chats || {}).map(([chatKey, traits]) => {
+    const traitDetail = (key, item) => {
+      const structured = item && typeof item === 'object' ? item : {};
+      const value = Object.hasOwn(structured, 'value') ? structured.value : item;
+      const confidence = Number(structured.confidence);
+      const updatedAt = Number(structured.updatedAt);
+      const refs = Array.isArray(structured.evidenceRefs)
+        ? structured.evidenceRefs.map(String).filter(Boolean)
+        : [];
+      const evidence = refs.length
+        ? `证据 ${refs.length} 条：${refs.slice(0, 3).join(' · ')}${refs.length > 3 ? ' · …' : ''}`
+        : '暂无证据引用';
+      const meta = [
+        Number.isFinite(confidence) && confidence > 0
+          ? `置信度 ${(confidence * 100).toFixed(0)}%`
+          : '',
+        updatedAt > 0 ? `更新时间 ${fmtTime(updatedAt)}` : '',
+        evidence
+      ].filter(Boolean).join(' · ');
+      return `<li class="learned-profile-trait">
+        <div><strong>${esc(key)}</strong>：${esc(value)}</div>
+        <small class="learned-profile-trait-meta">${esc(meta)}</small>
+      </li>`;
+    };
+    const traitGroup = (label, traits) => {
       const items = Object.entries(traits || {})
-        .map(([key, item]) => `<li><strong>${esc(key)}</strong>：${esc(valueOf(item))}</li>`)
+        .map(([key, item]) => traitDetail(key, item))
         .join('');
       return items
-        ? `<div><strong>${esc(chatKey)}</strong><ul>${items}</ul></div>`
+        ? `<div class="learned-profile-group"><strong>${esc(label)}</strong><ul class="learned-profile-traits">${items}</ul></div>`
         : '';
-    }).join('');
+    };
+    const global = traitGroup('全局偏好', profile.global);
+    const chats = Object.entries(profile.chats || {})
+      .map(([chatKey, traits]) => traitGroup(`聊天：${chatKey}`, traits))
+      .join('');
     if (!global && !chats) return '<span class="muted">该版本没有可展示的偏好。</span>';
-    return `<div class="learned-profile-detail">${global ? `<div><strong>全局</strong><ul>${global}</ul></div>` : ''}${chats}</div>`;
+    return `<div class="learned-profile-detail">${global}${chats}</div>`;
   };
   return `
     <div class="context-request-summary">
@@ -11233,11 +11252,11 @@ function renderSelfEvolutionLearned(data = {}) {
       · 按日预算 ${esc(status.budget?.maxCallsPerDay ?? '-')} 次 · 今日已用 ${esc(status.budget?.callsCount ?? 0)} 次
     </div>
     <div class="asset-table-wrap"><table class="asset-table">
-      <thead><tr><th>版本</th><th>父版本</th><th>内容</th><th>来源</th><th>写入者</th><th>时间</th><th></th></tr></thead>
+      <thead><tr><th>版本</th><th>父版本</th><th>习得偏好详情</th><th>来源</th><th>写入者</th><th>时间</th><th></th></tr></thead>
       <tbody>${entries.map((entry) => `<tr>
         <td>${esc(entry.revision)}</td>
         <td>${esc(entry.parentRevision ?? '-')}</td>
-        <td><details><summary>查看偏好</summary>${profileDetail(entry.profile || {})}</details></td>
+        <td>${profileDetail(entry.profile || {})}</td>
         <td>${esc((Array.isArray(entry.source) ? entry.source : entry.source ? [entry.source] : [])
           .map((item) => item.kind || '').filter(Boolean).join(' · ') || '-')}</td>
         <td>${esc(entry.appliedBy || '-')}</td>

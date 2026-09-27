@@ -893,8 +893,24 @@ test('session detail fingerprint tracks audit fields and audit rendering escapes
         // 生产接口中的 source 是单个对象；旧数据也可能是数组。
         source: { kind: 'reflection', jobId: 'refjob_1' },
         profile: {
-          global: { communication_style: { value: 'concise' } },
-          chats: {}
+          global: {
+            communication_style: {
+              value: 'concise',
+              confidence: 0.85,
+              evidenceRefs: ['session:1', 'message:2'],
+              updatedAt: 1700000000000
+            }
+          },
+          chats: {
+            'private:123': {
+              language_preference: {
+                value: '中文',
+                confidence: 0.9,
+                evidenceRefs: ['message:3'],
+                updatedAt: 1700000001000
+              }
+            }
+          }
         }
       }],
       headRevision: 1
@@ -914,6 +930,10 @@ test('session detail fingerprint tracks audit fields and audit rendering escapes
   const learnedHtml = ctx.document.querySelector('#self-evolution-page').innerHTML;
   assert.equal(learnedHtml.includes('communication_style'), true);
   assert.equal(learnedHtml.includes('concise'), true);
+  assert.equal(learnedHtml.includes('全局偏好'), true);
+  assert.equal(learnedHtml.includes('聊天：private:123'), true);
+  assert.equal(learnedHtml.includes('置信度 85%'), true);
+  assert.equal(learnedHtml.includes('证据 2 条'), true);
   const learnedTab = ctx.__selfEvolutionTabs.get('learned');
   const learnedClick = learnedTab.listeners.get('click')?.[0];
   assert.equal(typeof learnedClick, 'function');
