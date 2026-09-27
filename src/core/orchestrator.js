@@ -1614,7 +1614,9 @@ export class Orchestrator {
       .map((hit) => hit.noteId)
       .filter(Boolean);
     retrievalAudit.injectedChars = retrievalBlocks
-      .reduce((total, block) => total + String(block?.text || '').length, 0);
+      .map((block) => `${String(block?.title || '').slice(0, 120)}: ${String(block?.text || '')}`)
+      .join('\n')
+      .length;
     retrievalAudit.zeroHit = retrievalBlocks.length === 0;
     if (retrievalAudit.zeroHit && !retrievalAudit.degradationReasons?.length) {
       retrievalAudit.degradationReasons = ['no-matches'];
@@ -1622,8 +1624,11 @@ export class Orchestrator {
     if (retrievalAudit.zeroHit && !retrievalAudit.reason) {
       retrievalAudit.reason = 'no-matches';
     }
+    const extensionBlocksText = extensionContext.blocks
+      .map((block) => `${block.title}: ${block.text}`)
+      .join('\n');
     const contextText = extensionContext.blocks.length
-      ? `\n\n【插件上下文】\n${extensionContext.blocks.map((block) => `${block.title}: ${block.text}`).join('\n')}`
+      ? `\n\n【插件上下文】\n${extensionBlocksText}`
       : '';
     const userPrompt = buildUserPrompt({
       chatKey, kind, chatId, chatName,

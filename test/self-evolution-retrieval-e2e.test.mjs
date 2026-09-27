@@ -13,6 +13,9 @@ const { SessionRegistry } = await import('../src/core/sessions.js');
 const { DEFAULT_CONFIG, setRuntimeConfig } = await import('../src/core/config.js');
 const { createSelfEvolutionPlugin } = await import('../src/plugins/builtin/self-evolution.js');
 const {
+  createSelfEvolutionRetrievalPlugin
+} = await import('../src/plugins/builtin/self-evolution-retrieval.js');
+const {
   createSelfEvolutionRetrievalProvider
 } = await import('../src/plugins/self-evolution/retrieval-provider.js');
 
@@ -76,7 +79,12 @@ function fixture(t) {
     }
   });
   const plugin = createSelfEvolutionPlugin({ dataDir });
+  const retrievalPlugin = createSelfEvolutionRetrievalPlugin({
+    dataDir,
+    getStore: () => plugin.getStore()
+  });
   runner.pluginManager.register(plugin);
+  runner.pluginManager.register(retrievalPlugin);
 
   t.after(async () => {
     await runner.abortAll();

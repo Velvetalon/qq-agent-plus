@@ -32,6 +32,10 @@ import { isTimeActive } from '../core/time-gate.js';
 import { timeControlState, TIME_ZONE } from '../core/time-control.js';
 import { IdentityPilotManager, inactiveIdentityPilotStatus } from '../identity/identity-pilot.js';
 import { createSelfEvolutionPlugin } from '../plugins/builtin/self-evolution.js';
+import {
+  createSelfEvolutionRetrievalPlugin,
+  SELF_EVOLUTION_RETRIEVAL_PLUGIN_ID
+} from '../plugins/builtin/self-evolution-retrieval.js';
 import { createReflectionPlugin, reflectionConfig } from '../plugins/self-evolution/reflection-plugin.js';
 import { NotebookStore, notebookDatabasePath } from '../plugins/self-evolution/notebook-store.js';
 import { ReflectionStore, hashBasePersona, reflectionDatabasePath } from '../plugins/self-evolution/reflection-store.js';
@@ -68,8 +72,13 @@ const UI_DIR = path.resolve(__dirname, '..', '..', 'ui');
 
 // P7 允许在控制台启停的内置插件白名单。只有这两个自我迭代内置插件
 // 可以在运行时被管理端控制；其余内置插件保持注册即可用，不暴露任意注册/安装。
-const CONTROLLABLE_PLUGIN_IDS = new Set(['self-evolution', 'self-evolution-reflection']);
+const CONTROLLABLE_PLUGIN_IDS = new Set([
+  'self-evolution',
+  'self-evolution-retrieval',
+  'self-evolution-reflection'
+]);
 const SELF_EVOLUTION_PLUGIN_ID = 'self-evolution';
+const RETRIEVAL_PLUGIN_ID = SELF_EVOLUTION_RETRIEVAL_PLUGIN_ID;
 const REFLECTION_PLUGIN_ID = 'self-evolution-reflection';
 
 // ── 白名单判断（移植自原版 allowed()） ───────────────────────────────────
@@ -329,6 +338,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
   }
 
   const selfEvolutionPlugin = createSelfEvolutionPlugin({ dataDir: DATA_DIR });
+  const retrievalPlugin = createSelfEvolutionRetrievalPlugin({
+    dataDir: DATA_DIR,
+    getStore: () => selfEvolutionPlugin.getStore?.()
+  });
   const reflectionPlugin = createReflectionPlugin({
     dataDir: DATA_DIR,
     reflector: reflectForSelfEvolution,
@@ -344,7 +357,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
   // 注册本身不建库、不起 worker、不发模型调用；是否真的启动由各自
   // isEnabled(config)（selfEvolution.enabled / reflection.enabled）决定，
   // 禁用时插件保持 registered+stopped，管理端仍能看见并显式启用。
-  orchestrator.pluginManager.registerAll([selfEvolutionPlugin, reflectionPlugin]);
+  orchestrator.pluginManager.registerAll([
+    selfEvolutionPlugin,
+    retrievalPlugin,
+    reflectionPlugin
+  ]);
 
   function selfEvolutionEnabled() {
     return getConfig().selfEvolution?.enabled === true;
@@ -387,18 +404,25 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     }
   }
 
-  /**
-   * 检索接入状态。P7 不把 notebook 直接接进聊天上下文：没有安全适配器时
-   * 只如实上报 unavailable，不臆造命中数据。
-   */
   function retrievalStatus() {
+    const selfEvolution = getConfig().selfEvolution || {};
+    const retrieval = selfEvolution.retrieval && typeof selfEvolution.retrieval === 'object'
+      ? selfEvolution.retrieval
+      : {};
+    const enabled = retrieval.enabled === true;
+    const active = selfEvolution.enabled === true && enabled;
+    const embeddingEnabled = retrieval.embedding?.enabled === true;
     return {
-      enabled: false,
-      integrated: false,
-      available: false,
-      mode: 'lexical',
-      adapter: 'unavailable',
-      reason: 'disabled-by-default'
+      enabled,
+      integrated: true,
+      available: active,
+      mode: embeddingEnabled ? 'hybrid' : 'lexical',
+      adapter: 'self-evolution-notebook',
+      reason: !selfEvolution.enabled
+        ? 'self-evolution-disabled'
+        : enabled
+          ? 'ready'
+          : 'disabled-by-config'
     };
   }
 
@@ -419,6 +443,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       selfEvolutionEnabled()
     );
     orchestrator.pluginManager.setEnabled(
+      RETRIEVAL_PLUGIN_ID,
+      selfEvolutionEnabled() && getConfig().selfEvolution?.retrieval?.enabled === true
+    );
+    orchestrator.pluginManager.setEnabled(
       REFLECTION_PLUGIN_ID,
       reflectionConfig(getConfig()).enabled === true
     );
@@ -430,6 +458,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     const registered = registry.getRegistrations().some((item) => item.plugin.id === pluginId);
     if (registered) return;
     if (pluginId === SELF_EVOLUTION_PLUGIN_ID) orchestrator.pluginManager.register(selfEvolutionPlugin);
+    if (pluginId === RETRIEVAL_PLUGIN_ID) orchestrator.pluginManager.register(retrievalPlugin);
     if (pluginId === REFLECTION_PLUGIN_ID) orchestrator.pluginManager.register(reflectionPlugin);
   }
 
@@ -471,6 +500,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     if (pluginId === SELF_EVOLUTION_PLUGIN_ID && enabled === true) {
       updateConfig({ selfEvolution: { enabled: true } });
       manager.setEnabled(pluginId, true);
+      manager.setEnabled(
+        RETRIEVAL_PLUGIN_ID,
+        getConfig().selfEvolution?.retrieval?.enabled === true
+      );
       manager.setEnabled(REFLECTION_PLUGIN_ID, getConfig().selfEvolution?.reflection?.enabled === true);
       const failed = await startPluginThroughManager(pluginId, res);
       if (failed) {
@@ -480,12 +513,16 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       return json(res, 200, {
         ok: true,
         accountId: account.accountId,
+        accountSource: account.source,
         plugin: pluginStatusEntry(pluginId)
       });
     }
 
     if (pluginId === SELF_EVOLUTION_PLUGIN_ID && enabled === false) {
       // 停用自我迭代必须连带停掉反思 worker：反思以 selfEvolution.enabled 为前提。
+      await manager.disable(RETRIEVAL_PLUGIN_ID, 'self-evolution-disabled')
+        .catch((error) => log('[self-evolution] 停止检索插件失败:', error?.message ?? error));
+      manager.setEnabled(RETRIEVAL_PLUGIN_ID, false);
       await manager.disable(REFLECTION_PLUGIN_ID, 'self-evolution-disabled')
         .catch((error) => log('[self-evolution] 停止反思插件失败:', error?.message ?? error));
       manager.setEnabled(REFLECTION_PLUGIN_ID, false);
@@ -494,6 +531,39 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       return json(res, 200, {
         ok: true,
         accountId: account.accountId,
+        accountSource: account.source,
+        plugin: pluginStatusEntry(pluginId)
+      });
+    }
+
+    if (pluginId === RETRIEVAL_PLUGIN_ID && enabled === true) {
+      if (!selfEvolutionEnabled()) {
+        return apiFailure(res, 409, 'SELF_EVOLUTION_DISABLED',
+          '需要先启用自我迭代，才能启用自动召回');
+      }
+      updateConfig({ selfEvolution: { retrieval: { enabled: true } } });
+      manager.setEnabled(pluginId, true);
+      const failed = await startPluginThroughManager(pluginId, res);
+      if (failed) {
+        updateConfig({ selfEvolution: { retrieval: { enabled: false } } });
+        return failed;
+      }
+      return json(res, 200, {
+        ok: true,
+        accountId: account.accountId,
+        accountSource: account.source,
+        plugin: pluginStatusEntry(pluginId)
+      });
+    }
+
+    if (pluginId === RETRIEVAL_PLUGIN_ID && enabled === false) {
+      await manager.disable(pluginId, 'console-disabled');
+      manager.setEnabled(pluginId, false);
+      updateConfig({ selfEvolution: { retrieval: { enabled: false } } });
+      return json(res, 200, {
+        ok: true,
+        accountId: account.accountId,
+        accountSource: account.source,
         plugin: pluginStatusEntry(pluginId)
       });
     }
@@ -513,6 +583,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       return json(res, 200, {
         ok: true,
         accountId: account.accountId,
+        accountSource: account.source,
         plugin: pluginStatusEntry(pluginId)
       });
     }
@@ -524,6 +595,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     return json(res, 200, {
       ok: true,
       accountId: account.accountId,
+      accountSource: account.source,
       plugin: pluginStatusEntry(pluginId)
     });
   }
@@ -3507,6 +3579,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             if (!store) {
               return json(res, 200, {
                 accountId: account.accountId,
+                accountSource: account.source,
                 notes: [],
                 count: 0,
                 includeArchived,
@@ -3525,6 +3598,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             });
             return json(res, 200, {
               accountId: account.accountId,
+              accountSource: account.source,
               ...result,
               includeArchived,
               disabled
@@ -3563,6 +3637,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           return apiFailure(res, 400, 'INVALID_BODY', 'tags 必须是字符串数组');
         }
         const account = accountNamespace();
+        if (account.source !== 'selfId') {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED',
+            '无法确认 OneBot selfId，自我迭代写入被拒绝');
+        }
         const store = selfEvolutionPlugin.getStore?.();
         if (!store) {
           return apiFailure(res, 409, 'SELF_EVOLUTION_UNAVAILABLE', '自我迭代存储未运行');
@@ -3579,7 +3657,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             currentChatKey: '',
             idempotencyKey: `console:${crypto.randomUUID()}`
           });
-          return json(res, 200, { accountId: account.accountId, ...result });
+          return json(res, 200, {
+            accountId: account.accountId,
+            accountSource: account.source,
+            ...result
+          });
         } catch (error) {
           return sendStoreError(res, error);
         }
@@ -3604,6 +3686,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是正整数');
         }
         const account = accountNamespace();
+        if (account.source !== 'selfId') {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED',
+            '无法确认 OneBot selfId，自我迭代写入被拒绝');
+        }
         const store = selfEvolutionPlugin.getStore?.();
         if (!store) {
           return apiFailure(res, 409, 'SELF_EVOLUTION_UNAVAILABLE', '自我迭代存储未运行');
@@ -3617,7 +3703,58 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             currentChatKey: '',
             idempotencyKey: `console:${crypto.randomUUID()}`
           });
-          return json(res, 200, { accountId: account.accountId, ...result });
+          return json(res, 200, {
+            accountId: account.accountId,
+            accountSource: account.source,
+            ...result
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      if (notebookNoteMatch && method === 'DELETE') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        if (body.confirm !== true) {
+          return apiFailure(res, 409, 'NOTEBOOK_DELETE_CONFIRM_REQUIRED', '硬删除必须显式确认');
+        }
+        if (!selfEvolutionEnabled()) {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_DISABLED', '自我迭代已停用，删除被拒绝');
+        }
+        const expectedRevision = Number(body.expectedRevision);
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是正整数');
+        }
+        const account = accountNamespace();
+        if (account.source !== 'selfId') {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED',
+            '无法确认 OneBot selfId，自我迭代写入被拒绝');
+        }
+        const store = selfEvolutionPlugin.getStore?.();
+        if (!store) {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_UNAVAILABLE', '自我迭代存储未运行');
+        }
+        try {
+          const result = store.deleteNote({
+            accountId: account.accountId,
+            noteId: notebookNoteMatch[1],
+            expectedRevision,
+            source: { kind: 'console', accountId: account.accountId, actor: 'console' },
+            currentChatKey: '',
+            idempotencyKey: `console-delete:${crypto.randomUUID()}`
+          });
+          return json(res, 200, {
+            accountId: account.accountId,
+            accountSource: account.source,
+            ...result
+          });
         } catch (error) {
           return sendStoreError(res, error);
         }
@@ -3643,6 +3780,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             if (!store) {
               return json(res, 200, {
                 accountId: account.accountId,
+                accountSource: account.source,
                 kind,
                 entries: [],
                 count: 0,
@@ -3653,7 +3791,12 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             if (kind === 'jobs') {
               const entries = store.listJobs({ status, accountId: account.accountId, limit });
               return json(res, 200, {
-                accountId: account.accountId, kind, entries, count: entries.length, disabled
+                accountId: account.accountId,
+                accountSource: account.source,
+                kind,
+                entries,
+                count: entries.length,
+                disabled
               });
             }
             if (kind === 'proposals') {
@@ -3661,13 +3804,23 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
                 batchId, status, accountId: account.accountId, limit
               });
               return json(res, 200, {
-                accountId: account.accountId, kind, entries, count: entries.length, disabled
+                accountId: account.accountId,
+                accountSource: account.source,
+                kind,
+                entries,
+                count: entries.length,
+                disabled
               });
             }
             if (kind === 'gaps') {
               const entries = store.listCapabilityGaps({ accountId: account.accountId, category, limit });
               return json(res, 200, {
-                accountId: account.accountId, kind, entries, count: entries.length, disabled
+                accountId: account.accountId,
+                accountSource: account.source,
+                kind,
+                entries,
+                count: entries.length,
+                disabled
               });
             }
             const entries = store.listProfileVersions({ accountId: account.accountId, limit });
@@ -3677,6 +3830,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             });
             return json(res, 200, {
               accountId: account.accountId,
+              accountSource: account.source,
               kind,
               entries,
               count: entries.length,
@@ -3685,54 +3839,6 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
               disabled
             });
           });
-        } catch (error) {
-          return sendStoreError(res, error);
-        }
-      }
-
-      const proposalReviewMatch
-        = /^\/api\/self-evolution\/reflection\/proposals\/([A-Za-z0-9._-]{1,128})\/review$/.exec(pathname);
-      if (proposalReviewMatch && method === 'POST') {
-        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
-        let body;
-        try {
-          body = await readJsonBody(req);
-        } catch (error) {
-          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
-            String(error?.message ?? error));
-        }
-        if (!selfEvolutionEnabled()) {
-          return apiFailure(res, 409, 'REFLECTION_DISABLED', '自我迭代已停用，审批被拒绝');
-        }
-        const decision = String(body.decision || '').toLowerCase();
-        if (!['approve', 'reject'].includes(decision)) {
-          return apiFailure(res, 400, 'INVALID_BODY', 'decision 必须是 approve 或 reject');
-        }
-        const expectedRevision = Number(body.expectedRevision);
-        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
-          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是非负整数');
-        }
-        const account = accountNamespace();
-        const store = reflectionPlugin.getStore?.();
-        if (!store) {
-          return apiFailure(res, 409, 'REFLECTION_DISABLED', '反思插件未运行，审批被拒绝');
-        }
-        try {
-          const proposal = store.getProposal({ accountId: account.accountId, proposalId: proposalReviewMatch[1] });
-          if (!proposal) return apiFailure(res, 404, 'REFLECTION_NOT_FOUND', '找不到反思提案');
-          const result = store.reviewBatch({
-            batchId: proposal.batchId,
-            decision,
-            actor: 'console',
-            expectedProfileRevision: expectedRevision,
-            basePersona: reflectionBasePersona(),
-            notebook: selfEvolutionPlugin.getStore?.() || null
-          });
-          if (result.reviewed !== true) {
-            return apiFailure(res, 409, `REFLECTION_REVIEW_${String(result.reason || 'not-applied').toUpperCase()}`,
-              `审批未应用：${String(result.reason || 'not-applied')}`, { batchId: proposal.batchId });
-          }
-          return json(res, 200, { accountId: account.accountId, proposalId: proposal.id, ...result });
         } catch (error) {
           return sendStoreError(res, error);
         }
@@ -3757,6 +3863,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是非负整数');
         }
         const account = accountNamespace();
+        if (account.source !== 'selfId') {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED',
+            '无法确认 OneBot selfId，自我迭代写入被拒绝');
+        }
         const store = reflectionPlugin.getStore?.();
         if (!store) {
           return apiFailure(res, 409, 'REFLECTION_DISABLED', '反思插件未运行，回滚被拒绝');
@@ -3770,7 +3880,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             actor: 'console',
             reason: 'console rollback'
           });
-          return json(res, 200, { accountId: account.accountId, ...result });
+          return json(res, 200, {
+            accountId: account.accountId,
+            accountSource: account.source,
+            ...result
+          });
         } catch (error) {
           return sendStoreError(res, error);
         }

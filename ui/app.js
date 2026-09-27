@@ -11055,7 +11055,11 @@ function openBlocklistModal() {
 
 // ── P7：插件页 ────────────────────────────────────────────────────────────
 // 只有这两个内置插件允许在控制台启停；其余插件只读展示。
-const CONTROLLABLE_PLUGIN_IDS = new Set(['self-evolution', 'self-evolution-reflection']);
+const CONTROLLABLE_PLUGIN_IDS = new Set([
+  'self-evolution',
+  'self-evolution-retrieval',
+  'self-evolution-reflection'
+]);
 
 function pluginStateChip(plugin) {
   if (plugin?.enabled !== true) return '<span class="chip">已停用</span>';
@@ -11091,6 +11095,7 @@ function renderPluginsPage() {
   }).join('');
   const selfEvolution = data.selfEvolution || {};
   const retrieval = data.retrieval || {};
+  const retrievalEnabled = retrieval.enabled === true;
   box.innerHTML = `
     <div class="asset-head">
       <div>
@@ -11098,7 +11103,7 @@ function renderPluginsPage() {
         <span class="muted">账号命名空间 ${esc(data.accountId || '-')}（${esc(data.accountSource || '-')}）
           · 自我迭代${selfEvolution.enabled ? '已启用' : '已停用'}
           · 反思${selfEvolution.reflectionEnabled ? '已启用' : '已停用'}
-          · 检索${retrieval.available ? '已接入' : '不可用'}</span>
+          · 检索${retrieval.available ? '已启用' : retrievalEnabled ? '待运行' : '已停用'}</span>
       </div>
       <button type="button" class="icon-btn" id="plugins-refresh" title="刷新插件状态" aria-label="刷新插件状态">↻</button>
     </div>
@@ -11184,6 +11189,8 @@ function renderSelfEvolutionNotebook(data = {}) {
         <button type="button" class="btn btn-small" data-note-archive="${esc(note.id)}"
           data-note-revision="${esc(note.revision ?? '')}"
           ${note.status === 'archived' ? 'disabled' : ''}>归档</button>
+        <button type="button" class="btn btn-small btn-danger" data-note-delete="${esc(note.id)}"
+          data-note-revision="${esc(note.revision ?? '')}">删除</button>
       </td>
     </tr>`).join('')}</tbody>
   </table></div>`;
@@ -11194,24 +11201,51 @@ function renderSelfEvolutionLearned(data = {}) {
   const entries = Array.isArray(profiles.entries) ? profiles.entries : [];
   const headRevision = Number(profiles.headRevision) || 0;
   const status = (data.status || {}).reflection || {};
+  if (profiles.unavailable) {
+    return `<div class="context-warning">习得自我加载失败：${esc(profiles.error || '接口不可用')}</div>`;
+  }
   if (!entries.length) {
     return `<div class="empty-hint">还没有习得自我版本（当前 head revision ${esc(headRevision)}）。</div>`;
   }
+  const profileDetail = (profile = {}) => {
+    const valueOf = (item) => (
+      item && typeof item === 'object' && Object.hasOwn(item, 'value')
+        ? item.value
+        : item
+    );
+    const global = Object.entries(profile.global || {})
+      .map(([key, item]) => `<li><strong>${esc(key)}</strong>：${esc(valueOf(item))}</li>`)
+      .join('');
+    const chats = Object.entries(profile.chats || {}).map(([chatKey, traits]) => {
+      const items = Object.entries(traits || {})
+        .map(([key, item]) => `<li><strong>${esc(key)}</strong>：${esc(valueOf(item))}</li>`)
+        .join('');
+      return items
+        ? `<div><strong>${esc(chatKey)}</strong><ul>${items}</ul></div>`
+        : '';
+    }).join('');
+    if (!global && !chats) return '<span class="muted">该版本没有可展示的偏好。</span>';
+    return `<div class="learned-profile-detail">${global ? `<div><strong>全局</strong><ul>${global}</ul></div>` : ''}${chats}</div>`;
+  };
   return `
     <div class="context-request-summary">
       head revision ${esc(headRevision)}${profiles.stale ? ' · 与当前 Base Persona 不匹配' : ''}
       · 按日预算 ${esc(status.budget?.maxCallsPerDay ?? '-')} 次 · 今日已用 ${esc(status.budget?.callsCount ?? 0)} 次
     </div>
     <div class="asset-table-wrap"><table class="asset-table">
-      <thead><tr><th>版本</th><th>父版本</th><th>来源</th><th>写入者</th><th>时间</th><th></th></tr></thead>
+      <thead><tr><th>版本</th><th>父版本</th><th>内容</th><th>来源</th><th>写入者</th><th>时间</th><th></th></tr></thead>
       <tbody>${entries.map((entry) => `<tr>
         <td>${esc(entry.revision)}</td>
         <td>${esc(entry.parentRevision ?? '-')}</td>
-        <td>${esc((entry.source || []).map((item) => item.kind || '').filter(Boolean).join(' · ') || '-')}</td>
+        <td><details><summary>查看偏好</summary>${profileDetail(entry.profile || {})}</details></td>
+        <td>${esc((Array.isArray(entry.source) ? entry.source : entry.source ? [entry.source] : [])
+          .map((item) => item.kind || '').filter(Boolean).join(' · ') || '-')}</td>
         <td>${esc(entry.appliedBy || '-')}</td>
         <td>${entry.createdAt ? esc(fmtTime(entry.createdAt)) : '-'}</td>
         <td class="r"><button type="button" class="btn btn-small" data-profile-rollback="${esc(entry.revision)}"
-          ${entry.revision === headRevision ? 'disabled' : ''}>回滚到该版本</button></td>
+          title="${Number(entry.revision) === headRevision ? '当前版本不可回滚' : '回滚到该版本'}"
+          ${Number(entry.revision) === headRevision ? 'disabled' : ''}>
+          ${Number(entry.revision) === headRevision ? '当前版本' : '回滚到该版本'}</button></td>
       </tr>`).join('')}</tbody>
     </table></div>`;
 }
@@ -11221,7 +11255,14 @@ function renderSelfEvolutionReflection(data = {}) {
   const proposals = data.proposals || {};
   const jobEntries = Array.isArray(jobs.entries) ? jobs.entries : [];
   const proposalEntries = Array.isArray(proposals.entries) ? proposals.entries : [];
-  const expectedRevision = Number((data.profiles || {}).headRevision) || 0;
+  const proposalDetail = (proposal) => {
+    const payload = proposal.payload || {};
+    const base = proposal.type === 'trait'
+      ? [payload.action, payload.key, payload.value].filter(Boolean).join('：')
+      : [payload.operation, payload.content || payload.noteId].filter(Boolean).join('：');
+    const error = [proposal.errorCode, proposal.errorMessage].filter(Boolean).join('：');
+    return [base, proposal.detail, error].filter(Boolean).join(' · ') || '无详细内容';
+  };
   const jobsHtml = jobEntries.length
     ? `<div class="asset-table-wrap"><table class="asset-table">
         <thead><tr><th>作业</th><th>窗口</th><th>状态</th><th>尝试</th><th>错误</th></tr></thead>
@@ -11235,25 +11276,17 @@ function renderSelfEvolutionReflection(data = {}) {
     : '<div class="empty-hint">没有反思作业。</div>';
   const proposalsHtml = proposalEntries.length
     ? `<div class="asset-table-wrap"><table class="asset-table">
-        <thead><tr><th>提案</th><th>类型</th><th>风险</th><th>状态</th><th>内容</th><th></th></tr></thead>
+        <thead><tr><th>提案</th><th>类型</th><th>风险</th><th>状态</th><th>内容</th></tr></thead>
         <tbody>${proposalEntries.map((proposal) => `<tr>
           <td>${esc(proposal.id)}<small>batch ${esc(proposal.batchId)}</small></td>
           <td>${esc(proposal.type)}</td>
           <td>${esc(proposal.risk)}</td>
           <td>${esc(proposal.status)}<small>期望 revision ${esc(proposal.expectedProfileRevision ?? 0)}</small></td>
-          <td>${esc(proposal.detail || '')}</td>
-          <td class="r">
-            <button type="button" class="btn btn-small btn-primary" data-proposal-review="${esc(proposal.id)}"
-              data-proposal-decision="approve" data-expected-revision="${esc(expectedRevision)}"
-              ${proposal.status === 'pending' ? '' : 'disabled'}>通过</button>
-            <button type="button" class="btn btn-small" data-proposal-review="${esc(proposal.id)}"
-              data-proposal-decision="reject" data-expected-revision="${esc(expectedRevision)}"
-              ${proposal.status === 'pending' ? '' : 'disabled'}>拒绝</button>
-          </td>
+          <td>${esc(proposalDetail(proposal))}</td>
         </tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty-hint">没有等待审批的提案。</div>';
+    : '<div class="empty-hint">没有反思提案历史。</div>';
   return `<h3 class="p7-subhead">作业</h3>${jobsHtml}
-    <h3 class="p7-subhead">提案（期望 head revision ${esc(expectedRevision)}）</h3>${proposalsHtml}`;
+    <h3 class="p7-subhead">提案历史</h3>${proposalsHtml}`;
 }
 
 function renderSelfEvolutionGaps(data = {}) {
@@ -11303,13 +11336,18 @@ function renderSelfEvolutionPage() {
     </div>
     <div id="self-evolution-body">${body}</div>`;
 
-  $('#self-evolution-refresh')?.addEventListener('click', () => loadSelfEvolutionPage());
+  // 页签随页面重绘生成，直接绑定到当前按钮，避免依赖全局事件委托或旧 DOM。
   $$('#self-evolution-page [data-self-evolution-tab]').forEach((button) => {
-    button.addEventListener('click', () => {
-      state.selfEvolutionTab = button.dataset.selfEvolutionTab;
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      const nextTab = button.dataset.selfEvolutionTab;
+      if (!SELF_EVOLUTION_TABS.some(([value]) => value === nextTab)) return;
+      if (state.selfEvolutionTab === nextTab) return;
+      state.selfEvolutionTab = nextTab;
       renderSelfEvolutionPage();
     });
   });
+  $('#self-evolution-refresh')?.addEventListener('click', () => loadSelfEvolutionPage());
   $$('#self-evolution-page [data-note-save]').forEach((button) => {
     button.addEventListener('click', async () => {
       const noteId = button.dataset.noteSave;
@@ -11348,20 +11386,23 @@ function renderSelfEvolutionPage() {
       }
     });
   });
-  $$('#self-evolution-page [data-proposal-review]').forEach((button) => {
+  $$('#self-evolution-page [data-note-delete]').forEach((button) => {
     button.addEventListener('click', async () => {
-      const proposalId = button.dataset.proposalReview;
+      const noteId = button.dataset.noteDelete;
+      if (!await askForConfirmation('硬删除这条笔记？正文和历史版本会从 Notebook 中移除，仅保留删除操作审计。')) {
+        return;
+      }
       try {
-        await api(`/api/self-evolution/reflection/proposals/${encodeURIComponent(proposalId)}/review`, {
-          method: 'POST',
+        await api(`/api/self-evolution/notebook/${encodeURIComponent(noteId)}`, {
+          method: 'DELETE',
           body: JSON.stringify({
-            decision: button.dataset.proposalDecision,
-            expectedRevision: Number(button.dataset.expectedRevision) || 0
+            confirm: true,
+            expectedRevision: Number(button.dataset.noteRevision)
           })
         });
         state.selfEvolutionError = '';
       } catch (error) {
-        state.selfEvolutionError = `审批失败：${error.message}`;
+        state.selfEvolutionError = `删除失败：${error.message}`;
       } finally {
         await loadSelfEvolutionPage();
       }

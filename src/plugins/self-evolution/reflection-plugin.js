@@ -12,6 +12,7 @@ import {
   reflectionDatabasePath
 } from './reflection-store.js';
 import { ReflectionWorker } from './reflection-worker.js';
+import { createLearnedSelfContextProvider } from './learned-self-provider.js';
 
 function configForPlugin(config = {}) {
   return config?.selfEvolution
@@ -28,7 +29,7 @@ export function reflectionConfig(config = {}) {
   return {
     ...reflection,
     enabled: selfEvolution.enabled === true && reflection.enabled !== false,
-    mode: reflection.mode === 'bounded_auto' ? 'bounded_auto' : 'review',
+    mode: 'bounded_auto',
     pollIntervalMs: Math.max(1, Number(reflection.pollIntervalMs) || 1000),
     minValidSessions: Math.max(
       1,
@@ -63,6 +64,12 @@ export function createReflectionPlugin({
   let store = null;
   let notebook = null;
   let worker = null;
+  const learnedSelfProvider = createLearnedSelfContextProvider({
+    getStore: () => store,
+    getBasePersona: () => (
+      typeof getBasePersona === 'function' ? getBasePersona() : null
+    )
+  });
   const observer = createReflectionObserver({
     getStore: () => store,
     isEnabled: () => Boolean(store && worker?.active)
@@ -82,6 +89,12 @@ export function createReflectionPlugin({
         ownerPluginId: id,
         id: REFLECTION_OBSERVER_ID
       });
+      if (typeof registrar.addContextProvider === 'function') {
+        registrar.addContextProvider({
+          ...learnedSelfProvider,
+          ownerPluginId: id
+        });
+      }
     },
     start(_services, config = {}) {
       const selected = reflectionConfig(config);

@@ -7,7 +7,6 @@ import {
   SELF_EVOLUTION_PLUGIN_ID,
   notebookDatabasePath
 } from '../self-evolution/notebook-store.js';
-import { createSelfEvolutionRetrievalProvider } from '../self-evolution/retrieval-provider.js';
 
 function ok(value) {
   return { content: JSON.stringify(value) };
@@ -242,12 +241,6 @@ export function createSelfEvolutionPlugin({
 } = {}) {
   let store = null;
   const tools = makeTools(() => store);
-  const retrievalProvider = createSelfEvolutionRetrievalProvider({
-    getStore: () => store,
-    dataDir,
-    filename,
-    now
-  });
   const plugin = {
     id: SELF_EVOLUTION_PLUGIN_ID,
     name: 'Self-evolution Notebook',
@@ -257,9 +250,6 @@ export function createSelfEvolutionPlugin({
     isEnabled: pluginEnabled,
     declare(registrar) {
       registrar.addTools(tools);
-      if (typeof registrar.addContextProvider === 'function') {
-        registrar.addContextProvider(retrievalProvider);
-      }
     },
     start(_services, config = {}) {
       if (store) return store;

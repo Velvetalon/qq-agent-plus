@@ -307,7 +307,7 @@ test('plugin inventory exposes the P7 read model and restricts runtime control',
     assert.equal(inventory.json.accountSource, 'selfId');
     const ids = inventory.json.plugins.map((plugin) => plugin.id);
     for (const id of ['runtime-control', 'messaging', 'memory-tools', 'legacy-tools',
-      'self-evolution', 'self-evolution-reflection']) {
+      'self-evolution', 'self-evolution-retrieval', 'self-evolution-reflection']) {
       assert.ok(ids.includes(id), `插件清单缺少 ${id}`);
     }
     const selfEvolution = inventory.json.plugins.find((plugin) => plugin.id === 'self-evolution');
@@ -371,6 +371,45 @@ test('plugin inventory exposes the P7 read model and restricts runtime control',
     assert.equal(disable.status, 200);
     assert.equal(disable.json.plugin.running, false);
     assert.equal(fs.existsSync(NOTEBOOK_FILE), true, '停用不删除数据');
+  } finally {
+    await stop();
+  }
+});
+
+test('Retrieval auto-recall can be toggled from the plugin console state', async () => {
+  const { port, stop } = await startApp({
+    selfId: '20003',
+    selfEvolution: true
+  });
+  try {
+    const before = await request(port, 'GET', '/api/plugins');
+    assert.equal(before.json.retrieval.enabled, false);
+    assert.equal(before.json.retrieval.available, false);
+
+    const enabled = await request(port, 'PUT', '/api/plugins/self-evolution-retrieval', {
+      body: { enabled: true }
+    });
+    assert.equal(enabled.status, 200);
+    assert.equal(enabled.json.plugin.id, 'self-evolution-retrieval');
+    assert.equal(enabled.json.plugin.running, true);
+
+    const afterEnable = await request(port, 'GET', '/api/plugins');
+    const retrievalPlugin = afterEnable.json.plugins
+      .find((plugin) => plugin.id === 'self-evolution-retrieval');
+    assert.equal(retrievalPlugin.enabled, true);
+    assert.equal(retrievalPlugin.running, true);
+    assert.equal(afterEnable.json.retrieval.available, true);
+
+    const disabled = await request(port, 'PUT', '/api/plugins/self-evolution-retrieval', {
+      body: { enabled: false }
+    });
+    assert.equal(disabled.status, 200);
+    const afterDisable = await request(port, 'GET', '/api/plugins');
+    const disabledPlugin = afterDisable.json.plugins
+      .find((plugin) => plugin.id === 'self-evolution-retrieval');
+    assert.equal(disabledPlugin.enabled, false);
+    assert.equal(disabledPlugin.running, false);
+    assert.equal(afterDisable.json.retrieval.available, false);
   } finally {
     await stop();
   }
@@ -476,9 +515,9 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
       job: claimed.job,
       owner: 'p7-seed',
       generation,
-      mode: 'review',
+      mode: 'bounded_auto',
       basePersonaHash: baseHash,
-      expectedProfileRevision: 0,
+      expectedProfileRevision: suffix === 'c' ? 1 : 0,
       output: {
         noteOperations: [{
           operation: 'append',
@@ -508,9 +547,6 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
   assert.equal(proposals.length, 4, 'a/b/c 三个批次：3 条 note + 1 条 trait');
   const batchIds = [...new Set(proposals.map((proposal) => proposal.batchId))];
   assert.equal(batchIds.length, 3);
-  const conflictProposal = proposals.find((proposal) => proposal.batchId === batchIds[0]);
-  const approveProposal = proposals.find((proposal) => proposal.batchId === batchIds[1]);
-  const rejectProposal = proposals.find((proposal) => proposal.batchId === batchIds[2]);
   seed.close();
 
   const { port, stop } = await launchApp(cfg);
@@ -528,37 +564,12 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
 
     const profiles = await request(port, 'GET', '/api/self-evolution/reflection/profiles');
     assert.equal(profiles.status, 200);
-    assert.equal(profiles.json.headRevision, 0);
+    assert.equal(profiles.json.headRevision, 1);
 
-    const reviewConflict = await request(port, 'POST',
-      `/api/self-evolution/reflection/proposals/${conflictProposal.id}/review`,
-      { body: { decision: 'approve', expectedRevision: 7 } });
-    assert.equal(reviewConflict.status, 409);
-    assert.equal(reviewConflict.json.code, 'REFLECTION_REVIEW_STALE');
-
-    const missing = await request(port, 'POST',
-      '/api/self-evolution/reflection/proposals/nope/review',
+    const reviewDisabled = await request(port, 'POST',
+      `/api/self-evolution/reflection/proposals/${proposals[0].id}/review`,
       { body: { decision: 'approve', expectedRevision: 0 } });
-    assert.equal(missing.status, 404);
-
-    const badDecision = await request(port, 'POST',
-      `/api/self-evolution/reflection/proposals/${approveProposal.id}/review`,
-      { body: { decision: 'maybe', expectedRevision: 0 } });
-    assert.equal(badDecision.status, 400);
-
-    // 拒绝也要按 revision CAS 走，且不改 Learned Self
-    const rejected = await request(port, 'POST',
-      `/api/self-evolution/reflection/proposals/${rejectProposal.id}/review`,
-      { body: { decision: 'reject', expectedRevision: 0 } });
-    assert.equal(rejected.status, 200);
-    assert.equal(rejected.json.decision, 'reject');
-
-    const approved = await request(port, 'POST',
-      `/api/self-evolution/reflection/proposals/${approveProposal.id}/review`,
-      { body: { decision: 'approve', expectedRevision: 0 } });
-    assert.equal(approved.status, 200);
-    assert.equal(approved.json.reviewed, true);
-    assert.equal(approved.json.profileRevision, 1);
+    assert.equal(reviewDisabled.status, 404);
 
     const profilesAfter = await request(port, 'GET', '/api/self-evolution/reflection/profiles');
     assert.equal(profilesAfter.json.headRevision, 1);
@@ -638,6 +649,7 @@ function loadUiSandbox() {
     const el = {
       id,
       dataset: {},
+      listeners: new Map(),
       style: { setProperty() {}, removeProperty() {} },
       textContent: '',
       innerHTML: '',
@@ -645,7 +657,10 @@ function loadUiSandbox() {
       checked: false,
       children: [],
       classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-      addEventListener() {},
+      addEventListener(name, handler) {
+        if (!el.listeners.has(name)) el.listeners.set(name, []);
+        el.listeners.get(name).push(handler);
+      },
       removeEventListener() {},
       querySelector: () => makeEl(),
       querySelectorAll: () => [],
@@ -665,6 +680,8 @@ function loadUiSandbox() {
     return el;
   };
   const store = new Map();
+  const documentListeners = new Map();
+  const selfEvolutionTabs = new Map();
   const document = {
     documentElement: makeEl('html'),
     body: makeEl('body'),
@@ -673,10 +690,22 @@ function loadUiSandbox() {
       if (!store.has(sel)) store.set(sel, makeEl(String(sel)));
       return store.get(sel);
     },
-    querySelectorAll: () => [],
+    querySelectorAll: (sel) => {
+      if (sel === '#self-evolution-page [data-self-evolution-tab]') {
+        if (!selfEvolutionTabs.size) {
+          for (const value of ['notebook', 'learned', 'reflection', 'gaps']) {
+            const button = makeEl(`self-evolution-tab-${value}`);
+            button.dataset.selfEvolutionTab = value;
+            selfEvolutionTabs.set(value, button);
+          }
+        }
+        return [...selfEvolutionTabs.values()];
+      }
+      return [];
+    },
     getElementById: (id) => document.querySelector(`#${id}`),
     createElement: () => makeEl(),
-    addEventListener() {},
+    addEventListener: (name, handler) => documentListeners.set(name, handler),
     removeEventListener() {}
   };
   const sandbox = {
@@ -705,6 +734,8 @@ function loadUiSandbox() {
   sandbox.globalThis = sandbox;
   const ctx = vm.createContext(sandbox);
   new vm.Script(code, { filename: 'ui/app.js' }).runInContext(ctx);
+  ctx.__documentListeners = documentListeners;
+  ctx.__selfEvolutionTabs = selfEvolutionTabs;
   return ctx;
 }
 
@@ -794,6 +825,12 @@ test('session detail fingerprint tracks audit fields and audit rendering escapes
         required: false, enabled: false, generation: 1, running: false, startedAt: 0,
         lastError: '<bad>', capabilities: { tools: ['notebook_append'], contextProviders: [], sessionObservers: [] },
         canEnable: true, canDisable: true
+      },
+      {
+        id: 'self-evolution-retrieval', name: 'Self-evolution Retrieval', version: '1.0.0', apiVersion: 1,
+        required: false, enabled: false, generation: 1, running: false, startedAt: 0,
+        lastError: '', capabilities: { tools: [], contextProviders: ['self-evolution.retrieval'], sessionObservers: [] },
+        canEnable: true, canDisable: true
       }
     ]
   })};`, ctx);
@@ -803,6 +840,23 @@ test('session detail fingerprint tracks audit fields and audit rendering escapes
   assert.equal(pluginsHtml.includes('data-plugin-id="runtime-control"'), false,
     '非白名单插件不渲染启停按钮');
   assert.equal(pluginsHtml.includes('&lt;bad&gt;'), true, '最后错误必须转义');
+
+  vm.runInContext(`state.pluginsPage = ${JSON.stringify({
+    accountId: '70007',
+    accountSource: 'selfId',
+    selfEvolution: { enabled: true, reflectionEnabled: false },
+    retrieval: { enabled: true, available: true, mode: 'lexical', reason: 'ready' },
+    plugins: [{
+      id: 'self-evolution-retrieval', name: 'Self-evolution Retrieval', version: '1.0.0', apiVersion: 1,
+      required: false, enabled: true, generation: 1, running: true, startedAt: 1,
+      lastError: '', capabilities: { tools: [], contextProviders: ['self-evolution.retrieval'], sessionObservers: [] },
+      canEnable: false, canDisable: true
+    }]
+  })};`, ctx);
+  ctx.renderPluginsPage();
+  const retrievalHtml = ctx.document.querySelector('#plugins-page').innerHTML;
+  assert.equal(retrievalHtml.includes('data-plugin-id="self-evolution-retrieval"'), true);
+  assert.equal(retrievalHtml.includes('停用'), true);
 
   // 自我迭代页：四个页签 + 无数据时的空态，切到反思页签渲染提案
   vm.runInContext(`state.selfEvolutionData = ${JSON.stringify({
@@ -815,15 +869,54 @@ test('session detail fingerprint tracks audit fields and audit rendering escapes
     },
     notebook: { notes: [], disabled: true },
     jobs: { entries: [] },
-    proposals: { entries: [{ id: 'refprop_1', batchId: 'b1', type: 'note', risk: 'low', status: 'pending', detail: '<x>', expectedProfileRevision: 0 }] },
+    proposals: {
+      entries: [{
+        id: 'refprop_1',
+        batchId: 'b1',
+        type: 'note',
+        risk: 'low',
+        status: 'rejected',
+        detail: '<x>',
+        payload: { operation: 'append', content: 'payload-content' },
+        errorCode: 'REFLECTION_HIGH_RISK_REJECTED',
+        errorMessage: 'policy',
+        expectedProfileRevision: 0
+      }]
+    },
     gaps: { entries: [] },
-    profiles: { entries: [{ revision: 1, parentRevision: 0, appliedBy: 'console', createdAt: 1, source: [] }], headRevision: 1 }
+    profiles: {
+      entries: [{
+        revision: 1,
+        parentRevision: 0,
+        appliedBy: 'console',
+        createdAt: 1,
+        // 生产接口中的 source 是单个对象；旧数据也可能是数组。
+        source: { kind: 'reflection', jobId: 'refjob_1' },
+        profile: {
+          global: { communication_style: { value: 'concise' } },
+          chats: {}
+        }
+      }],
+      headRevision: 1
+    }
   })}; state.selfEvolutionTab = 'reflection';`, ctx);
   ctx.renderSelfEvolutionPage();
   const selfEvoHtml = ctx.document.querySelector('#self-evolution-page').innerHTML;
   for (const label of ['笔记', '习得自我', '反思作业 / 提案', '能力缺口']) {
     assert.equal(selfEvoHtml.includes(label), true, `缺少页签 ${label}`);
   }
-  assert.equal(selfEvoHtml.includes('data-proposal-review="refprop_1"'), true);
+  assert.equal(selfEvoHtml.includes('提案历史'), true);
+  assert.equal(selfEvoHtml.includes('data-proposal-review="refprop_1"'), false);
   assert.equal(selfEvoHtml.includes('&lt;x&gt;'), true, '提案内容必须转义');
+  assert.equal(selfEvoHtml.includes('payload-content'), true);
+  vm.runInContext(`state.selfEvolutionTab = 'learned';`, ctx);
+  ctx.renderSelfEvolutionPage();
+  const learnedHtml = ctx.document.querySelector('#self-evolution-page').innerHTML;
+  assert.equal(learnedHtml.includes('communication_style'), true);
+  assert.equal(learnedHtml.includes('concise'), true);
+  const learnedTab = ctx.__selfEvolutionTabs.get('learned');
+  const learnedClick = learnedTab.listeners.get('click')?.[0];
+  assert.equal(typeof learnedClick, 'function');
+  learnedClick({ preventDefault() {} });
+  assert.equal(vm.runInContext('state.selfEvolutionTab', ctx), 'learned');
 });

@@ -15,6 +15,7 @@ import {
   normalizeCompletionObservation,
   openReflectionStore,
   reflectionDatabasePath,
+  reflectionPrompt,
   validateReflectionOutput
 } from '../src/plugins/self-evolution/index.js';
 
@@ -135,7 +136,8 @@ function startWorker(store, reflector, limits = {}, options = {}) {
   const started = worker.start({
     enabled: true,
     pollIntervalMs: 100000,
-    basePersona: options.basePersona || persona()
+    basePersona: options.basePersona || persona(),
+    notebook: options.notebook || null
   });
   assert.equal(started.started, true);
   return worker;
@@ -370,7 +372,7 @@ test('review mode can approve or reject a proposal without mutating Base Persona
   }
 });
 
-test('bounded_auto applies only allowlisted low-risk traits and leaves the rest pending', async () => {
+test('bounded_auto applies low-risk traits and rejects high-risk traits into history', async () => {
   const { store } = fixture();
   const base = persona();
   const worker = startWorker(store, async () => reflectionOutput('session-auto', {
@@ -396,13 +398,13 @@ test('bounded_auto applies only allowlisted low-risk traits and leaves the rest 
   try {
     store.enqueueObservation(completionEvent('session-auto'));
     const result = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
-    assert.equal(result.jobStatus, 'ready');
+    assert.equal(result.jobStatus, 'applied');
     const proposals = store.listProposals({ batchId: result.batchId });
     assert.deepEqual(
       proposals.map((proposal) => [proposal.payload.key, proposal.risk, proposal.status]),
       [
         ['communication_style', 'low', 'applied'],
-        ['social_strategy', 'high', 'pending']
+        ['social_strategy', 'high', 'rejected']
       ]
     );
     const context = store.getLearnedSelfContext({
@@ -412,21 +414,74 @@ test('bounded_auto applies only allowlisted low-risk traits and leaves the rest 
     assert.equal(context.context.communication_style.value, 'brief and concrete');
     assert.equal(context.context.social_strategy, undefined);
     assert.equal(store.getBatch(result.batchId).expectedProfileRevision, 1);
-    const reviewed = store.reviewBatch({
-      batchId: result.batchId,
-      decision: 'approve',
-      actor: 'admin-1',
-      expectedProfileRevision: 1,
-      basePersona: base
-    });
-    assert.equal(reviewed.reviewed, true);
-    assert.equal(reviewed.profileRevision, 2);
-    assert.equal(store.getLearnedSelfContext({
-      accountId: ACCOUNT_ID,
-      basePersona: base
-    }).context.social_strategy.value, 'lead every conversation');
+    assert.equal(
+      proposals.find((proposal) => proposal.payload.key === 'social_strategy').errorCode,
+      'REFLECTION_HIGH_RISK_REJECTED'
+    );
   } finally {
     await worker.stop();
+    store.close();
+  }
+});
+
+test('bounded_auto applies Notebook operations without approval and keeps history', async () => {
+  const { store, dataDir } = fixture();
+  const notebook = new NotebookStore({ dataDir });
+  const base = persona();
+  const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
+    noteOperations: [{
+      operation: 'append',
+      scope: 'global',
+      content: 'automatically approved note',
+      tags: ['reflection'],
+      evidenceRefs: [evidenceRef(job.sessionId)]
+    }]
+  }), {}, { basePersona: base, notebook });
+  try {
+    store.enqueueObservation(completionEvent('session-note-auto'));
+    const result = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
+    assert.equal(result.jobStatus, 'applied');
+    assert.equal(store.listProposals({ batchId: result.batchId })[0].status, 'applied');
+    assert.equal(notebook.search({
+      accountId: ACCOUNT_ID,
+      currentChatKey: 'group:100',
+      query: 'automatically approved'
+    }).count, 1);
+  } finally {
+    await worker.stop();
+    notebook.close();
+    store.close();
+  }
+});
+
+test('reflection rejects transient run summaries instead of writing them as Notebook notes', async () => {
+  const { store, dataDir } = fixture();
+  const notebook = new NotebookStore({ dataDir });
+  const base = persona();
+  const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
+    noteOperations: [{
+      operation: 'append',
+      scope: 'global',
+      content: 'Run ended safely because the token budget was reached; sent 3 messages.',
+      tags: [],
+      evidenceRefs: [evidenceRef(job.sessionId)]
+    }]
+  }), {}, { basePersona: base, notebook });
+  try {
+    store.enqueueObservation(completionEvent('session-transient-note'));
+    const result = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
+    assert.equal(result.jobStatus, 'applied');
+    const proposal = store.listProposals({ batchId: result.batchId })[0];
+    assert.equal(proposal.status, 'rejected');
+    assert.equal(proposal.errorCode, 'REFLECTION_NOTE_NOT_DURABLE');
+    assert.equal(notebook.search({
+      accountId: ACCOUNT_ID,
+      currentChatKey: 'group:100',
+      query: 'token budget'
+    }).count, 0);
+  } finally {
+    await worker.stop();
+    notebook.close();
     store.close();
   }
 });
@@ -1164,4 +1219,15 @@ test('completion provenance defaults to chat_run and rejects reflection origins'
     }),
     (error) => error.code === 'REFLECTION_SOURCE_LINEAGE'
   );
+});
+
+test('reflection prompt specifies the canonical nested proposal schema', () => {
+  const prompt = reflectionPrompt({
+    evidence: { sourceKind: 'run_completion', sessionId: 'session-schema' }
+  });
+  assert.match(prompt, /noteOperations item schema: operation/);
+  assert.match(prompt, /traitProposals item schema: action/);
+  assert.match(prompt, /capabilityGapProposals item schema: category/);
+  assert.match(prompt, /Do not invent aliases such as op, type, target, note, trait, or evidenceIds/);
+  assert.match(prompt, /operation \(append\|update\|archive\)/);
 });

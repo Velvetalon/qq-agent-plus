@@ -16,6 +16,9 @@ const { ChatStore } = await import('../src/core/store.js');
 const { SessionRegistry } = await import('../src/core/sessions.js');
 const { setRuntimeConfig, DEFAULT_CONFIG } = await import('../src/core/config.js');
 const { createSelfEvolutionPlugin } = await import('../src/plugins/builtin/self-evolution.js');
+const {
+  createSelfEvolutionRetrievalPlugin
+} = await import('../src/plugins/builtin/self-evolution-retrieval.js');
 
 describe('Orchestrator', () => {
   it('draws the debounce delay inside the configured range', () => {
@@ -199,7 +202,12 @@ describe('Orchestrator', () => {
     };
     setRuntimeConfig(cfg);
     const plugin = createSelfEvolutionPlugin({ dataDir });
+    const retrievalPlugin = createSelfEvolutionRetrievalPlugin({
+      dataDir,
+      getStore: () => plugin.getStore()
+    });
     runner.pluginManager.register(plugin);
+    runner.pluginManager.register(retrievalPlugin);
     await runner.startPlugins();
     t.after(async () => {
       await runner.stopPlugins();
@@ -1188,7 +1196,12 @@ describe('Orchestrator', () => {
     cfg.store.randomPercent = 0;
     const retrievalDataDir = fs.mkdtempSync(path.join(root, 'lifecycle-retrieval-'));
     const retrievalPlugin = createSelfEvolutionPlugin({ dataDir: retrievalDataDir });
+    const retrievalContextPlugin = createSelfEvolutionRetrievalPlugin({
+      dataDir: retrievalDataDir,
+      getStore: () => retrievalPlugin.getStore()
+    });
     runner.pluginManager.register(retrievalPlugin);
+    runner.pluginManager.register(retrievalContextPlugin);
     await runner.startPlugins();
     t.after(async () => {
       await runner.stopPlugins();

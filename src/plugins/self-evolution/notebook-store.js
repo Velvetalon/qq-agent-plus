@@ -937,6 +937,77 @@ export class NotebookStore {
     });
   }
 
+  deleteNote({
+    accountId: rawAccount,
+    noteId: rawId,
+    expectedRevision: rawRevision,
+    source,
+    idempotencyKey: rawKey,
+    currentChatKey = ''
+  } = {}) {
+    const account = accountId(rawAccount);
+    const id = noteId(rawId);
+    const expected = revision(rawRevision);
+    const sourceViewValue = this.#normalizeSource(source, {
+      account,
+      currentChatKey,
+      write: true
+    });
+    if (!this.#sourceIsAdmin(sourceViewValue)) {
+      fail('NOTEBOOK_DELETE_FORBIDDEN', '硬删除仅允许管理员或系统来源');
+    }
+    const request = { noteId: id, expectedRevision: expected, confirm: true };
+    return this.#write('delete', {
+      account,
+      source: sourceViewValue,
+      currentChatKey,
+      idempotencyKey: rawKey,
+      request,
+      noteId: id,
+      expectedRevision: expected,
+      apply: (db, { account: namespace, source: normalizedSource, operationId, createdAt }) => {
+        const current = db.prepare(
+          'SELECT * FROM notebook_notes WHERE id=? AND account_id=?'
+        ).get(id, namespace);
+        this.#assertVisible(current, {
+          account: namespace,
+          currentChatKey,
+          admin: true
+        });
+        const actual = Number(current.revision) || 0;
+        if (actual !== expected) {
+          fail('NOTEBOOK_CAS_CONFLICT', 'Notebook revision 已变化，请基于最新版本重试', {
+            noteId: id,
+            expectedRevision: expected,
+            currentRevision: actual
+          });
+        }
+        db.prepare('DELETE FROM notebook_versions WHERE note_id=? AND account_id=?')
+          .run(id, namespace);
+        const changed = db.prepare(
+          'DELETE FROM notebook_notes WHERE id=? AND account_id=? AND revision=?'
+        ).run(id, namespace, expected).changes;
+        if (changed !== 1) {
+          fail('NOTEBOOK_CAS_CONFLICT', 'Notebook revision 已变化，请基于最新版本重试', {
+            noteId: id,
+            expectedRevision: expected,
+            currentRevision: Number(db.prepare(
+              'SELECT revision FROM notebook_notes WHERE id=? AND account_id=?'
+            ).get(id, namespace)?.revision) || 0
+          });
+        }
+        return {
+          deleted: true,
+          operationId,
+          noteId: id,
+          expectedRevision: expected,
+          deletedAt: createdAt,
+          source: sourceView(normalizedSource)
+        };
+      }
+    });
+  }
+
   get({
     accountId: rawAccount,
     noteId: rawId,

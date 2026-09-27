@@ -409,6 +409,51 @@ test('archive advances revision, remains in history, and is excluded from recall
   }
 });
 
+test('admin delete requires confirmation and removes note data with an audit operation', () => {
+  const { store } = fixture();
+  try {
+    const note = append(store, { idempotencyKey: 'delete-note' });
+    assert.throws(
+      () => store.deleteNote({
+        accountId: 'bot-1',
+        noteId: note.note.id,
+        expectedRevision: 1,
+        source: {
+          kind: 'chat',
+          accountId: 'bot-1',
+          chatKey: 'group:100',
+          sessionId: 'delete-session',
+          runId: 'delete-run'
+        },
+        idempotencyKey: 'delete-chat-forbidden',
+        currentChatKey: 'group:100'
+      }),
+      (error) => error.code === 'NOTEBOOK_DELETE_FORBIDDEN'
+    );
+    const deleted = store.deleteNote({
+      accountId: 'bot-1',
+      noteId: note.note.id,
+      expectedRevision: 1,
+      source: { kind: 'console', accountId: 'bot-1', actor: 'test' },
+      idempotencyKey: 'delete-console',
+      currentChatKey: ''
+    });
+    assert.equal(deleted.deleted, true);
+    assert.equal(store.search({
+      accountId: 'bot-1',
+      currentChatKey: 'group:100',
+      includeArchived: true,
+      admin: true
+    }).count, 0);
+    assert.equal(store.listOperations({
+      accountId: 'bot-1',
+      action: 'delete'
+    }).length, 1);
+  } finally {
+    store.close();
+  }
+});
+
 test('body, capacity, and per-run limits reject explicitly without claiming saved', () => {
   const { store } = fixture({
     limits: { maxBodyChars: 5, maxNotes: 1, maxWritesPerRun: 1 }

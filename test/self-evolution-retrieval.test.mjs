@@ -9,6 +9,9 @@ import {
   createSelfEvolutionPlugin
 } from '../src/plugins/builtin/self-evolution.js';
 import {
+  createSelfEvolutionRetrievalPlugin
+} from '../src/plugins/builtin/self-evolution-retrieval.js';
+import {
   NotebookStore,
   notebookDatabasePath
 } from '../src/plugins/self-evolution/notebook-store.js';
@@ -67,10 +70,15 @@ test('retrieval provider is absent from snapshots when retrieval is disabled', a
   const dir = dataDir('disabled');
   const filename = notebookDatabasePath(dir);
   const plugin = createSelfEvolutionPlugin({ dataDir: dir });
+  const retrievalPlugin = createSelfEvolutionRetrievalPlugin({
+    dataDir: dir,
+    getStore: () => plugin.getStore()
+  });
   const manager = new PluginManager({
     configProvider: () => config({ retrieval: { enabled: false } })
   });
   manager.register(plugin);
+  manager.register(retrievalPlugin);
   await manager.startAll();
   try {
     const snapshot = manager.createRunSnapshot(config({ retrieval: { enabled: false } }));
@@ -86,10 +94,15 @@ test('fully disabled self-evolution has no database or provider side effects', a
   const dir = dataDir('fully-disabled');
   const filename = notebookDatabasePath(dir);
   const plugin = createSelfEvolutionPlugin({ dataDir: dir });
+  const retrievalPlugin = createSelfEvolutionRetrievalPlugin({
+    dataDir: dir,
+    getStore: () => plugin.getStore()
+  });
   const manager = new PluginManager({
     configProvider: () => ({ selfEvolution: { enabled: false, retrieval: { enabled: true } } })
   });
   manager.register(plugin);
+  manager.register(retrievalPlugin);
   await manager.startAll();
   try {
     const snapshot = manager.createRunSnapshot();

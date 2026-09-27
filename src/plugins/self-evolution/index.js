@@ -49,7 +49,20 @@ export {
 } from './retrieval-provider.js';
 
 export {
+  DEFAULT_LEARNED_SELF_MAX_CHARS,
+  DEFAULT_LEARNED_SELF_MAX_TRAITS,
+  LEARNED_SELF_CONTEXT_PROVIDER_ID,
+  LearnedSelfContextProvider,
+  createLearnedSelfContextProvider
+} from './learned-self-provider.js';
+
+export {
   createSelfEvolutionPlugin,
   openSelfEvolutionNotebook,
   selfEvolutionPlugin
 } from '../builtin/self-evolution.js';
+
+export {
+  SELF_EVOLUTION_RETRIEVAL_PLUGIN_ID,
+  createSelfEvolutionRetrievalPlugin
+} from '../builtin/self-evolution-retrieval.js';

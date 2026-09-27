@@ -122,10 +122,11 @@ export class SelfEvolutionRetrievalProvider {
     dataDir = DATA_DIR,
     filename = notebookDatabasePath(dataDir),
     now = () => Date.now(),
-    embeddingAdapter = null
+    embeddingAdapter = null,
+    ownerPluginId = 'self-evolution-retrieval'
   } = {}) {
     this.id = SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID;
-    this.ownerPluginId = 'self-evolution';
+    this.ownerPluginId = String(ownerPluginId || 'self-evolution-retrieval');
     this.getStore = typeof getStore === 'function' ? getStore : () => store;
     this.dataDir = dataDir;
     this.filename = filename;

@@ -535,6 +535,31 @@ function disinterestLike(value) {
   return DISINTEREST_PATTERNS.some((pattern) => pattern.test(String(value)));
 }
 
+const TRANSIENT_NOTE_PATTERNS = Object.freeze([
+  /\b(?:run|session|token|budget|outbound|latency|follow[- ]?up|private chat|group chat)\b/i,
+  /\b(?:sent|replied|reply|messages?|ended|completed|successfully|safely)\b/i,
+  /(?:本轮|本次|当前会话|私聊|群聊|发送|回复|消息|条消息|安全结束|token|预算|外发|跟进|等待)/u,
+  /\d+\s*(?:messages?|replies?|条消息|条回复)/iu
+]);
+const DURABLE_NOTE_PATTERNS = Object.freeze([
+  /\b(?:prefers?|likes?|usually|always|avoid|doesn't want|does not want|works best|preference|habit|boundary|relationship)\b/i,
+  /(?:喜欢|偏好|习惯|通常|以后|记住|不要|别|需要|希望|称呼|边界|长期|关系|爱吃|爱看|讨厌)/u
+]);
+
+function noteContentRejection(content) {
+  const value = String(content || '').replace(/\s+/g, ' ').trim();
+  if (!value) return null;
+  const transient = TRANSIENT_NOTE_PATTERNS.some((pattern) => pattern.test(value));
+  const durable = DURABLE_NOTE_PATTERNS.some((pattern) => pattern.test(value));
+  if (transient && !durable) {
+    return {
+      code: 'REFLECTION_NOTE_NOT_DURABLE',
+      message: 'Notebook note must describe a durable future-useful fact, preference, or boundary'
+    };
+  }
+  return null;
+}
+
 function validateNoteOperation(raw, index, evidence, limits) {
   const pathName = `noteOperations[${index}]`;
   exactKeys(raw, [
@@ -561,8 +586,10 @@ function validateNoteOperation(raw, index, evidence, limits) {
     evidenceRefs: refs
   };
   if (operation === 'append') {
-    result.content = noControlChars(text(raw.content, `${pathName}.content`, limits.maxContentChars),
-      `${pathName}.content`);
+    result.content = noControlChars(
+      text(raw.content, `${pathName}.content`, limits.maxContentChars),
+      `${pathName}.content`
+    );
     if (raw.tags !== undefined) {
       if (!Array.isArray(raw.tags)) fail('REFLECTION_INVALID_OUTPUT', `${pathName}.tags must be an array`);
       if (raw.tags.length > 24) fail('REFLECTION_LIMIT_EXCEEDED', `${pathName}.tags has too many entries`);
@@ -1832,6 +1859,51 @@ export class ReflectionStore {
       let appliedCount = 0;
       let invalidCount = 0;
       if (normalizedMode === 'bounded_auto') {
+        const policyActor = `reflection:${owner}`;
+        const noteProposals = proposals.filter((entry) => entry.type === 'note');
+        for (const proposal of noteProposals) {
+          try {
+            this.#applyNoteProposal(db, proposal, {
+              accountId: current.account_id,
+              sessionId: job.evidence.sessionId,
+              runId: job.evidence.runId,
+              chatKey: job.evidence.chatKey,
+              notebook,
+              ts,
+              actor: policyActor
+            });
+            appliedCount += 1;
+          } catch (error) {
+            const code = String(error?.code || 'REFLECTION_NOTE_APPLY_FAILED');
+            const stale = code.includes('CAS') || code.includes('REVISION') || code.includes('ARCHIVED');
+            const policyRejected = code === 'REFLECTION_NOTE_NOT_DURABLE';
+            db.prepare(`
+              UPDATE reflection_proposals
+              SET status=?,reviewed_at=?,reviewer=?,error_code=?,error_message=?
+              WHERE id=? AND status='pending'
+            `).run(
+              stale ? 'stale' : policyRejected ? 'rejected' : 'invalid',
+              ts,
+              policyActor,
+              code,
+              String(error?.message || error).slice(0, 500),
+              proposal.id
+            );
+            invalidCount += 1;
+          }
+        }
+        const highRiskTraits = proposals.filter((entry) => (
+          entry.type === 'trait' && entry.risk !== 'low'
+        ));
+        for (const proposal of highRiskTraits) {
+          db.prepare(`
+            UPDATE reflection_proposals
+            SET status='rejected',reviewed_at=?,reviewer=?,
+              error_code='REFLECTION_HIGH_RISK_REJECTED',
+              error_message='High-risk reflection behavior is rejected by policy'
+            WHERE id=? AND status='pending'
+          `).run(ts, policyActor, proposal.id);
+        }
         const lowRiskTraits = proposals.filter((entry) => entry.type === 'trait' && entry.risk === 'low');
         if (lowRiskTraits.length > 0) {
           const result = this.#applyTraitProposals(db, {
@@ -1839,7 +1911,7 @@ export class ReflectionStore {
             proposals: lowRiskTraits,
             baseHash,
             expectedRevision,
-            actor: `reflection:${owner}`,
+            actor: policyActor,
             source: {
               kind: 'reflection',
               jobId: current.id,
@@ -1870,8 +1942,35 @@ export class ReflectionStore {
         SELECT COUNT(*) AS n FROM reflection_proposals
         WHERE batch_id=? AND status='applied'
       `).get(batchId).n;
-      const finalBatchStatus = remaining > 0 ? (applied > 0 ? 'partially_applied' : batchStatus) : 'applied';
-      const finalJobStatus = remaining > 0 ? 'ready' : 'applied';
+      const rejected = db.prepare(`
+        SELECT COUNT(*) AS n FROM reflection_proposals
+        WHERE batch_id=? AND status='rejected'
+      `).get(batchId).n;
+      const stale = db.prepare(`
+        SELECT COUNT(*) AS n FROM reflection_proposals
+        WHERE batch_id=? AND status='stale'
+      `).get(batchId).n;
+      const invalid = db.prepare(`
+        SELECT COUNT(*) AS n FROM reflection_proposals
+        WHERE batch_id=? AND status='invalid'
+      `).get(batchId).n;
+      let finalBatchStatus = 'applied';
+      if (remaining > 0) {
+        finalBatchStatus = applied > 0 ? 'partially_applied' : batchStatus;
+      } else if (applied === 0 && rejected > 0 && stale === 0 && invalid === 0) {
+        finalBatchStatus = 'rejected';
+      } else if (applied === 0 && stale > 0 && invalid === 0) {
+        finalBatchStatus = 'stale';
+      } else if (applied === 0 && invalid > 0 && stale === 0) {
+        finalBatchStatus = 'invalid';
+      } else if (rejected > 0 || stale > 0 || invalid > 0) {
+        finalBatchStatus = 'partially_applied';
+      }
+      const finalJobStatus = remaining > 0
+        ? 'ready'
+        : ['stale', 'invalid'].includes(finalBatchStatus)
+          ? finalBatchStatus
+          : 'applied';
       db.prepare(`
         UPDATE reflection_batches
         SET status=?,applied_profile_revision=? WHERE id=?
@@ -2362,8 +2461,8 @@ export class ReflectionStore {
 
   #traitRisk(item, evidenceJson) {
     const evidence = parseJson(evidenceJson, {});
-    if (item.action === 'remove') return 'low';
     if (!LOW_RISK_TRAIT_KEYS.has(item.key)) return 'high';
+    if (item.action === 'remove') return 'low';
     if (Number(item.confidence) < 0.8) return 'high';
     if (evidence.reliability !== 'normal') return 'high';
     if (disinterestLike(item.value || '')) return 'high';
@@ -2513,6 +2612,13 @@ export class ReflectionStore {
     ts,
     actor
   }) {
+    const noteRejection = (proposal.payload?.operation === 'append'
+      || proposal.payload?.operation === 'update')
+      ? noteContentRejection(proposal.payload.content)
+      : null;
+    if (noteRejection) {
+      fail(noteRejection.code, noteRejection.message);
+    }
     if (!notebook || typeof notebook.append !== 'function') {
       fail('REFLECTION_NOTEBOOK_UNAVAILABLE', 'Notebook adapter is required to apply note operations');
     }
@@ -2702,6 +2808,15 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS) {
     'You are a read-only reflection worker.',
     'Return JSON with exactly: noteOperations, traitProposals, capabilityGapProposals, summary.',
     'Do not execute code, install plugins, request credentials, or infer disinterest from failures.',
+    'Use only the canonical nested field names below. Do not invent aliases such as op, type, target, note, trait, or evidenceIds.',
+    'Only create noteOperations for durable, future-useful facts, stable preferences, lasting relationships, or explicit boundaries.',
+    'Never create notes that summarize this run, token/budget usage, sent/replied message counts, transient chat status, or ordinary conversational events. If there is no durable information, return noteOperations: [].',
+    'noteOperations item schema: operation (append|update|archive), scope (global|chat), chatKey, content, tags, noteId, expectedRevision, evidenceRefs.',
+    'For noteOperations: append requires operation, scope, content, tags, evidenceRefs and omits noteId/expectedRevision; update requires noteId and expectedRevision plus content or tags; archive requires noteId and expectedRevision and omits content/tags.',
+    'traitProposals item schema: action (set|remove), key, value (only for set), scope (global|chat), chatKey, confidence, evidenceRefs.',
+    'capabilityGapProposals item schema: category, capability, requestKey, scope (global|chat), chatKey, detail, evidenceRefs.',
+    'Use chatKey="" for global scope. For chat scope, use the observed chatKey exactly. Use [] when a collection has no proposal.',
+    'Canonical example shape: {"noteOperations":[],"traitProposals":[{"action":"set","key":"communication_style","value":"concise","scope":"global","chatKey":"","confidence":0.9,"evidenceRefs":["session:..."]}],"capabilityGapProposals":[],"summary":"..."}.',
     `Limits: noteOperations<=${normalizedLimits.maxNoteOperations}, ` +
       `traitProposals<=${normalizedLimits.maxTraitProposals}, ` +
       `capabilityGapProposals<=${normalizedLimits.maxCapabilityGapProposals}, ` +
