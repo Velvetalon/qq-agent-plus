@@ -144,7 +144,10 @@ test('append, close, reopen, and retrieve returns one current-account chat block
 
 test('irrelevant notes, account namespaces, and chat scopes do not leak into recall', async () => {
   const dir = dataDir('scope');
-  const store = new NotebookStore({ dataDir: dir });
+  const store = new NotebookStore({
+    dataDir: dir,
+    limits: { maxWritesPerRun: 200, maxSearchLimit: 100 }
+  });
   const global = store.append({
     accountId: 'bot-a',
     scope: 'global',
@@ -238,6 +241,40 @@ test('archive and revisions invalidate later recall', async () => {
     idempotencyKey: 'revision-archive'
   });
   assert.equal((await provide(provider, { query: 'new' })).blocks.length, 0);
+  store.close();
+});
+
+test('retrieval pages visible notes so an older relevant note remains a candidate', async () => {
+  const dir = dataDir('paged-candidates');
+  const store = new NotebookStore({
+    dataDir: dir,
+    limits: { maxWritesPerRun: 200, maxSearchLimit: 100 }
+  });
+  const old = store.append({
+    accountId: 'bot-a',
+    scope: 'global',
+    content: '长期摄影偏好与棚拍经验',
+    source: source('bot-a', 'group:1', { kind: 'console', actor: 'admin' }),
+    idempotencyKey: 'old-photo',
+    currentChatKey: 'group:1'
+  });
+  for (let index = 0; index < 105; index += 1) {
+    store.append({
+      accountId: 'bot-a',
+      scope: 'global',
+      content: `无关的新笔记 ${index}`,
+      source: source('bot-a', 'group:1', { kind: 'console', actor: 'admin' }),
+      idempotencyKey: `distractor-${index}`,
+      currentChatKey: 'group:1'
+    });
+  }
+  const provider = createSelfEvolutionRetrievalProvider({ store });
+  const result = await provide(provider, {
+    accountId: 'bot-a',
+    chatKey: 'group:1',
+    query: '摄影棚拍'
+  });
+  assert.ok(result.audit.hitNoteIds.includes(old.note.id));
   store.close();
 });
 

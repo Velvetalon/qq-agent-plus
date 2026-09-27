@@ -1032,6 +1032,7 @@ export class NotebookStore {
     query = '',
     tags: rawTags,
     limit = 20,
+    offset = 0,
     includeArchived = false,
     admin = false
   } = {}) {
@@ -1064,12 +1065,13 @@ export class NotebookStore {
       params.push(pattern, pattern);
     }
     const max = Math.min(this.limits.maxSearchLimit, Math.max(1, Number(limit) || 20));
+    const skip = Math.max(0, Math.min(5000, Number(offset) || 0));
     const rows = db.prepare(`
       SELECT * FROM notebook_notes
       WHERE ${filters.join(' AND ')}
       ORDER BY updated_at DESC, id DESC
-      LIMIT ?
-    `).all(...params, max);
+      LIMIT ? OFFSET ?
+    `).all(...params, max, skip);
     const requestedTags = rawTags === undefined ? [] : tags(rawTags, this.limits);
     const notes = rows
       .map(noteView)

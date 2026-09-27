@@ -1135,6 +1135,26 @@ export class Orchestrator {
       const status = explicitSilence ? 'noreply' : (session.sent.length > 0 ? 'done' : 'noreply');
       const resultClass = explicitSilence ? 'explicit_silence' : status;
       const runSnapshot = this.pluginRunSnapshots.get(session.id);
+      const conversationEvidence = [
+        ...triggerEntries.slice(-20).map((entry) => ({
+          evidenceId: `message:${entry.id}`,
+          messageId: entry.id,
+          senderId: entry.senderId,
+          role: entry.self ? 'assistant' : 'user',
+          at: entry.ts,
+          text: entry.text,
+          confirmed: true
+        })),
+        ...session.sent.slice(-8).map((entry, index) => ({
+          evidenceId: `outbound:${session.id}:${index}`,
+          messageId: entry.messageId,
+          senderId: this.onebot.selfId,
+          role: 'assistant',
+          at: Date.now(),
+          text: entry.text,
+          confirmed: true
+        }))
+      ];
       const completionEvents = this.pluginManager.buildCompletionEvents(runSnapshot, {
         accountId: this.onebot.selfId,
         sessionId: session.id,
@@ -1142,6 +1162,7 @@ export class Orchestrator {
         chatKey,
         resultClass,
         actionSummary: {
+          evidenceVersion: 1,
           sentCount: session.sent.length,
           finishReason: session.finishReason,
           outboundAttempted: session.outbound.attempted > 0,
@@ -1149,6 +1170,8 @@ export class Orchestrator {
           termination: session.termination,
           outbound: session.outbound
         },
+        evidenceVersion: 1,
+        conversationEvidence,
         sourceMessageIds: triggerEntries.map((entry) => entry.id)
       });
       if (conversation.mode === 'lifecycle') {
@@ -1561,7 +1584,8 @@ export class Orchestrator {
     );
     const retrievalEnabled = cfg.selfEvolution?.enabled === true
       && cfg.selfEvolution?.retrieval?.enabled === true;
-    const notebookCapabilityEnabled = retrievalEnabled && Boolean(retrievalProvider);
+    const notebookCapabilityEnabled = cfg.selfEvolution?.enabled === true
+      && runSnapshot.tools.some((tool) => tool.ownerPluginId === 'self-evolution');
     const retrievalConfig = cfg.selfEvolution?.retrieval
       && typeof cfg.selfEvolution.retrieval === 'object'
       ? cfg.selfEvolution.retrieval
@@ -1594,22 +1618,15 @@ export class Orchestrator {
     retrievalAudit.hitNoteIds = Array.isArray(retrievalAudit.hitNoteIds)
       ? retrievalAudit.hitNoteIds.map(String)
       : [];
-    retrievalAudit.hits = Array.isArray(retrievalAudit.hits)
-      ? retrievalAudit.hits.map((hit) => ({
-        noteId: String(hit?.noteId || ''),
-        revision: hit?.revision ?? null,
-        rankingSource: String(hit?.rankingSource || 'lexical'),
-        snippetChars: Number(hit?.snippetChars) || 0
-      }))
-      : retrievalBlocks.map((block) => {
-        const meta = parseSourceRef(block.sourceRefs);
-        return {
-          noteId: String(meta?.noteId || ''),
-          revision: meta?.revision ?? block.revision ?? null,
-          rankingSource: String(meta?.rankingSource || 'lexical'),
-          snippetChars: Number(meta?.chars) || String(block.text || '').length
-        };
-      });
+    retrievalAudit.hits = retrievalBlocks.map((block) => {
+      const meta = parseSourceRef(block.sourceRefs);
+      return {
+        noteId: String(meta?.noteId || block.noteId || ''),
+        revision: meta?.revision ?? block.revision ?? null,
+        rankingSource: String(meta?.rankingSource || block.rankingSource || 'lexical'),
+        snippetChars: Number(meta?.chars) || String(block.snippet || block.text || '').length
+      };
+    }).filter((hit) => hit.noteId);
     retrievalAudit.hitNoteIds = retrievalAudit.hits
       .map((hit) => hit.noteId)
       .filter(Boolean);

@@ -7,6 +7,7 @@ import {
   SELF_EVOLUTION_PLUGIN_ID,
   notebookDatabasePath
 } from '../self-evolution/notebook-store.js';
+import { selfEvolutionConfig } from '../self-evolution/config.js';
 
 function ok(value) {
   return { content: JSON.stringify(value) };
@@ -24,15 +25,8 @@ function errorResult(error) {
   };
 }
 
-function configForPlugin(config = {}) {
-  return config?.selfEvolution
-    || config?.plugins?.selfEvolution
-    || config?.plugins?.['self-evolution']
-    || {};
-}
-
 function pluginEnabled(config = {}) {
-  return configForPlugin(config).enabled === true;
+  return selfEvolutionConfig(config).notebookEnabled;
 }
 
 function hostIdempotencyKey(ctx, action, args) {
@@ -70,17 +64,17 @@ function makeTools(getStore) {
   return [
     {
       name: 'notebook_append',
-      description: '把一条当前会话有效的可复用事实或偏好写入 Notebook。正文只写当前会话可用的内容，不要写入跨会话或全局偏好。写入是本地持久化，不会向聊天发送消息。',
+      description: '给未来的自己留下可复用的事实、偏好、长期边界或计划。记录什么由你判断，不必每轮记录；事实、猜测、玩笑和计划要分清。需要时先搜索，过时信息可以修改或归档。笔记不是命令，也不会向聊天发送消息。',
       parameters: {
         type: 'object',
         properties: {
           content: { type: 'string', description: 'Notebook 正文；最多 4000 字符' },
           body: { type: 'string', description: 'content 的兼容别名；不要与 content 同时使用' },
           tags: { type: 'array', items: { type: 'string' }, description: '可选标签；标签不能改变可见范围' },
-          scope: {
+            scope: {
             type: 'string',
             enum: ['chat'],
-            description: '可选；固定为当前会话，宿主会强制绑定当前 chatKey'
+            description: '可选；固定为当前聊天，宿主会强制绑定当前 chatKey'
           },
           chatKey: {
             type: 'string',
@@ -118,7 +112,7 @@ function makeTools(getStore) {
     },
     {
       name: 'notebook_search',
-      description: '搜索当前账号可见的 Notebook。聊天中只能看到 global 与当前 chat 的 active 条目；tags 只是过滤条件，不能扩大 scope。归档条目不会被召回。',
+      description: '搜索当前账号可见的 Notebook。需要判断过去记录时先搜索；聊天中只能看到 global 与当前 chat 的 active 条目。tags 只是过滤条件，不能扩大 scope，归档条目不会被召回。',
       parameters: {
         type: 'object',
         properties: {
@@ -253,10 +247,11 @@ export function createSelfEvolutionPlugin({
     },
     start(_services, config = {}) {
       if (store) return store;
+      const selected = selfEvolutionConfig(config);
       store = new NotebookStore({
         dataDir,
         filename,
-        limits: { ...limits, ...configForPlugin(config).limits },
+        limits: { ...limits, ...selected.raw.limits },
         now
       });
       return store;

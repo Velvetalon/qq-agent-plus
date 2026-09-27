@@ -309,7 +309,7 @@ export class PluginManager {
   buildCompletionEvents(snapshot, {
     accountId = '', sessionId = '', runId = '', chatKey = '', resultClass = '',
     actionSummary = {}, sourceMessageIds = [], completedAt = Date.now(),
-    originKind = 'chat_run'
+    originKind = 'chat_run', evidenceVersion = 0, conversationEvidence = []
   } = {}) {
     if (!snapshot || snapshot.signal.aborted) return [];
     return snapshot.sessionObservers
@@ -326,6 +326,7 @@ export class PluginManager {
         resultClass: String(resultClass || ''),
         observerPluginId: observer.ownerPluginId,
         actionSummary: {
+          evidenceVersion: Math.max(0, Number(evidenceVersion) || 0),
           sentCount: Number(actionSummary.sentCount) || 0,
           finishReason: String(actionSummary.finishReason || '').slice(0, 300),
           outboundAttempted: actionSummary.outboundAttempted === true,
@@ -337,7 +338,22 @@ export class PluginManager {
             : null,
           outbound: actionSummary.outbound && typeof actionSummary.outbound === 'object'
             ? structuredClone(actionSummary.outbound)
-            : null
+            : null,
+          executionOutcome: actionSummary.executionOutcome
+            && typeof actionSummary.executionOutcome === 'object'
+            ? structuredClone(actionSummary.executionOutcome)
+            : null,
+          conversationEvidence: (Array.isArray(conversationEvidence)
+            ? conversationEvidence
+            : []).slice(0, 20).map((item) => ({
+            evidenceId: String(item?.evidenceId || '').slice(0, 160),
+            messageId: String(item?.messageId || '').slice(0, 160),
+            senderId: String(item?.senderId || '').slice(0, 40),
+            role: String(item?.role || '').slice(0, 20),
+            at: Number(item?.at) || 0,
+            text: String(item?.text || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+            confirmed: item?.confirmed === true
+          })).filter((item) => item.evidenceId && item.text)
         },
         sourceMessageIds: (Array.isArray(sourceMessageIds) ? sourceMessageIds : []).map(String).slice(0, 32),
         completedAt: Number(completedAt) || Date.now()

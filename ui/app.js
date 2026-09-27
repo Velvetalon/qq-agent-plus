@@ -2272,8 +2272,8 @@ function renderSessionAuditPanels(s) {
           : '-'}</strong><small>${outbound
           ? `失败 ${Number(outbound.failed) || 0} · 未知 ${Number(outbound.unknown) || 0} · 挂起 ${Number(outbound.held) || 0}`
           : '旧会话无记录'}</small></div>
-        <div><span>命中笔记版本</span><strong>${fmtTok(blocks.length)}</strong><small>${esc(blocks
-          .map((block) => `${block.id}@${block.revision ?? '-'}`).slice(0, 3).join(' ')
+        <div><span>命中笔记版本</span><strong>${fmtTok((retrieval.hits || []).length)}</strong><small>${esc((retrieval.hits || [])
+          .map((hit) => `${hit.noteId}@${hit.revision ?? '-'}`).slice(0, 3).join(' ')
           || '无')}</small></div>
         <div><span>上下文预算</span><strong>${fmtTok(budget.promptChars || 0)}</strong><small>字符 · 限制 ${fmtTok(budget.contextLimit || 0)}</small></div>
         <div><span>检索审计</span><strong>${retrieval.available ? '已接入' : '不可用'}</strong><small>${esc(

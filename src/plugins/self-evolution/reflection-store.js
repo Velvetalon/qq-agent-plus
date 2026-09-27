@@ -76,7 +76,10 @@ export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
 const LOW_RISK_TRAIT_KEYS = new Set([
   'communication_style',
   'language_preference',
-  'working_habit'
+  'working_habit',
+  'topic_interests',
+  'interaction_preferences',
+  'expression_preferences'
 ]);
 const RESERVED_TRAIT_KEYS = new Set([
   'roletext',
@@ -287,6 +290,19 @@ function boundedOutbound(value) {
   };
 }
 
+function boundedConversationEvidence(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).map((item) => ({
+    evidenceId: optionalText(item?.evidenceId, 'conversationEvidence.evidenceId', 160),
+    messageId: optionalText(item?.messageId, 'conversationEvidence.messageId', 160),
+    senderId: optionalText(item?.senderId, 'conversationEvidence.senderId', 40),
+    role: optionalText(item?.role, 'conversationEvidence.role', 20),
+    at: Math.max(0, Number(item?.at) || 0),
+    text: optionalText(item?.text, 'conversationEvidence.text', 240),
+    confirmed: item?.confirmed === true
+  })).filter((item) => item.evidenceId && item.text);
+}
+
 function failureKinds(
   resultClass,
   finishReason,
@@ -299,7 +315,6 @@ function failureKinds(
   const values = [];
   const combined = [
     resultClass,
-    finishReason,
     participation?.decision,
     participation?.reasonCode,
     participation?.reason,
@@ -310,6 +325,12 @@ function failureKinds(
     actionSummary?.apiError,
     actionSummary?.toolError
   ].filter(Boolean).join(' ').toLowerCase();
+  const explicitSilence = termination?.kind === 'explicit_silence'
+    && Number(outbound.attempted) === 0
+    && Number(outbound.succeeded) === 0
+    && Number(outbound.failed) === 0
+    && Number(outbound.unknown) === 0
+    && Number(outbound.held) === 0;
   if (/timeout|timed out|deadline/.test(combined)) values.push('timeout');
   if (/abort|interrupt/.test(combined)) values.push('aborted');
   if (/error|failed|failure/.test(combined)) values.push('failure');
@@ -319,13 +340,13 @@ function failureKinds(
     || actionSummary?.toolFailure === true) {
     values.push('tool_failure');
   }
-  if (/^no[_ -]?reply$|^noreply$|no response|silent/.test(String(resultClass || '').toLowerCase())
+  if (!explicitSilence && (/^no[_ -]?reply$|^noreply$|no response|silent/.test(String(resultClass || '').toLowerCase())
     || actionSummary?.noreply === true
     || actionSummary?.noReply === true
     || (Number(actionSummary?.sentCount) === 0 && actionSummary?.outboundAttempted !== true)
     || /^(no[_ -]?reply|noreply|silent)$/.test(
       String(participation?.decision || participation?.reasonCode || '').toLowerCase()
-    )) {
+    ))) {
     values.push('noreply');
   }
   if (actionSummary?.notCalled === true
@@ -390,6 +411,7 @@ export function hashBasePersona(basePersona = {}) {
 export function normalizeCompletionObservation(event) {
   const lineage = sourceLineage(event);
   const actionSummary = plainObject(event.actionSummary) ? event.actionSummary : {};
+  const conversationEvidence = boundedConversationEvidence(actionSummary.conversationEvidence);
   const resultClass = optionalText(event.resultClass, 'event.resultClass', 80);
   const finishReason = optionalText(actionSummary.finishReason, 'actionSummary.finishReason', 300);
   const outbound = boundedOutbound(actionSummary.outbound);
@@ -419,6 +441,8 @@ export function normalizeCompletionObservation(event) {
     `session:${lineage.sessionId}`,
     lineage.runId ? `run:${lineage.runId}` : '',
     ...sourceMessageIds.map((id) => `message:${id}`)
+    ,
+    ...conversationEvidence.map((item) => item.evidenceId)
   ].filter(Boolean);
   return {
     sourceKind: 'run_completion',
@@ -434,6 +458,7 @@ export function normalizeCompletionObservation(event) {
     observationWindowId: lineage.observationWindowId,
     resultClass,
     actionSummary: {
+      evidenceVersion: Math.max(0, Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0),
       sentCount: Math.max(0, Number(actionSummary.sentCount) || 0),
       finishReason,
       outboundAttempted: actionSummary.outboundAttempted === true,
@@ -441,6 +466,14 @@ export function normalizeCompletionObservation(event) {
       termination,
       outbound
     },
+    executionOutcome: plainObject(actionSummary.executionOutcome)
+      ? structuredClone(actionSummary.executionOutcome)
+      : {
+          resultClass,
+          sentCount: Math.max(0, Number(actionSummary.sentCount) || 0),
+          finishReason
+        },
+    conversationEvidence,
     sourceMessageIds,
     completedAt: Math.max(0, Number(event.completedAt) || 0),
     evidenceIds: [...new Set(evidenceIds)],
@@ -961,6 +994,11 @@ function aggregateObservations(rows, observationKey) {
   )))];
   const sessionIds = [...new Set(observations.map((item) => String(item.sessionId || '')).filter(Boolean))];
   const behaviorChangeObservation = observations.find((item) => item.behaviorChange === true);
+  const conversationEvidence = [...new Map(
+    observations.flatMap((item) => (
+      Array.isArray(item.conversationEvidence) ? item.conversationEvidence : []
+    )).map((item) => [String(item.evidenceId || ''), item])
+  ).values()].filter((item) => item.evidenceId);
   const validSessionCount = observations.filter((item) => item.validSession === true).length;
   const aggregate = {
     ...first,
@@ -975,6 +1013,7 @@ function aggregateObservations(rows, observationKey) {
       || ''
     ).slice(0, 300),
     evidenceIds,
+    conversationEvidence,
     failureKinds,
     invalidEvidenceKinds,
     reliability: failureKinds.length > 0 ? 'unreliable' : 'normal',
@@ -1858,6 +1897,10 @@ export class ReflectionStore {
       let profileRevision = headRevision;
       let appliedCount = 0;
       let invalidCount = 0;
+      let appliedNoteCount = 0;
+      let appliedTraitCount = 0;
+      let rejectedCount = 0;
+      let noopCount = 0;
       if (normalizedMode === 'bounded_auto') {
         const policyActor = `reflection:${owner}`;
         const noteProposals = proposals.filter((entry) => entry.type === 'note');
@@ -1873,6 +1916,7 @@ export class ReflectionStore {
               actor: policyActor
             });
             appliedCount += 1;
+            appliedNoteCount += 1;
           } catch (error) {
             const code = String(error?.code || 'REFLECTION_NOTE_APPLY_FAILED');
             const stale = code.includes('CAS') || code.includes('REVISION') || code.includes('ARCHIVED');
@@ -1890,6 +1934,7 @@ export class ReflectionStore {
               proposal.id
             );
             invalidCount += 1;
+            rejectedCount += 1;
           }
         }
         const highRiskTraits = proposals.filter((entry) => (
@@ -1903,6 +1948,7 @@ export class ReflectionStore {
               error_message='High-risk reflection behavior is rejected by policy'
             WHERE id=? AND status='pending'
           `).run(ts, policyActor, proposal.id);
+          rejectedCount += 1;
         }
         const lowRiskTraits = proposals.filter((entry) => entry.type === 'trait' && entry.risk === 'low');
         if (lowRiskTraits.length > 0) {
@@ -1922,6 +1968,9 @@ export class ReflectionStore {
           });
           appliedCount += result.applied;
           invalidCount += result.invalid;
+          appliedTraitCount += result.applied;
+          noopCount += result.nooped;
+          rejectedCount += result.invalid;
           profileRevision = result.profileRevision;
           if (result.applied > 0) {
             db.prepare(`
@@ -1957,18 +2006,22 @@ export class ReflectionStore {
       let finalBatchStatus = 'applied';
       if (remaining > 0) {
         finalBatchStatus = applied > 0 ? 'partially_applied' : batchStatus;
-      } else if (applied === 0 && rejected > 0 && stale === 0 && invalid === 0) {
+      } else if (appliedCount === 0 && noopCount > 0 && rejected === 0 && stale === 0 && invalid === 0) {
+        finalBatchStatus = 'noop';
+      } else if (appliedCount === 0 && rejected > 0 && stale === 0 && invalid === 0) {
         finalBatchStatus = 'rejected';
-      } else if (applied === 0 && stale > 0 && invalid === 0) {
+      } else if (appliedCount === 0 && stale > 0 && invalid === 0) {
         finalBatchStatus = 'stale';
-      } else if (applied === 0 && invalid > 0 && stale === 0) {
+      } else if (appliedCount === 0 && invalid > 0 && stale === 0) {
         finalBatchStatus = 'invalid';
       } else if (rejected > 0 || stale > 0 || invalid > 0) {
         finalBatchStatus = 'partially_applied';
       }
       const finalJobStatus = remaining > 0
         ? 'ready'
-        : ['stale', 'invalid'].includes(finalBatchStatus)
+        : finalBatchStatus === 'noop'
+          ? 'noop'
+        : ['stale', 'invalid', 'rejected'].includes(finalBatchStatus)
           ? finalBatchStatus
           : 'applied';
       db.prepare(`
@@ -1997,6 +2050,12 @@ export class ReflectionStore {
           mode: normalizedMode,
           proposals: proposals.length,
           applied: appliedCount,
+          appliedNoteCount,
+          appliedTraitCount,
+          rejectedCount,
+          noopCount,
+          profileRevisionBefore: headRevision,
+          profileRevisionAfter: profileRevision,
           invalid: invalidCount,
           gaps: gapResult.upserted
         },
@@ -2009,6 +2068,12 @@ export class ReflectionStore {
         jobStatus: finalJobStatus,
         batchStatus: finalBatchStatus,
         profileRevision,
+        appliedNoteCount,
+        appliedTraitCount,
+        rejectedCount,
+        noopCount,
+        profileRevisionBefore: headRevision,
+        profileRevisionAfter: profileRevision,
         proposalIds: proposals.map((entry) => entry.id),
         gapIds: gapResult.ids
       };
@@ -2527,7 +2592,7 @@ export class ReflectionStore {
     source,
     ts
   }) {
-    if (!proposals.length) return { applied: 0, invalid: 0, profileRevision: expectedRevision };
+    if (!proposals.length) return { applied: 0, invalid: 0, nooped: 0, profileRevision: expectedRevision };
     const currentRevision = this.#headRevision(db, accountId);
     if (currentRevision !== expectedRevision) {
       for (const proposal of proposals) {
@@ -2537,7 +2602,7 @@ export class ReflectionStore {
           WHERE id=? AND status='pending'
         `).run(ts, proposal.id);
       }
-      return { applied: 0, invalid: proposals.length, profileRevision: currentRevision };
+      return { applied: 0, invalid: proposals.length, nooped: 0, profileRevision: currentRevision };
     }
     const current = profileView(db.prepare(`
       SELECT * FROM learned_self_versions WHERE account_id=? AND revision=?
@@ -2547,6 +2612,7 @@ export class ReflectionStore {
     const profile = normalizeProfile(current.profile);
     let applied = 0;
     let invalid = 0;
+    let nooped = 0;
     for (const proposal of proposals) {
       const item = proposal.payload;
       if (proposal.basePersonaHash !== baseHash) {
@@ -2561,9 +2627,28 @@ export class ReflectionStore {
       const bucket = item.scope === 'chat'
         ? (profile.chats[item.chatKey] ||= {})
         : profile.global;
+      const currentValue = bucket[item.key];
       if (item.action === 'remove') {
+        if (!Object.hasOwn(bucket, item.key)) {
+          nooped += 1;
+          db.prepare(`
+            UPDATE reflection_proposals SET status='applied',reviewed_at=?,applied_at=?,
+              applier=?,error_code='REFLECTION_NOOP_DUPLICATE',error_message='No matching trait to remove'
+            WHERE id=? AND status='pending'
+          `).run(ts, ts, actor, proposal.id);
+          continue;
+        }
         delete bucket[item.key];
       } else {
+        if (currentValue && currentValue.value === item.value) {
+          nooped += 1;
+          db.prepare(`
+            UPDATE reflection_proposals SET status='applied',reviewed_at=?,applied_at=?,
+              applier=?,error_code='REFLECTION_NOOP_DUPLICATE',error_message='Trait value already matches'
+            WHERE id=? AND status='pending'
+          `).run(ts, ts, actor, proposal.id);
+          continue;
+        }
         bucket[item.key] = {
           value: item.value,
           confidence: item.confidence,
@@ -2577,7 +2662,7 @@ export class ReflectionStore {
       `).run(ts, ts, actor, proposal.id);
       applied += 1;
     }
-    if (applied === 0) return { applied, invalid, profileRevision: currentRevision };
+    if (applied === 0) return { applied, invalid, nooped, profileRevision: currentRevision };
     const nextRevision = currentRevision + 1;
     db.prepare(`
       INSERT INTO learned_self_versions
@@ -2600,7 +2685,7 @@ export class ReflectionStore {
       VALUES (?,?,?)
       ON CONFLICT(account_id) DO UPDATE SET revision=excluded.revision,updated_at=excluded.updated_at
     `).run(accountId, nextRevision, ts);
-    return { applied, invalid, profileRevision: nextRevision };
+    return { applied, invalid, nooped, profileRevision: nextRevision };
   }
 
   #applyNoteProposal(db, proposal, {
@@ -2802,9 +2887,11 @@ export function createReflectionObserver({
   };
 }
 
-export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS) {
+export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflectionInput = {}) {
   const normalizedLimits = normalizeLimits(limits);
-  return [
+  const observation = plainObject(job?.evidence) ? { ...job.evidence } : {};
+  delete observation.conversationEvidence;
+  const instructions = [
     'You are a read-only reflection worker.',
     'Return JSON with exactly: noteOperations, traitProposals, capabilityGapProposals, summary.',
     'Do not execute code, install plugins, request credentials, or infer disinterest from failures.',
@@ -2814,14 +2901,52 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS) {
     'noteOperations item schema: operation (append|update|archive), scope (global|chat), chatKey, content, tags, noteId, expectedRevision, evidenceRefs.',
     'For noteOperations: append requires operation, scope, content, tags, evidenceRefs and omits noteId/expectedRevision; update requires noteId and expectedRevision plus content or tags; archive requires noteId and expectedRevision and omits content/tags.',
     'traitProposals item schema: action (set|remove), key, value (only for set), scope (global|chat), chatKey, confidence, evidenceRefs.',
+    'Allowed preference keys: communication_style, language_preference, working_habit, topic_interests, interaction_preferences, expression_preferences.',
     'capabilityGapProposals item schema: category, capability, requestKey, scope (global|chat), chatKey, detail, evidenceRefs.',
     'Use chatKey="" for global scope. For chat scope, use the observed chatKey exactly. Use [] when a collection has no proposal.',
-    'Canonical example shape: {"noteOperations":[],"traitProposals":[{"action":"set","key":"communication_style","value":"concise","scope":"global","chatKey":"","confidence":0.9,"evidenceRefs":["session:..."]}],"capabilityGapProposals":[],"summary":"..."}.',
+    'Canonical empty shape: {"noteOperations":[],"traitProposals":[],"capabilityGapProposals":[],"summary":"没有足够证据时说明原因"}.',
     `Limits: noteOperations<=${normalizedLimits.maxNoteOperations}, ` +
       `traitProposals<=${normalizedLimits.maxTraitProposals}, ` +
       `capabilityGapProposals<=${normalizedLimits.maxCapabilityGapProposals}, ` +
       `input<=${normalizedLimits.maxModelInputChars} chars.`,
     'Allowed capability categories: missing, disabled, permission, config, temporary_failure.',
-    `Observation: ${safeJson(job?.evidence || {})}`
-  ].join('\n').slice(0, normalizedLimits.maxModelInputChars);
+    `ObservationMetadata: ${safeJson(observation)}`
+  ].join('\n');
+  const input = plainObject(reflectionInput) ? structuredClone(reflectionInput) : {};
+  const shrink = () => {
+    if (Array.isArray(input.conversationEvidence) && input.conversationEvidence.length > 8) {
+      input.conversationEvidence = input.conversationEvidence.slice(-8);
+      return true;
+    }
+    if (Array.isArray(input.notebook) && input.notebook.length > 4) {
+      input.notebook = input.notebook.slice(0, 4);
+      return true;
+    }
+    if (input.basePersona?.customRules && input.basePersona.customRules.length > 800) {
+      input.basePersona.customRules = input.basePersona.customRules.slice(0, 800);
+      return true;
+    }
+    return false;
+  };
+  let serialized = safeJson(input);
+  while (instructions.length + serialized.length + 24 > normalizedLimits.maxModelInputChars && shrink()) {
+    serialized = safeJson(input);
+  }
+  const available = Math.max(0, normalizedLimits.maxModelInputChars - instructions.length - 24);
+  if (serialized.length > available) {
+    input.conversationEvidence = [];
+    input.notebook = [];
+    input.basePersona = {
+      behaviorProfile: input.basePersona?.behaviorProfile || '',
+      tools: Array.isArray(input.basePersona?.tools)
+        ? input.basePersona.tools.slice(0, 12)
+        : []
+    };
+    input.currentProfile = input.currentProfile
+      ? { revision: Number(input.currentProfile.revision) || 0, context: {} }
+      : null;
+    serialized = safeJson(input);
+  }
+  if (serialized.length > available) serialized = safeJson({ truncated: true });
+  return `${instructions}\nReflectionInput: ${serialized}`;
 }

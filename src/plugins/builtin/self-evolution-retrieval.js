@@ -6,20 +6,12 @@ import {
   createSelfEvolutionRetrievalProvider,
   SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID
 } from '../self-evolution/retrieval-provider.js';
+import { selfEvolutionConfig } from '../self-evolution/config.js';
 
 export const SELF_EVOLUTION_RETRIEVAL_PLUGIN_ID = 'self-evolution-retrieval';
 
-function configForPlugin(config = {}) {
-  return config?.selfEvolution
-    || config?.plugins?.selfEvolution
-    || config?.plugins?.['self-evolution']
-    || {};
-}
-
 function retrievalEnabled(config = {}) {
-  const selfEvolution = configForPlugin(config);
-  return selfEvolution.enabled === true
-    && selfEvolution.retrieval?.enabled === true;
+  return selfEvolutionConfig(config).retrievalEnabled;
 }
 
 export function createSelfEvolutionRetrievalPlugin({

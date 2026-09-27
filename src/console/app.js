@@ -37,6 +37,7 @@ import {
   SELF_EVOLUTION_RETRIEVAL_PLUGIN_ID
 } from '../plugins/builtin/self-evolution-retrieval.js';
 import { createReflectionPlugin, reflectionConfig } from '../plugins/self-evolution/reflection-plugin.js';
+import { selfEvolutionConfig } from '../plugins/self-evolution/config.js';
 import { NotebookStore, notebookDatabasePath } from '../plugins/self-evolution/notebook-store.js';
 import { ReflectionStore, hashBasePersona, reflectionDatabasePath } from '../plugins/self-evolution/reflection-store.js';
 import { repairJsonObject } from '../core/json-repair.js';
@@ -405,24 +406,27 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
   }
 
   function retrievalStatus() {
-    const selfEvolution = getConfig().selfEvolution || {};
-    const retrieval = selfEvolution.retrieval && typeof selfEvolution.retrieval === 'object'
-      ? selfEvolution.retrieval
-      : {};
-    const enabled = retrieval.enabled === true;
-    const active = selfEvolution.enabled === true && enabled;
+    const selected = selfEvolutionConfig(getConfig());
+    const plugin = pluginStatusEntry(RETRIEVAL_PLUGIN_ID);
+    const enabled = selected.retrievalEnabled;
+    const active = plugin?.running === true;
+    const retrieval = selected.retrieval;
     const embeddingEnabled = retrieval.embedding?.enabled === true;
     return {
       enabled,
       integrated: true,
       available: active,
+      configured: retrieval.enabled === true,
+      running: active,
       mode: embeddingEnabled ? 'hybrid' : 'lexical',
       adapter: 'self-evolution-notebook',
-      reason: !selfEvolution.enabled
+      reason: !selected.enabled
         ? 'self-evolution-disabled'
-        : enabled
+        : active
           ? 'ready'
-          : 'disabled-by-config'
+          : enabled
+            ? 'not-running'
+            : 'disabled-by-config'
     };
   }
 
@@ -438,17 +442,18 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
    * 注册本身不建库、不起 worker —— 只有这里打开后才走 start 生命周期。
    */
   function syncSelfEvolutionPluginOverrides() {
+    const selected = selfEvolutionConfig(getConfig());
     orchestrator.pluginManager.setEnabled(
       SELF_EVOLUTION_PLUGIN_ID,
-      selfEvolutionEnabled()
+      selected.notebookEnabled
     );
     orchestrator.pluginManager.setEnabled(
       RETRIEVAL_PLUGIN_ID,
-      selfEvolutionEnabled() && getConfig().selfEvolution?.retrieval?.enabled === true
+      selected.retrievalEnabled
     );
     orchestrator.pluginManager.setEnabled(
       REFLECTION_PLUGIN_ID,
-      reflectionConfig(getConfig()).enabled === true
+      selected.reflectionEnabled
     );
   }
 
@@ -477,6 +482,33 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     }
   }
 
+  async function reconcileSelfEvolutionRuntime() {
+    const manager = orchestrator.pluginManager;
+    const selected = selfEvolutionConfig(getConfig());
+    if (selected.notebookEnabled && accountNamespace().source !== 'selfId') {
+      throw new Error('无法确认 OneBot selfId，自我迭代需要宿主账号');
+    }
+    for (const pluginId of CONTROLLABLE_PLUGIN_IDS) ensureSelfEvolutionPluginRegistered(pluginId);
+    const desired = new Map([
+      [SELF_EVOLUTION_PLUGIN_ID, selected.notebookEnabled],
+      [RETRIEVAL_PLUGIN_ID, selected.retrievalEnabled],
+      [REFLECTION_PLUGIN_ID, selected.reflectionEnabled]
+    ]);
+    for (const [pluginId, enabled] of desired) {
+      const status = pluginStatusEntry(pluginId);
+      if (!enabled && status?.running === true) {
+        await manager.disable(pluginId, 'config-disabled');
+      } else if (enabled && status?.enabled !== true) {
+        manager.setEnabled(pluginId, true);
+      }
+    }
+    syncSelfEvolutionPluginOverrides();
+    await manager.startAll({
+      config: getConfig(),
+      services: { logger: (...args) => log('[self-evolution]', ...args) }
+    });
+  }
+
   async function setPluginEnabled(pluginId, enabled, res) {
     const manager = orchestrator.pluginManager;
     const registration = manager.registry.getRegistrations()
@@ -502,9 +534,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       manager.setEnabled(pluginId, true);
       manager.setEnabled(
         RETRIEVAL_PLUGIN_ID,
-        getConfig().selfEvolution?.retrieval?.enabled === true
+        selfEvolutionConfig(getConfig()).retrievalEnabled
       );
-      manager.setEnabled(REFLECTION_PLUGIN_ID, getConfig().selfEvolution?.reflection?.enabled === true);
+      manager.setEnabled(REFLECTION_PLUGIN_ID, selfEvolutionConfig(getConfig()).reflectionEnabled);
       const failed = await startPluginThroughManager(pluginId, res);
       if (failed) {
         updateConfig({ selfEvolution: { enabled: false } });
@@ -602,8 +634,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
 
   function selfEvolutionStatusPayload() {
     const account = accountNamespace();
-    const enabled = selfEvolutionEnabled();
-    const reflectionOn = reflectionEnabled();
+    const selected = selfEvolutionConfig(getConfig());
+    const enabled = selected.notebookEnabled;
+    const reflectionOn = selected.reflectionEnabled;
     const notebook = withNotebookStore((store, live) => {
       if (!store) return { exists: false, open: false, readOnly: true, counts: null };
       let counts = null;
@@ -651,12 +684,16 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       disabled: !enabled,
       selfEvolution: {
         enabled,
+        configured: selected.raw.enabled === true,
+        effective: selected.notebookEnabled,
         registered: Boolean(pluginStatusEntry(SELF_EVOLUTION_PLUGIN_ID)),
         running: pluginStatusEntry(SELF_EVOLUTION_PLUGIN_ID)?.running === true,
         notebook
       },
       reflection: {
         enabled: reflectionOn,
+        configured: selected.raw.reflection?.enabled === true,
+        effective: selected.reflectionEnabled,
         registered: Boolean(pluginStatusEntry(REFLECTION_PLUGIN_ID)),
         running: pluginStatusEntry(REFLECTION_PLUGIN_ID)?.running === true,
         ...reflection
@@ -2498,6 +2535,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
 
       if (pathname === '/api/config' && method === 'POST') {
         const patch = await readBody(req);
+        const previousSelfEvolution = structuredClone(getConfig().selfEvolution || {});
         const previousProactive = JSON.stringify(cfgNow.proactive || {});
         const previousDailyMoments = JSON.stringify(cfgNow.dailyMoments || {});
         const previousQzoneInteractions = JSON.stringify(cfgNow.qzoneInteractions || {});
@@ -2591,6 +2629,19 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             return json(res, 500, {
               ok: false,
               error: `黑话语料库启动失败，开关已恢复为关闭：${String(error?.message ?? error)}`,
+              config: sanitizeConfig(reverted)
+            });
+          }
+        }
+        if (JSON.stringify(next.selfEvolution || {}) !== JSON.stringify(previousSelfEvolution)) {
+          try {
+            await reconcileSelfEvolutionRuntime();
+          } catch (error) {
+            const reverted = updateConfig({ selfEvolution: previousSelfEvolution });
+            try { await reconcileSelfEvolutionRuntime(); } catch { /* preserve original failure */ }
+            return json(res, 500, {
+              ok: false,
+              error: `自我迭代模块启动失败，配置已恢复：${String(error?.message ?? error)}`,
               config: sanitizeConfig(reverted)
             });
           }

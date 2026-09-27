@@ -230,7 +230,15 @@ export class ReflectionWorker {
     }
     let raw;
     try {
-      raw = await this.#callReflector({ job, persona, basePersonaHash, selectedMode, signal });
+      const reflectionInput = this.#buildReflectionInput(job, persona, notebook);
+      raw = await this.#callReflector({
+        job,
+        persona,
+        basePersonaHash,
+        selectedMode,
+        reflectionInput,
+        signal
+      });
     } catch (error) {
       if (error?.code === 'REFLECTION_STOPPED' || signal.aborted || !this.active) {
         return { status: 'stopped', modelCalls: 1, committed: false, jobId: job.id };
@@ -338,11 +346,79 @@ export class ReflectionWorker {
       jobId: job.id,
       batchId: committed.batchId || '',
       jobStatus: committed.jobStatus || 'noop',
-      profileRevision: committed.profileRevision
+      profileRevision: committed.profileRevision,
+      appliedNoteCount: committed.appliedNoteCount || 0,
+      appliedTraitCount: committed.appliedTraitCount || 0,
+      rejectedCount: committed.rejectedCount || 0,
+      noopCount: committed.noopCount || 0,
+      profileRevisionBefore: committed.profileRevisionBefore ?? committed.profileRevision,
+      profileRevisionAfter: committed.profileRevisionAfter ?? committed.profileRevision
     };
   }
 
-  async #callReflector({ job, persona, basePersonaHash, selectedMode, signal }) {
+  #buildReflectionInput(job, persona, notebook) {
+    const evidence = job?.evidence || {};
+    let currentProfile = null;
+    try {
+      currentProfile = this.store.getLearnedSelfContext({
+        accountId: job.accountId,
+        chatKey: job.chatKey,
+        basePersona: persona
+      });
+    } catch {
+      currentProfile = null;
+    }
+    let notes = [];
+    try {
+      notes = notebook?.search?.({
+        accountId: job.accountId,
+        currentChatKey: job.chatKey,
+        query: '',
+        limit: 8,
+        includeArchived: false,
+        admin: false
+      })?.notes || [];
+    } catch {
+      notes = [];
+    }
+    return {
+      conversationEvidence: Array.isArray(evidence.conversationEvidence)
+        ? evidence.conversationEvidence
+        : [],
+      executionOutcome: evidence.executionOutcome || evidence.actionSummary || {},
+      basePersona: {
+        roleText: String(persona.roleText || '').slice(0, 3000),
+        behaviorProfile: String(persona.behaviorProfile || '').slice(0, 120),
+        botName: String(persona.botName || '').slice(0, 120),
+        selfNickname: String(persona.selfNickname || '').slice(0, 120),
+        customRules: String(persona.customRules || '').slice(0, 2000),
+        tools: Array.isArray(persona.tools)
+          ? persona.tools.slice(0, 40).map((tool) => ({
+              name: String(tool?.name || '').slice(0, 100),
+              effect: String(tool?.effect || '').slice(0, 80),
+              terminal: tool?.terminal === true
+            }))
+          : []
+      },
+      currentProfile: currentProfile
+        ? {
+            revision: Number(currentProfile.revision) || 0,
+            stale: currentProfile.stale === true,
+            context: currentProfile.context || {}
+          }
+        : null,
+      notebook: notes.slice(0, 8).map((note) => ({
+        id: String(note.id || ''),
+        revision: Number(note.revision) || 0,
+        scope: String(note.scope || ''),
+        chatKey: String(note.chatKey || ''),
+        content: String(note.content || '').slice(0, 400),
+        tags: Array.isArray(note.tags) ? note.tags.slice(0, 12) : []
+      }))
+    };
+  }
+
+  async #callReflector({ job, persona, basePersonaHash, selectedMode, reflectionInput, signal }) {
     const timeoutMs = Math.max(1, Number(this.limits.reflectionTimeoutMs)
       || Number(this.limits.timeoutMs)
       || 30000);
@@ -357,7 +433,7 @@ export class ReflectionWorker {
       }));
     }, timeoutMs);
     try {
-      const prompt = reflectionPrompt(job, this.limits);
+      const prompt = reflectionPrompt(job, this.limits, reflectionInput);
       if (prompt.length > this.limits.maxModelInputChars) {
         throw new ReflectionError('REFLECTION_LIMIT_EXCEEDED', 'reflection prompt exceeds input budget');
       }

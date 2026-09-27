@@ -376,6 +376,35 @@ test('plugin inventory exposes the P7 read model and restricts runtime control',
   }
 });
 
+test('generic self-evolution config saves reconcile omitted reflection and disable runtime', async () => {
+  const { port, stop } = await startApp({ selfId: '20004' });
+  try {
+    const enabled = await request(port, 'POST', '/api/config', {
+      body: { selfEvolution: { enabled: true } }
+    });
+    assert.equal(enabled.status, 200);
+    const afterEnable = await request(port, 'GET', '/api/plugins');
+    const reflection = afterEnable.json.plugins.find((plugin) => (
+      plugin.id === 'self-evolution-reflection'
+    ));
+    assert.equal(reflection.enabled, true);
+    assert.equal(reflection.running, true);
+
+    const disabled = await request(port, 'POST', '/api/config', {
+      body: { selfEvolution: { enabled: false } }
+    });
+    assert.equal(disabled.status, 200);
+    const afterDisable = await request(port, 'GET', '/api/plugins');
+    for (const id of ['self-evolution', 'self-evolution-retrieval', 'self-evolution-reflection']) {
+      const plugin = afterDisable.json.plugins.find((item) => item.id === id);
+      assert.equal(plugin.enabled, false, id);
+      assert.equal(plugin.running, false, id);
+    }
+  } finally {
+    await stop();
+  }
+});
+
 test('Retrieval auto-recall can be toggled from the plugin console state', async () => {
   const { port, stop } = await startApp({
     selfId: '20003',
@@ -795,7 +824,12 @@ test('session detail fingerprint tracks audit fields and audit rendering escapes
     outbound: { attempted: 1, succeeded: 1, failed: 0, unknown: 0, held: 0 },
     pluginSnapshot: { registryRevision: 2, plugins: [{ id: 'self-evolution', version: '1.0.0', generation: 1 }] },
     pluginContext: { blocks: [{ id: 'note-1', revision: 4 }], diagnostics: [], degraded: false },
-    retrieval: { integrated: false, available: false, reason: 'unavailable' },
+    retrieval: {
+      integrated: false,
+      available: false,
+      reason: 'unavailable',
+      hits: [{ noteId: 'note-1', revision: 4 }]
+    },
     contextBudget: { promptChars: 10, contextLimit: 4 }
   });
   assert.equal(auditHtml.includes('<b>reply</b>'), false);

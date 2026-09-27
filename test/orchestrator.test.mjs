@@ -250,7 +250,7 @@ describe('Orchestrator', () => {
     const second = sessions.get(sessions.listSummaries(1)[0].id);
 
     assert.equal(requests.length, 2);
-    assert.equal((requests[0].messages.at(-1).content.match(/【长期笔记】/g) || []).length, 0);
+    assert.equal((requests[0].messages.at(-1).content.match(/【长期笔记】/g) || []).length, 1);
     assert.equal((requests[1].messages.at(-1).content.match(/【长期笔记】/g) || []).length, 1);
     assert.equal(first.promptPrefixHash, second.promptPrefixHash);
     assert.deepEqual(first.inputTools, second.inputTools);

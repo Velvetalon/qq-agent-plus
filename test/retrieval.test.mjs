@@ -47,6 +47,20 @@ test('Chinese short terms, mixed terms, and person QQ IDs use deterministic lexi
   assert.ok(person.results[0].score > 2);
 });
 
+test('long Chinese sentences produce bounded topical candidates instead of one exact term', async () => {
+  const service = new RetrievalService({
+    index: createMemoryIndexAdapter([
+      note('photo', '用户希望我总结本周摄影进度，并提醒下周任务。'),
+      note('other', '今天晚饭吃什么。')
+    ])
+  });
+  const result = await service.search({
+    query: '用户希望我在每周五晚上总结本周摄影进度并提醒下周任务',
+    accountId: 'acct-1'
+  });
+  assert.equal(result.results[0].noteId, 'photo');
+});
+
 test('permission, scope, status, expiry, dedupe, ranking, and budget are enforced before selection', async () => {
   const now = Date.parse('2026-09-25T00:00:00Z');
   const service = new RetrievalService({

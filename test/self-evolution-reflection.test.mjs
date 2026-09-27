@@ -470,7 +470,7 @@ test('reflection rejects transient run summaries instead of writing them as Note
   try {
     store.enqueueObservation(completionEvent('session-transient-note'));
     const result = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
-    assert.equal(result.jobStatus, 'applied');
+    assert.equal(result.jobStatus, 'rejected');
     const proposal = store.listProposals({ batchId: result.batchId })[0];
     assert.equal(proposal.status, 'rejected');
     assert.equal(proposal.errorCode, 'REFLECTION_NOTE_NOT_DURABLE');
@@ -1221,13 +1221,129 @@ test('completion provenance defaults to chat_run and rejects reflection origins'
   );
 });
 
+test('completion evidence preserves bounded conversation and explicit silence is trait-eligible', () => {
+  const event = completionEvent('session-evidence', {
+    resultClass: 'explicit_silence',
+    actionSummary: {
+      ...completionEvent('session-evidence').actionSummary,
+      sentCount: 0,
+      outboundAttempted: false,
+      termination: {
+        kind: 'explicit_silence',
+        reasonCode: 'not_needed',
+        reason: 'no new content',
+        threadDisposition: 'active',
+        blocked: false
+      },
+      outbound: { attempted: 0, succeeded: 0, failed: 0, unknown: 0, held: 0 },
+      conversationEvidence: [{
+        evidenceId: 'message:m1',
+        messageId: 'm1',
+        senderId: 'user-1',
+        role: 'user',
+        at: 1000,
+        text: '我今天想聊摄影',
+        confirmed: true
+      }]
+    }
+  });
+  const normalized = normalizeCompletionObservation(event);
+  assert.equal(normalized.traitEligible, true);
+  assert.equal(normalized.conversationEvidence[0].text, '我今天想聊摄影');
+  assert.ok(normalized.evidenceIds.includes('message:m1'));
+});
+
 test('reflection prompt specifies the canonical nested proposal schema', () => {
   const prompt = reflectionPrompt({
     evidence: { sourceKind: 'run_completion', sessionId: 'session-schema' }
+  }, undefined, {
+    conversationEvidence: [{ evidenceId: 'message:m1', text: '我喜欢摄影' }],
+    currentProfile: { revision: 2, context: { communication_style: 'concise' } },
+    notebook: [{ id: 'note-1', revision: 3, content: '用户偏好摄影' }]
   });
   assert.match(prompt, /noteOperations item schema: operation/);
   assert.match(prompt, /traitProposals item schema: action/);
   assert.match(prompt, /capabilityGapProposals item schema: category/);
   assert.match(prompt, /Do not invent aliases such as op, type, target, note, trait, or evidenceIds/);
   assert.match(prompt, /operation \(append\|update\|archive\)/);
+  assert.match(prompt, /我喜欢摄影/);
+  assert.match(prompt, /note-1/);
+});
+
+test('reflection worker sends bounded conversation, current profile, and Notebook input', async () => {
+  const { store, dataDir } = fixture();
+  const notebook = new NotebookStore({ dataDir });
+  const base = persona();
+  notebook.append({
+    accountId: ACCOUNT_ID,
+    scope: 'chat',
+    chatKey: 'group:100',
+    content: '用户偏好摄影',
+    source: { kind: 'chat', accountId: ACCOUNT_ID, chatKey: 'group:100', sessionId: 'seed', runId: 'seed' },
+    currentChatKey: 'group:100',
+    idempotencyKey: 'seed-note'
+  });
+  let observedPrompt = '';
+  const worker = startWorker(store, async ({ prompt }) => {
+    observedPrompt = prompt;
+    return reflectionOutput('session-input');
+  }, {}, { basePersona: base, notebook });
+  try {
+    store.enqueueObservation(completionEvent('session-input', {
+      actionSummary: {
+        ...completionEvent('session-input').actionSummary,
+        conversationEvidence: [{
+          evidenceId: 'message:m1',
+          messageId: 'm1',
+          senderId: 'user-1',
+          role: 'user',
+          at: 1000,
+          text: '我最近喜欢摄影',
+          confirmed: true
+        }]
+      }
+    }));
+    await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
+    assert.match(observedPrompt, /我最近喜欢摄影/);
+    assert.match(observedPrompt, /用户偏好摄影/);
+    assert.match(observedPrompt, /ReflectionInput/);
+  } finally {
+    await worker.stop();
+    notebook.close();
+    store.close();
+  }
+});
+
+test('bounded_auto accepts extended preference keys and repeats are a noop', async () => {
+  const { store } = fixture();
+  const base = persona();
+  const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
+    traitProposals: [{
+      action: 'set',
+      key: 'topic_interests',
+      value: '摄影',
+      scope: 'chat',
+      chatKey: 'group:100',
+      confidence: 0.8,
+      evidenceRefs: [evidenceRef(job.sessionId)]
+    }]
+  }), {}, { basePersona: base });
+  try {
+    store.enqueueObservation(completionEvent('topic-1'));
+    const first = await runQueued(worker, store, {
+      mode: 'bounded_auto',
+      basePersona: base
+    });
+    assert.equal(first.profileRevision, 1);
+    store.enqueueObservation(completionEvent('topic-2'));
+    const second = await runQueued(worker, store, {
+      mode: 'bounded_auto',
+      basePersona: base
+    });
+    assert.equal(second.profileRevision, 1);
+    assert.equal(second.jobStatus, 'noop');
+  } finally {
+    await worker.stop('test');
+    store.close();
+  }
 });

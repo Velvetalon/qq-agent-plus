@@ -5,6 +5,11 @@ const DEFAULT_MAX_CHARS = 2400;
 const DEFAULT_MAX_SNIPPET_CHARS = 600;
 const ACTIVE_STATUSES = new Set(['active', 'current', 'published', 'ready']);
 const FTS_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const CJK_STOP_TERMS = new Set([
+  '今天', '现在', '刚刚', '这个', '那个', '想聊', '聊聊', '一下', '请问',
+  '可以', '帮我', '有没有', '怎么', '如何', '什么', '我们', '你们', '已经',
+  '然后', '之后', '关于', '真的', '感觉', '需要', '希望'
+]);
 
 function asText(value) {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
@@ -127,12 +132,12 @@ function queryTerms(query) {
   for (const part of normalized.split(/[\s,，。！？!?;；:：/\\|()[\]{}<>「」『』]+/u)) {
     if (!part) continue;
     if (/^[\p{Script=Han}]+$/u.test(part)) {
-      push(part);
-      if (part.length <= 2) {
-        for (const character of part) push(character);
-      } else if (part.length <= 4) {
-        for (let index = 0; index < part.length - 1; index += 1) {
-          push(part.slice(index, index + 2));
+      if (part.length <= 4) push(part);
+      const maxN = Math.min(4, part.length);
+      for (let n = maxN; n >= 2; n -= 1) {
+        for (let index = 0; index <= part.length - n && terms.length < 64; index += 1) {
+          const candidate = part.slice(index, index + n);
+          if (!CJK_STOP_TERMS.has(candidate)) push(candidate);
         }
       }
     } else {
@@ -142,9 +147,13 @@ function queryTerms(query) {
         if (/^\p{Script=Han}+$/u.test(run)) {
           if (run.length <= 2) {
             for (const character of run) push(character);
-          } else if (run.length <= 4) {
-            for (let index = 0; index < run.length - 1; index += 1) {
-              push(run.slice(index, index + 2));
+          } else {
+            const maxN = Math.min(4, run.length);
+            for (let n = maxN; n >= 2; n -= 1) {
+              for (let index = 0; index <= run.length - n && terms.length < 64; index += 1) {
+                const candidate = run.slice(index, index + n);
+                if (!CJK_STOP_TERMS.has(candidate)) push(candidate);
+              }
             }
           }
         }
@@ -319,11 +328,17 @@ export function escapeFts5Query(query) {
     .split(/\s+/u)
     .map((term) => term.trim())
     .filter(Boolean);
-  const terms = rawTerms.length > 0 ? rawTerms : queryTerms(query);
+  const usesWhitespace = /\s/u.test(normalizedText(query));
+  const terms = rawTerms.length > 1
+    ? rawTerms
+    : queryTerms(query);
   if (terms.length === 0) return '""';
-  return terms
+  const escaped = terms
     .map((term) => `"${term.replaceAll('"', '""')}"`)
-    .join(' AND ');
+    .join(!usesWhitespace && /\p{Script=Han}/u.test(normalizedText(query)) ? ' OR ' : ' AND ');
+  return !usesWhitespace && /\p{Script=Han}/u.test(normalizedText(query)) && terms.length > 1
+    ? `(${escaped})`
+    : escaped;
 }
 
 export function detectFts5(db) {

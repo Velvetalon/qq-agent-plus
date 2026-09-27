@@ -13,22 +13,14 @@ import {
 } from './reflection-store.js';
 import { ReflectionWorker } from './reflection-worker.js';
 import { createLearnedSelfContextProvider } from './learned-self-provider.js';
-
-function configForPlugin(config = {}) {
-  return config?.selfEvolution
-    || config?.plugins?.selfEvolution
-    || config?.plugins?.['self-evolution']
-    || {};
-}
+import { selfEvolutionConfig } from './config.js';
 
 export function reflectionConfig(config = {}) {
-  const selfEvolution = configForPlugin(config);
-  const reflection = selfEvolution.reflection && typeof selfEvolution.reflection === 'object'
-    ? selfEvolution.reflection
-    : {};
+  const selected = selfEvolutionConfig(config);
+  const reflection = selected.reflection;
   return {
     ...reflection,
-    enabled: selfEvolution.enabled === true && reflection.enabled !== false,
+    enabled: selected.reflectionEnabled,
     mode: 'bounded_auto',
     pollIntervalMs: Math.max(1, Number(reflection.pollIntervalMs) || 1000),
     minValidSessions: Math.max(
