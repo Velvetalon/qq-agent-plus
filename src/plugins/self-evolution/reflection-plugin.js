@@ -14,6 +14,7 @@ import {
 import { ReflectionWorker } from './reflection-worker.js';
 import { createLearnedSelfContextProvider } from './learned-self-provider.js';
 import { selfEvolutionConfig } from './config.js';
+import { createEmbeddingClient } from './embedding-client.js';
 
 export function reflectionConfig(config = {}) {
   const selected = selfEvolutionConfig(config);
@@ -47,7 +48,8 @@ export function createReflectionPlugin({
   getMode = null,
   getAccountId = null,
   getExpectedProfileRevision = null,
-  notebookAdapter = null
+  notebookAdapter = null,
+  embeddingClient = null
 } = {}) {
   if (typeof reflector !== 'function') throw new TypeError('reflector function is required');
   if (![SELF_EVOLUTION_PLUGIN_ID, 'self-evolution-reflection'].includes(id)) {
@@ -91,9 +93,24 @@ export function createReflectionPlugin({
     start(_services, config = {}) {
       const selected = reflectionConfig(config);
       if (!selected.enabled) return null;
+      const evolution = selfEvolutionConfig(config);
+      const embeddingConfig = evolution.retrieval?.embedding
+        && typeof evolution.retrieval.embedding === 'object'
+        ? evolution.retrieval.embedding
+        : {};
+      const client = embeddingClient
+        || (evolution.retrievalEnabled && embeddingConfig.enabled === true
+          ? createEmbeddingClient({ config: embeddingConfig })
+          : null);
       const selectedLimits = { ...limits, ...selected };
       store ||= new ReflectionStore({ dataDir, filename, limits: selectedLimits, now });
-      notebook ||= new NotebookStore({ dataDir, filename: notebookFilename, now });
+      notebook ||= new NotebookStore({
+        dataDir,
+        filename: notebookFilename,
+        now,
+        embeddingConfig,
+        embeddingClient: client
+      });
       worker ||= new ReflectionWorker({
         store,
         reflector,

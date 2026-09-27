@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../../core/config.js';
 import { SELF_EVOLUTION_PLUGIN_ID } from './notebook-store.js';
+import { reflectionRoleNoteText } from './notebook-policy.js';
 
 export const REFLECTION_DATABASE_NAME = 'reflection.sqlite';
 export const REFLECTION_OBSERVER_ID = 'self-evolution.reflection';
@@ -68,8 +69,14 @@ export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
   maxCallsPerDay: 100,
   minValidSessions: 1,
   observationWindowMs: 0,
-  leaseMs: 30000,
-  workerLeaseMs: 60000,
+  leaseMs: 60000,
+  workerLeaseMs: 90000,
+  inputPreparationTimeoutMs: 5000,
+  retrievalTimeoutMs: 5000,
+  reflectionTimeoutMs: 30000,
+  taskTimeoutMs: 50000,
+  submissionGraceMs: 10000,
+  workerGraceMs: 10000,
   backoffMs: 1000
 });
 
@@ -292,71 +299,96 @@ function boundedOutbound(value) {
 
 function boundedConversationEvidence(value) {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, 20).map((item) => ({
-    evidenceId: optionalText(item?.evidenceId, 'conversationEvidence.evidenceId', 160),
-    messageId: optionalText(item?.messageId, 'conversationEvidence.messageId', 160),
-    senderId: optionalText(item?.senderId, 'conversationEvidence.senderId', 40),
-    role: optionalText(item?.role, 'conversationEvidence.role', 20),
-    at: Math.max(0, Number(item?.at) || 0),
-    text: optionalText(item?.text, 'conversationEvidence.text', 240),
-    confirmed: item?.confirmed === true
-  })).filter((item) => item.evidenceId && item.text);
+  const unique = new Map();
+  for (const item of value.slice(0, 40)) {
+    const evidenceId = optionalText(item?.evidenceId, 'conversationEvidence.evidenceId', 160);
+    const content = optionalText(item?.text, 'conversationEvidence.text', 240);
+    if (!evidenceId || !content) continue;
+    const normalized = {
+      evidenceId,
+      sourceRecordType: optionalText(
+        item?.sourceRecordType || (evidenceId.includes(':') ? evidenceId.split(':', 1)[0] : 'message'),
+        'conversationEvidence.sourceRecordType',
+        40
+      ),
+      sourceRecordId: optionalText(
+        item?.sourceRecordId || item?.messageId || evidenceId,
+        'conversationEvidence.sourceRecordId',
+        160
+      ),
+      messageId: optionalText(item?.messageId, 'conversationEvidence.messageId', 160),
+      senderId: optionalText(item?.senderId, 'conversationEvidence.senderId', 40),
+      speaker: optionalText(item?.speaker || item?.role, 'conversationEvidence.speaker', 20),
+      role: optionalText(item?.role, 'conversationEvidence.role', 20),
+      at: Math.max(0, Number(item?.at) || 0),
+      text: content,
+      truncated: item?.truncated === true,
+      confirmed: item?.confirmed === true
+    };
+    const current = unique.get(evidenceId);
+    if (!current || (normalized.confirmed && !current.confirmed)
+      || normalized.at > current.at) {
+      unique.set(evidenceId, normalized);
+    }
+  }
+  return [...unique.values()].slice(0, 20);
 }
 
 function failureKinds(
   resultClass,
-  finishReason,
   outbound,
   neverWoken,
   participation,
   termination,
-  actionSummary
+  actionSummary,
+  executionOutcome
 ) {
   const values = [];
-  const combined = [
-    resultClass,
-    participation?.decision,
-    participation?.reasonCode,
-    participation?.reason,
-    termination?.kind,
-    termination?.reasonCode,
-    termination?.reason,
-    actionSummary?.error,
-    actionSummary?.apiError,
-    actionSummary?.toolError
-  ].filter(Boolean).join(' ').toLowerCase();
+  const outcome = plainObject(executionOutcome) ? executionOutcome : {};
+  const outcomeKinds = new Set([
+    outcome.kind,
+    outcome.status,
+    outcome.code,
+    outcome.reasonCode
+  ].map((value) => String(value || '').toLowerCase()).filter(Boolean));
+  const exactResult = String(resultClass || '').toLowerCase();
   const explicitSilence = termination?.kind === 'explicit_silence'
     && Number(outbound.attempted) === 0
     && Number(outbound.succeeded) === 0
     && Number(outbound.failed) === 0
     && Number(outbound.unknown) === 0
     && Number(outbound.held) === 0;
-  if (/timeout|timed out|deadline/.test(combined)) values.push('timeout');
-  if (/abort|interrupt/.test(combined)) values.push('aborted');
-  if (/error|failed|failure/.test(combined)) values.push('failure');
-  if (/(api|provider|http|upstream|gateway)/.test(combined)) values.push('api_failure');
-  if (/(tool|function[_ -]?call|tool[_ -]?call)/.test(combined)
+  if (['timeout', 'timed_out', 'deadline', 'request_timeout'].includes(exactResult)
+    || ['timeout', 'timed_out', 'deadline', 'request_timeout'].some((kind) => outcomeKinds.has(kind))
+    || outcome.timeout === true) values.push('timeout');
+  if (['aborted', 'cancelled', 'canceled', 'interrupt'].includes(exactResult)
+    || ['aborted', 'cancelled', 'canceled', 'interrupt'].some((kind) => outcomeKinds.has(kind))
+    || outcome.aborted === true
+    || outcome.cancelled === true) values.push('aborted');
+  if (['failed', 'failure', 'error'].includes(exactResult)
+    || ['failed', 'failure', 'error'].some((kind) => outcomeKinds.has(kind))
+    || outcome.failed === true) values.push('failure');
+  if (['api_error', 'api_failure'].includes(exactResult)
+    || ['api_error', 'api_failure'].some((kind) => outcomeKinds.has(kind))
+    || outcome.apiFailure === true) values.push('api_failure');
+  if (['tool_error', 'tool_failure'].includes(exactResult)
+    || ['tool_error', 'tool_failure'].some((kind) => outcomeKinds.has(kind))
     || actionSummary?.toolFailed === true
-    || actionSummary?.toolFailure === true) {
+    || actionSummary?.toolFailure === true
+    || outcome.toolFailure === true) {
     values.push('tool_failure');
   }
-  if (!explicitSilence && (/^no[_ -]?reply$|^noreply$|no response|silent/.test(String(resultClass || '').toLowerCase())
+  if (!explicitSilence && (['no_reply', 'noreply'].includes(exactResult)
     || actionSummary?.noreply === true
     || actionSummary?.noReply === true
-    || (Number(actionSummary?.sentCount) === 0 && actionSummary?.outboundAttempted !== true)
-    || /^(no[_ -]?reply|noreply|silent)$/.test(
-      String(participation?.decision || participation?.reasonCode || '').toLowerCase()
-    ))) {
+    || outcome.noReply === true
+    || participation?.decision === 'noreply')) {
     values.push('noreply');
   }
   if (actionSummary?.notCalled === true
-    || /^(not[_ -]?called|not[_ -]?invoked|not[_ -]?woken)$/.test(
-      String(
-        participation?.mode
-        || participation?.decision
-        || participation?.reasonCode
-        || ''
-      ).toLowerCase()
+    || outcome.notCalled === true
+    || ['not_called', 'not_invoked', 'not_woken'].includes(
+      String(participation?.decision || participation?.reasonCode || '').toLowerCase()
     )) {
     values.push('not_called');
   }
@@ -411,22 +443,34 @@ export function hashBasePersona(basePersona = {}) {
 export function normalizeCompletionObservation(event) {
   const lineage = sourceLineage(event);
   const actionSummary = plainObject(event.actionSummary) ? event.actionSummary : {};
-  const conversationEvidence = boundedConversationEvidence(actionSummary.conversationEvidence);
+  const conversationEvidence = boundedConversationEvidence(actionSummary.conversationEvidence)
+    .map((item) => ({
+      ...item,
+      sourceRef: [
+        lineage.accountId,
+        lineage.chatKey || 'account',
+        item.sourceRecordType || 'message',
+        item.sourceRecordId || item.evidenceId
+      ].join(':')
+    }));
   const resultClass = optionalText(event.resultClass, 'event.resultClass', 80);
   const finishReason = optionalText(actionSummary.finishReason, 'actionSummary.finishReason', 300);
   const outbound = boundedOutbound(actionSummary.outbound);
   const neverWoken = actionSummary.neverWoken === true;
   const participation = boundedParticipation(actionSummary.participation);
   const termination = boundedTermination(actionSummary.termination);
+  const executionOutcome = plainObject(actionSummary.executionOutcome)
+    ? structuredClone(actionSummary.executionOutcome)
+    : {};
   const behaviorChange = behaviorChangeSignal(event, actionSummary);
   const failures = failureKinds(
     resultClass,
-    finishReason,
     outbound,
     neverWoken,
     participation,
     termination,
-    actionSummary
+    actionSummary,
+    executionOutcome
   );
   const invalidEvidenceKinds = failures.filter((kind) =>
     REFLECTION_INVALID_EVIDENCE_KINDS.includes(kind)
@@ -442,10 +486,14 @@ export function normalizeCompletionObservation(event) {
     lineage.runId ? `run:${lineage.runId}` : '',
     ...sourceMessageIds.map((id) => `message:${id}`)
     ,
-    ...conversationEvidence.map((item) => item.evidenceId)
+    ...conversationEvidence.flatMap((item) => [item.evidenceId, item.sourceRef])
   ].filter(Boolean);
   return {
     sourceKind: 'run_completion',
+    evidenceVersion: Math.max(
+      2,
+      Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0
+    ),
     eventId: lineage.eventId,
     observerId: lineage.observerId,
     observerPluginId: lineage.observerPluginId,
@@ -458,7 +506,10 @@ export function normalizeCompletionObservation(event) {
     observationWindowId: lineage.observationWindowId,
     resultClass,
     actionSummary: {
-      evidenceVersion: Math.max(0, Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0),
+      evidenceVersion: Math.max(
+        2,
+        Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0
+      ),
       sentCount: Math.max(0, Number(actionSummary.sentCount) || 0),
       finishReason,
       outboundAttempted: actionSummary.outboundAttempted === true,
@@ -466,8 +517,8 @@ export function normalizeCompletionObservation(event) {
       termination,
       outbound
     },
-    executionOutcome: plainObject(actionSummary.executionOutcome)
-      ? structuredClone(actionSummary.executionOutcome)
+    executionOutcome: Object.keys(executionOutcome).length > 0
+      ? executionOutcome
       : {
           resultClass,
           sentCount: Math.max(0, Number(actionSummary.sentCount) || 0),
@@ -568,26 +619,16 @@ function disinterestLike(value) {
   return DISINTEREST_PATTERNS.some((pattern) => pattern.test(String(value)));
 }
 
-const TRANSIENT_NOTE_PATTERNS = Object.freeze([
-  /\b(?:run|session|token|budget|outbound|latency|follow[- ]?up|private chat|group chat)\b/i,
-  /\b(?:sent|replied|reply|messages?|ended|completed|successfully|safely)\b/i,
-  /(?:本轮|本次|当前会话|私聊|群聊|发送|回复|消息|条消息|安全结束|token|预算|外发|跟进|等待)/u,
-  /\d+\s*(?:messages?|replies?|条消息|条回复)/iu
-]);
-const DURABLE_NOTE_PATTERNS = Object.freeze([
-  /\b(?:prefers?|likes?|usually|always|avoid|doesn't want|does not want|works best|preference|habit|boundary|relationship)\b/i,
-  /(?:喜欢|偏好|习惯|通常|以后|记住|不要|别|需要|希望|称呼|边界|长期|关系|爱吃|爱看|讨厌)/u
-]);
-
 function noteContentRejection(content) {
   const value = String(content || '').replace(/\s+/g, ' ').trim();
   if (!value) return null;
-  const transient = TRANSIENT_NOTE_PATTERNS.some((pattern) => pattern.test(value));
-  const durable = DURABLE_NOTE_PATTERNS.some((pattern) => pattern.test(value));
-  if (transient && !durable) {
+  // Keep objective run telemetry out of the Notebook, while allowing a
+  // concrete experience or temporary impression to use natural language.
+  if (/(?:^|[\s，。])(?:本轮|本次运行|本次会话|token|预算|外发|工具调用|延迟|latency)(?:$|[\s，。])/iu.test(value)
+    || /\b(?:this run|run telemetry|token budget|outbound count)\b/i.test(value)) {
     return {
       code: 'REFLECTION_NOTE_NOT_DURABLE',
-      message: 'Notebook note must describe a durable future-useful fact, preference, or boundary'
+      message: 'Notebook note cannot be run telemetry or model budget metadata'
     };
   }
   return null;
@@ -841,8 +882,9 @@ function jobView(row) {
     status: String(row.status),
     attempts: Number(row.attempts) || 0,
     maxAttempts: Number(row.max_attempts) || 0,
-    leaseOwner: String(row.lease_owner || ''),
-    leaseGeneration: Number(row.lease_generation) || 0,
+  leaseOwner: String(row.lease_owner || ''),
+  leaseGeneration: Number(row.lease_generation) || 0,
+    leaseToken: String(row.lease_token || ''),
     leaseExpiresAt: Number(row.lease_expires_at) || 0,
     availableAt: Number(row.available_at) || 0,
     validSessionCount: Number(parseJson(row.evidence_json, {}).validSessionCount) || 0,
@@ -977,31 +1019,37 @@ function nextUtcPeriod(ts) {
 }
 
 function aggregateObservations(rows, observationKey) {
-  const observations = rows.map((row) => parseJson(row.evidence_json, {}))
+  const fullObservations = rows.map((row) => parseJson(row.evidence_json, {}))
     .sort((left, right) => (
       (Number(left.completedAt) || 0) - (Number(right.completedAt) || 0)
       || String(left.sessionId || '').localeCompare(String(right.sessionId || ''))
     ));
-  const first = observations[0] || {};
-  const evidenceIds = [...new Set(observations.flatMap((item) => (
+  const first = fullObservations[0] || {};
+  const observations = fullObservations.map((item) => {
+    const metadata = { ...item };
+    delete metadata.conversationEvidence;
+    return metadata;
+  });
+  const evidenceIds = [...new Set(fullObservations.flatMap((item) => (
     Array.isArray(item.evidenceIds) ? item.evidenceIds : []
   )))];
-  const failureKinds = [...new Set(observations.flatMap((item) => (
+  const failureKinds = [...new Set(fullObservations.flatMap((item) => (
     Array.isArray(item.failureKinds) ? item.failureKinds : []
   )))];
-  const invalidEvidenceKinds = [...new Set(observations.flatMap((item) => (
+  const invalidEvidenceKinds = [...new Set(fullObservations.flatMap((item) => (
     Array.isArray(item.invalidEvidenceKinds) ? item.invalidEvidenceKinds : []
   )))];
-  const sessionIds = [...new Set(observations.map((item) => String(item.sessionId || '')).filter(Boolean))];
-  const behaviorChangeObservation = observations.find((item) => item.behaviorChange === true);
+  const sessionIds = [...new Set(fullObservations.map((item) => String(item.sessionId || '')).filter(Boolean))];
+  const behaviorChangeObservation = fullObservations.find((item) => item.behaviorChange === true);
   const conversationEvidence = [...new Map(
-    observations.flatMap((item) => (
+    fullObservations.flatMap((item) => (
       Array.isArray(item.conversationEvidence) ? item.conversationEvidence : []
-    )).map((item) => [String(item.evidenceId || ''), item])
+    )).map((item) => [String(item.sourceRef || item.evidenceId || ''), item])
   ).values()].filter((item) => item.evidenceId);
-  const validSessionCount = observations.filter((item) => item.validSession === true).length;
+  const validSessionCount = fullObservations.filter((item) => item.validSession === true).length;
   const aggregate = {
     ...first,
+    evidenceVersion: Math.max(2, Number(first.evidenceVersion) || 0),
     observationWindowKey: String(observationKey || ''),
     sessionIds,
     observations,
@@ -1103,6 +1151,7 @@ export class ReflectionStore {
           max_attempts INTEGER NOT NULL,
           lease_owner TEXT NOT NULL DEFAULT '',
           lease_generation INTEGER NOT NULL DEFAULT 0,
+          lease_token TEXT NOT NULL DEFAULT '',
           lease_expires_at INTEGER NOT NULL DEFAULT 0,
           available_at INTEGER NOT NULL DEFAULT 0,
           created_at INTEGER NOT NULL,
@@ -1247,6 +1296,8 @@ export class ReflectionStore {
       `);
       ensureColumn(this.db, 'reflection_worker_state', 'budget_blocked_until',
         'INTEGER NOT NULL DEFAULT 0');
+      ensureColumn(this.db, 'reflection_jobs', 'lease_token',
+        "TEXT NOT NULL DEFAULT ''");
     } else {
       this.db.exec('PRAGMA busy_timeout=5000;');
     }
@@ -1521,6 +1572,33 @@ export class ReflectionStore {
         WHERE singleton=1
       `).run(worker, generationValue, ts + Math.max(1, Number(workerLeaseMs) || 1), ts);
 
+      const exhausted = db.prepare(`
+        SELECT id,account_id FROM reflection_jobs
+        WHERE status='leased' AND lease_expires_at<=? AND attempts>=max_attempts
+      `).all(ts);
+      for (const row of exhausted) {
+        db.prepare(`
+          UPDATE reflection_jobs
+          SET status='failed',lease_owner='',lease_generation=0,lease_token='',
+            lease_expires_at=0,updated_at=?,completed_at=?,last_error=?
+          WHERE id=? AND status='leased' AND lease_expires_at<=? AND attempts>=max_attempts
+        `).run(
+          ts,
+          ts,
+          'REFLECTION_ATTEMPTS_EXHAUSTED',
+          row.id,
+          ts
+        );
+        this.#audit(db, {
+          accountId: row.account_id,
+          jobId: row.id,
+          event: 'job-failed',
+          code: 'REFLECTION_ATTEMPTS_EXHAUSTED',
+          message: 'expired reflection lease exhausted its attempt limit',
+          ts
+        });
+      }
+
       const row = db.prepare(`
         SELECT * FROM reflection_jobs
         WHERE (
@@ -1530,10 +1608,11 @@ export class ReflectionStore {
         ORDER BY created_at,id LIMIT 1
       `).get(ts, ts);
       if (!row) return { status: 'empty', job: null };
+      const leaseToken = crypto.randomUUID();
       const changed = db.prepare(`
         UPDATE reflection_jobs
         SET status='leased',attempts=attempts+1,lease_owner=?,lease_generation=?,
-          lease_expires_at=?,updated_at=?,last_error=CASE WHEN ?='leased' THEN last_error ELSE '' END
+          lease_token=?,lease_expires_at=?,updated_at=?,last_error=CASE WHEN ?='leased' THEN last_error ELSE '' END
         WHERE id=? AND (
           (status IN ('pending','failed') AND attempts < max_attempts AND available_at<=?)
           OR (status='leased' AND lease_expires_at<=?)
@@ -1541,6 +1620,7 @@ export class ReflectionStore {
       `).run(
         worker,
         generationValue,
+        leaseToken,
         ts + Math.max(1, Number(leaseMs) || 1),
         ts,
         row.status,
@@ -1563,7 +1643,7 @@ export class ReflectionStore {
       const generationValue = Number(generation) || 0;
       db.prepare(`
         UPDATE reflection_jobs
-        SET status='pending',lease_owner='',lease_generation=0,lease_expires_at=0,
+        SET status='pending',lease_owner='',lease_generation=0,lease_token='',lease_expires_at=0,
           available_at=?,updated_at=?
         WHERE status='leased' AND lease_owner=? AND lease_generation=?
       `).run(ts, ts, ownerValue, generationValue);
@@ -1658,7 +1738,9 @@ export class ReflectionStore {
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
       const current = db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(String(job?.id || ''));
-      if (!current || !this.#leaseMatches(current, { owner, generation, ts })) {
+      if (!current || !this.#leaseMatches(current, {
+        owner, generation, leaseToken: job?.leaseToken, ts
+      })) {
         return { accepted: false, reason: 'stale-lease' };
       }
       const attempts = Number(current.attempts) || 0;
@@ -1669,9 +1751,9 @@ export class ReflectionStore {
         : ts + Math.max(0, this.limits.backoffMs) * Math.max(1, attempts);
       db.prepare(`
         UPDATE reflection_jobs
-        SET status=?,lease_owner='',lease_generation=0,lease_expires_at=0,
+        SET status=?,lease_owner='',lease_generation=0,lease_token='',lease_expires_at=0,
           available_at=?,updated_at=?,last_error=?
-        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=?
+        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=? AND lease_token=?
       `).run(
         status,
         availableAt,
@@ -1679,7 +1761,8 @@ export class ReflectionStore {
         String(error?.message || error).slice(0, 500),
         current.id,
         String(owner || ''),
-        Number(generation) || 0
+        Number(generation) || 0,
+        String(job?.leaseToken || '')
       );
       this.#audit(db, {
         accountId: current.account_id,
@@ -1704,15 +1787,17 @@ export class ReflectionStore {
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
       const current = db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(String(job?.id || ''));
-      if (!current || !this.#leaseMatches(current, { owner, generation, ts })) {
+      if (!current || !this.#leaseMatches(current, {
+        owner, generation, leaseToken: job?.leaseToken, ts
+      })) {
         return { accepted: false, reason: 'stale-lease' };
       }
       const attempts = Math.max(0, Number(current.attempts) - 1);
       db.prepare(`
         UPDATE reflection_jobs
-        SET status='pending',attempts=?,lease_owner='',lease_generation=0,lease_expires_at=0,
+        SET status='pending',attempts=?,lease_owner='',lease_generation=0,lease_token='',lease_expires_at=0,
           available_at=?,updated_at=?,last_error=?
-        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=?
+        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=? AND lease_token=?
       `).run(
         attempts,
         Math.max(ts, Number(availableAt) || ts),
@@ -1720,7 +1805,8 @@ export class ReflectionStore {
         String(reason || '').slice(0, 500),
         current.id,
         String(owner || ''),
-        Number(generation) || 0
+        Number(generation) || 0,
+        String(job?.leaseToken || '')
       );
       this.#audit(db, {
         accountId: current.account_id,
@@ -1740,14 +1826,16 @@ export class ReflectionStore {
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
       const current = db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(String(job?.id || ''));
-      if (!current || !this.#leaseMatches(current, { owner, generation, ts })) {
+      if (!current || !this.#leaseMatches(current, {
+        owner, generation, leaseToken: job?.leaseToken, ts
+      })) {
         return { accepted: false, reason: 'stale-lease' };
       }
       db.prepare(`
         UPDATE reflection_jobs
-        SET status=?,lease_owner='',lease_generation=0,lease_expires_at=0,
+        SET status=?,lease_owner='',lease_generation=0,lease_token='',lease_expires_at=0,
           updated_at=?,completed_at=?,last_error=?
-        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=?
+        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=? AND lease_token=?
       `).run(
         finalStatus,
         ts,
@@ -1755,7 +1843,8 @@ export class ReflectionStore {
         String(error?.message || error || '').slice(0, 500),
         current.id,
         String(owner || ''),
-        Number(generation) || 0
+        Number(generation) || 0,
+        String(job?.leaseToken || '')
       );
       this.#audit(db, {
         accountId: current.account_id,
@@ -1799,22 +1888,25 @@ export class ReflectionStore {
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
       const current = db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(String(job?.id || ''));
-      if (!current || !this.#leaseMatches(current, { owner, generation, ts })) {
+      if (!current || !this.#leaseMatches(current, {
+        owner, generation, leaseToken: job?.leaseToken, ts
+      })) {
         return { accepted: false, reason: 'late-result', committed: false };
       }
       const headRevision = this.#headRevision(db, current.account_id);
       if (headRevision !== expectedRevision) {
         db.prepare(`
-          UPDATE reflection_jobs SET status='stale',lease_owner='',lease_generation=0,
+          UPDATE reflection_jobs SET status='stale',lease_owner='',lease_generation=0,lease_token='',
             lease_expires_at=0,updated_at=?,completed_at=?,last_error=?
-          WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=?
+          WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=? AND lease_token=?
         `).run(
           ts,
           ts,
           'profile revision changed after reflection started',
           current.id,
           String(owner || ''),
-          Number(generation) || 0
+          Number(generation) || 0,
+          String(job?.leaseToken || '')
         );
         this.#audit(db, {
           accountId: current.account_id,
@@ -1920,7 +2012,8 @@ export class ReflectionStore {
           } catch (error) {
             const code = String(error?.code || 'REFLECTION_NOTE_APPLY_FAILED');
             const stale = code.includes('CAS') || code.includes('REVISION') || code.includes('ARCHIVED');
-            const policyRejected = code === 'REFLECTION_NOTE_NOT_DURABLE';
+            const policyRejected = code === 'REFLECTION_NOTE_TELEMETRY'
+              || code === 'REFLECTION_NOTE_NOT_DURABLE';
             db.prepare(`
               UPDATE reflection_proposals
               SET status=?,reviewed_at=?,reviewer=?,error_code=?,error_message=?
@@ -2030,16 +2123,17 @@ export class ReflectionStore {
       `).run(finalBatchStatus, profileRevision, batchId);
       db.prepare(`
         UPDATE reflection_jobs
-        SET status=?,lease_owner='',lease_generation=0,lease_expires_at=0,
+        SET status=?,lease_owner='',lease_generation=0,lease_token='',lease_expires_at=0,
           updated_at=?,completed_at=?,last_error=''
-        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=?
+        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=? AND lease_token=?
       `).run(
         finalJobStatus,
         ts,
         ts,
         current.id,
         String(owner || ''),
-        Number(generation) || 0
+        Number(generation) || 0,
+        String(job?.leaseToken || '')
       );
       this.#audit(db, {
         accountId: current.account_id,
@@ -2480,9 +2574,11 @@ export class ReflectionStore {
     };
   }
 
-  #leaseMatches(row, { owner, generation, ts }) {
+  #leaseMatches(row, { owner, generation, leaseToken, ts }) {
     return String(row?.lease_owner || '') === String(owner || '')
       && Number(row?.lease_generation) === Number(generation)
+      && String(row?.lease_token || '') === String(leaseToken || '')
+      && Boolean(String(leaseToken || ''))
       && Number(row?.lease_expires_at) > Number(ts);
   }
 
@@ -2490,14 +2586,16 @@ export class ReflectionStore {
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
       const current = db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(String(job?.id || ''));
-      if (!current || !this.#leaseMatches(current, { owner, generation, ts })) {
+      if (!current || !this.#leaseMatches(current, {
+        owner, generation, leaseToken: job?.leaseToken, ts
+      })) {
         return { accepted: false, reason: 'stale-lease' };
       }
       db.prepare(`
         UPDATE reflection_jobs
-        SET status=?,lease_owner='',lease_generation=0,lease_expires_at=0,
+        SET status=?,lease_owner='',lease_generation=0,lease_token='',lease_expires_at=0,
           updated_at=?,completed_at=?,last_error=?
-        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=?
+        WHERE id=? AND status='leased' AND lease_owner=? AND lease_generation=? AND lease_token=?
       `).run(
         status,
         ts,
@@ -2505,7 +2603,8 @@ export class ReflectionStore {
         String(error || '').slice(0, 500),
         current.id,
         String(owner || ''),
-        Number(generation) || 0
+        Number(generation) || 0,
+        String(job?.leaseToken || '')
       );
       this.#audit(db, {
         accountId: current.account_id,
@@ -2892,12 +2991,12 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
   const observation = plainObject(job?.evidence) ? { ...job.evidence } : {};
   delete observation.conversationEvidence;
   const instructions = [
-    'You are a read-only reflection worker.',
+    'You are the current character leaving a note for your future self.',
     'Return JSON with exactly: noteOperations, traitProposals, capabilityGapProposals, summary.',
     'Do not execute code, install plugins, request credentials, or infer disinterest from failures.',
     'Use only the canonical nested field names below. Do not invent aliases such as op, type, target, note, trait, or evidenceIds.',
-    'Only create noteOperations for durable, future-useful facts, stable preferences, lasting relationships, or explicit boundaries.',
-    'Never create notes that summarize this run, token/budget usage, sent/replied message counts, transient chat status, or ordinary conversational events. If there is no durable information, return noteOperations: [].',
+    reflectionRoleNoteText(),
+    'Do not create notes that only contain run telemetry, token/budget usage, sent/replied counts, transient execution state, or ordinary bookkeeping. If there is no useful future-facing note, return noteOperations: [].',
     'noteOperations item schema: operation (append|update|archive), scope (global|chat), chatKey, content, tags, noteId, expectedRevision, evidenceRefs.',
     'For noteOperations: append requires operation, scope, content, tags, evidenceRefs and omits noteId/expectedRevision; update requires noteId and expectedRevision plus content or tags; archive requires noteId and expectedRevision and omits content/tags.',
     'traitProposals item schema: action (set|remove), key, value (only for set), scope (global|chat), chatKey, confidence, evidenceRefs.',
@@ -2926,6 +3025,20 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
       input.basePersona.customRules = input.basePersona.customRules.slice(0, 800);
       return true;
     }
+    if (input.basePersona?.roleText && input.basePersona.roleText.length > 1800) {
+      input.basePersona.roleText = input.basePersona.roleText.slice(0, 1800);
+      return true;
+    }
+    if (input.currentProfile?.context && Object.keys(input.currentProfile.context).length > 8) {
+      input.currentProfile.context = Object.fromEntries(
+        Object.entries(input.currentProfile.context).slice(0, 8)
+      );
+      return true;
+    }
+    if (Array.isArray(input.basePersona?.tools) && input.basePersona.tools.length > 12) {
+      input.basePersona.tools = input.basePersona.tools.slice(0, 12);
+      return true;
+    }
     return false;
   };
   let serialized = safeJson(input);
@@ -2934,19 +3047,30 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
   }
   const available = Math.max(0, normalizedLimits.maxModelInputChars - instructions.length - 24);
   if (serialized.length > available) {
-    input.conversationEvidence = [];
-    input.notebook = [];
+    input.conversationEvidence = Array.isArray(input.conversationEvidence)
+      ? input.conversationEvidence.slice(-4)
+      : [];
+    input.notebook = Array.isArray(input.notebook)
+      ? input.notebook.slice(0, 2)
+      : [];
     input.basePersona = {
-      behaviorProfile: input.basePersona?.behaviorProfile || '',
+      roleText: String(input.basePersona?.roleText || '').slice(0, 1200),
+      behaviorProfile: String(input.basePersona?.behaviorProfile || '').slice(0, 120),
+      botName: String(input.basePersona?.botName || '').slice(0, 120),
+      selfNickname: String(input.basePersona?.selfNickname || '').slice(0, 120),
+      customRules: String(input.basePersona?.customRules || '').slice(0, 400),
       tools: Array.isArray(input.basePersona?.tools)
-        ? input.basePersona.tools.slice(0, 12)
+        ? input.basePersona.tools.slice(0, 6)
         : []
     };
-    input.currentProfile = input.currentProfile
-      ? { revision: Number(input.currentProfile.revision) || 0, context: {} }
-      : null;
     serialized = safeJson(input);
   }
-  if (serialized.length > available) serialized = safeJson({ truncated: true });
+  if (serialized.length > available) {
+    throw new ReflectionError(
+      'REFLECTION_INSUFFICIENT_CONTEXT_BUDGET',
+      'reflection input cannot fit the configured character budget',
+      { available, actual: serialized.length }
+    );
+  }
   return `${instructions}\nReflectionInput: ${serialized}`;
 }

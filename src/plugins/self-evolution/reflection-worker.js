@@ -132,13 +132,42 @@ export class ReflectionWorker {
 
   async #runOnceInner({ basePersona, mode, expectedProfileRevision, notebook }) {
     const signal = this.controller.signal;
+    const modelBudgetMs = Math.max(1, Number(this.limits.reflectionTimeoutMs) || 30000);
+    const preparationBudgetMs = Math.max(
+      0,
+      Number(this.limits.inputPreparationTimeoutMs) || 5000
+    );
+    const retrievalBudgetMs = Math.max(0, Number(this.limits.retrievalTimeoutMs) || 5000);
+    const graceMs = Math.max(0, Number(this.limits.submissionGraceMs) || 10000);
+    const taskTimeoutMs = Math.max(
+      1,
+      Number(this.limits.taskTimeoutMs)
+        || modelBudgetMs + preparationBudgetMs + retrievalBudgetMs + graceMs
+    );
+    const taskController = new AbortController();
+    const taskSignal = typeof AbortSignal?.any === 'function'
+      ? AbortSignal.any([signal, taskController.signal])
+      : signal;
+    const taskTimer = setTimeout(() => {
+      taskController.abort(Object.assign(new Error('reflection task deadline exceeded'), {
+        code: 'REFLECTION_TIMEOUT'
+      }));
+    }, taskTimeoutMs);
     const claimed = this.store.claimNextJob({
       owner: this.owner,
       generation: this.generation,
-      leaseMs: this.limits.leaseMs,
-      workerLeaseMs: this.limits.workerLeaseMs
+      leaseMs: Math.max(
+        Number(this.limits.leaseMs) || 1,
+        taskTimeoutMs + graceMs
+      ),
+      workerLeaseMs: Math.max(
+        Number(this.limits.workerLeaseMs) || 1,
+        Math.max(Number(this.limits.leaseMs) || 1, taskTimeoutMs + graceMs)
+          + Math.max(0, Number(this.limits.workerGraceMs) || 0)
+      )
     });
     if (!claimed.job) {
+      clearTimeout(taskTimer);
       return {
         status: claimed.status,
         modelCalls: 0,
@@ -158,9 +187,11 @@ export class ReflectionWorker {
         generation: this.generation,
         reason: 'no-new-evidence'
       });
+      clearTimeout(taskTimer);
       return { status: 'noop', modelCalls: 0, committed: noop.accepted === true, jobId: job.id };
     }
     if (signal.aborted || !this.active) {
+      clearTimeout(taskTimer);
       return { status: 'stopped', modelCalls: 0, committed: false, jobId: job.id };
     }
     let persona;
@@ -176,6 +207,7 @@ export class ReflectionWorker {
         generation: this.generation,
         reason: `Base Persona unavailable: ${String(error?.message || error)}`
       });
+      clearTimeout(taskTimer);
       return {
         status: 'retry',
         modelCalls: 0,
@@ -191,6 +223,7 @@ export class ReflectionWorker {
         generation: this.generation,
         reason: 'Base Persona unavailable'
       });
+      clearTimeout(taskTimer);
       return {
         status: 'retry',
         modelCalls: 0,
@@ -219,6 +252,7 @@ export class ReflectionWorker {
         reason: `reflection budget: ${budget.reason}`,
         availableAt: budget.blockedUntil
       });
+      clearTimeout(taskTimer);
       return {
         status: 'budget',
         modelCalls: 0,
@@ -230,17 +264,34 @@ export class ReflectionWorker {
     }
     let raw;
     try {
-      const reflectionInput = this.#buildReflectionInput(job, persona, notebook);
+      const reflectionInput = await this.#buildReflectionInput(job, persona, notebook, taskSignal);
       raw = await this.#callReflector({
         job,
         persona,
         basePersonaHash,
         selectedMode,
         reflectionInput,
-        signal
+        signal: taskSignal
       });
     } catch (error) {
+      if (error?.code === 'REFLECTION_INSUFFICIENT_CONTEXT_BUDGET') {
+        const noop = this.store.completeNoop({
+          job,
+          owner: this.owner,
+          generation: this.generation,
+          reason: 'insufficient-context-budget'
+        });
+        clearTimeout(taskTimer);
+        return {
+          status: noop.accepted ? 'noop' : 'late-result',
+          modelCalls: 0,
+          committed: noop.accepted === true,
+          jobId: job.id,
+          reason: 'insufficient-context-budget'
+        };
+      }
       if (error?.code === 'REFLECTION_STOPPED' || signal.aborted || !this.active) {
+        clearTimeout(taskTimer);
         return { status: 'stopped', modelCalls: 1, committed: false, jobId: job.id };
       }
       const failed = this.store.failJob({
@@ -249,6 +300,7 @@ export class ReflectionWorker {
         generation: this.generation,
         error
       });
+      clearTimeout(taskTimer);
       return {
         status: 'retry',
         modelCalls: 1,
@@ -257,8 +309,32 @@ export class ReflectionWorker {
         retry: failed.status
       };
     }
-    if (signal.aborted || !this.active) {
-      return { status: 'stopped', modelCalls: 1, committed: false, jobId: job.id };
+    if (taskSignal.aborted || signal.aborted || !this.active) {
+      if (taskSignal.aborted && !signal.aborted && this.active) {
+        const failed = this.store.failJob({
+          job,
+          owner: this.owner,
+          generation: this.generation,
+          error: Object.assign(new Error('reflection task deadline exceeded'), {
+            code: 'REFLECTION_TIMEOUT'
+          })
+        });
+        clearTimeout(taskTimer);
+        return {
+          status: 'retry',
+          modelCalls: 1,
+          committed: false,
+          jobId: job.id,
+          retry: failed.status
+        };
+      }
+      clearTimeout(taskTimer);
+      return {
+        status: taskSignal.aborted && !signal.aborted ? 'retry' : 'stopped',
+        modelCalls: 1,
+        committed: false,
+        jobId: job.id
+      };
     }
     let output;
     try {
@@ -274,6 +350,7 @@ export class ReflectionWorker {
         error,
         status: 'invalid'
       });
+      clearTimeout(taskTimer);
       return {
         status: invalid.accepted ? 'invalid' : 'late-result',
         modelCalls: 1,
@@ -295,6 +372,7 @@ export class ReflectionWorker {
           String(error?.message || error)
         }`), { code: 'REFLECTION_BASE_PERSONA_CHANGED' })
       });
+      clearTimeout(taskTimer);
       return {
         status: 'stale',
         modelCalls: 1,
@@ -313,6 +391,7 @@ export class ReflectionWorker {
           code: 'REFLECTION_BASE_PERSONA_CHANGED'
         })
       });
+      clearTimeout(taskTimer);
       return {
         status: 'stale',
         modelCalls: 1,
@@ -332,6 +411,7 @@ export class ReflectionWorker {
       notebook
     });
     if (committed.accepted !== true) {
+      clearTimeout(taskTimer);
       return {
         status: committed.reason === 'late-result' ? 'late-result' : committed.reason || 'stale',
         modelCalls: 1,
@@ -339,6 +419,7 @@ export class ReflectionWorker {
         jobId: job.id
       };
     }
+    clearTimeout(taskTimer);
     return {
       status: committed.status === 'noop' || committed.jobStatus === 'noop' ? 'noop' : 'completed',
       modelCalls: 1,
@@ -356,7 +437,7 @@ export class ReflectionWorker {
     };
   }
 
-  #buildReflectionInput(job, persona, notebook) {
+  async #buildReflectionInput(job, persona, notebook, signal = null) {
     const evidence = job?.evidence || {};
     let currentProfile = null;
     try {
@@ -369,17 +450,46 @@ export class ReflectionWorker {
       currentProfile = null;
     }
     let notes = [];
+    let retrievalDiagnostics = { mode: 'list', reason: null };
     try {
-      notes = notebook?.search?.({
+      const query = Array.isArray(evidence.conversationEvidence)
+        ? evidence.conversationEvidence
+          .map((item) => String(item?.text || '').trim())
+          .filter(Boolean)
+          .slice(-6)
+          .join('\n')
+          .slice(0, 1200)
+        : '';
+      if (query && typeof notebook?.semanticSearch === 'function'
+        && notebook.embeddingStatus?.().configured === true) {
+        const semantic = await notebook.semanticSearch({
+          accountId: job.accountId,
+          chatKey: job.chatKey,
+          currentChatKey: job.chatKey,
+          query,
+          maxNotes: 8,
+          maxChars: 2400,
+          maxSnippetChars: 600,
+          signal
+        });
+        notes = Array.isArray(semantic?.notes) ? semantic.notes : [];
+        retrievalDiagnostics = {
+          mode: 'sqlite-vec',
+          reason: semantic?.degradationReason || null
+        };
+      } else {
+        notes = notebook?.search?.({
         accountId: job.accountId,
         currentChatKey: job.chatKey,
         query: '',
         limit: 8,
         includeArchived: false,
         admin: false
-      })?.notes || [];
+        })?.notes || [];
+      }
     } catch {
       notes = [];
+      retrievalDiagnostics = { mode: 'unavailable', reason: 'retrieval-failed' };
     }
     return {
       conversationEvidence: Array.isArray(evidence.conversationEvidence)
@@ -409,12 +519,21 @@ export class ReflectionWorker {
         : null,
       notebook: notes.slice(0, 8).map((note) => ({
         id: String(note.id || ''),
-        revision: Number(note.revision) || 0,
+        noteId: String(note.noteId || note.id || ''),
+        revision: Number(note.revision ?? note.noteRevision) || 0,
         scope: String(note.scope || ''),
         chatKey: String(note.chatKey || ''),
-        content: String(note.content || '').slice(0, 400),
+        content: String(note.content || note.snippet || '').slice(0, 400),
         tags: Array.isArray(note.tags) ? note.tags.slice(0, 12) : []
-      }))
+      })),
+      diagnostics: {
+        evidenceVersion: Number(evidence.evidenceVersion) || 2,
+        retrieval: retrievalDiagnostics,
+        evidenceIds: Array.isArray(evidence.evidenceIds) ? evidence.evidenceIds : [],
+        omittedEvidenceIds: Array.isArray(evidence.omittedEvidenceIds)
+          ? evidence.omittedEvidenceIds
+          : []
+      }
     };
   }
 

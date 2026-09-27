@@ -1150,7 +1150,9 @@ export class Orchestrator {
           messageId: entry.messageId,
           senderId: this.onebot.selfId,
           role: 'assistant',
-          at: Date.now(),
+          sourceRecordType: 'outbound',
+          sourceRecordId: String(entry.messageId || `${session.id}:${index}`),
+          at: Number(entry.at) || 0,
           text: entry.text,
           confirmed: true
         }))
@@ -1162,7 +1164,7 @@ export class Orchestrator {
         chatKey,
         resultClass,
         actionSummary: {
-          evidenceVersion: 1,
+          evidenceVersion: 2,
           sentCount: session.sent.length,
           finishReason: session.finishReason,
           outboundAttempted: session.outbound.attempted > 0,
@@ -1170,7 +1172,7 @@ export class Orchestrator {
           termination: session.termination,
           outbound: session.outbound
         },
-        evidenceVersion: 1,
+        evidenceVersion: 2,
         conversationEvidence,
         sourceMessageIds: triggerEntries.map((entry) => entry.id)
       });
@@ -1222,6 +1224,59 @@ export class Orchestrator {
         });
       }
       if (lease) {
+        const runSnapshot = this.pluginRunSnapshots.get(session.id);
+        const failureClass = ['TIMEOUT', 'ABORT_ERR', 'UND_ERR_CONNECT_TIMEOUT']
+          .includes(String(error?.code || '').toUpperCase())
+          ? (String(error?.code || '').toUpperCase() === 'TIMEOUT' ? 'timeout' : 'aborted')
+          : 'error';
+        const completionEvents = this.pluginManager.buildCompletionEvents(runSnapshot, {
+          accountId: this.onebot.selfId,
+          sessionId: session.id,
+          runId: session.leaseId,
+          chatKey,
+          resultClass: failureClass,
+          actionSummary: {
+            evidenceVersion: 2,
+            sentCount: session.sent.length,
+            finishReason: session.finishReason,
+            outboundAttempted: session.outbound.attempted > 0,
+            participation: session.participation,
+            termination: session.termination,
+            outbound: session.outbound,
+            executionOutcome: {
+              status: 'failed',
+              code: String(error?.code || 'UNKNOWN_FAILURE').slice(0, 120),
+              timeout: failureClass === 'timeout',
+              aborted: failureClass === 'aborted',
+              failed: true
+            }
+          },
+          conversationEvidence: [
+            ...triggerEntries.slice(-20).map((entry) => ({
+              evidenceId: `message:${entry.id}`,
+              sourceRecordType: 'message',
+              sourceRecordId: String(entry.id),
+              messageId: entry.id,
+              senderId: entry.senderId,
+              role: entry.self ? 'assistant' : 'user',
+              at: Number(entry.ts) || 0,
+              text: entry.text,
+              confirmed: true
+            })),
+            ...session.sent.slice(-8).map((entry, index) => ({
+              evidenceId: `outbound:${session.id}:${index}`,
+              sourceRecordType: 'outbound',
+              sourceRecordId: String(entry.messageId || `${session.id}:${index}`),
+              messageId: entry.messageId,
+              senderId: this.onebot.selfId,
+              role: 'assistant',
+              at: Number(entry.at) || 0,
+              text: entry.text,
+              confirmed: true
+            }))
+          ],
+          sourceMessageIds: triggerEntries.map((entry) => entry.id)
+        });
         // 时间窗口关闭打断在途批次：无效果（模型没说话、无发送）时直接归档（ack）——
         // 这是文档化的刻意设计（README："非活跃期消息仅归档，不积压自动补回复"，
         // test/time-control-integration.test.mjs "prevents retry" 钉住了该语义），
@@ -1229,7 +1284,8 @@ export class Orchestrator {
         // 进 held/failed 人工核对，不自动重试。
         if (timeClosed && !this.store.hasEffects(lease.id)) this.store.ackLease(lease.id);
         else this.store.failLease(lease.id, session.error, {
-          retryable: !timeClosed && (isRetryableError(error) || controller.signal.aborted)
+          retryable: !timeClosed && (isRetryableError(error) || controller.signal.aborted),
+          completionEvents
         });
       }
       const status = timeClosed ? 'aborted' : 'error';

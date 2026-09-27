@@ -118,6 +118,7 @@ export class SelfEvolutionRetrievalProvider {
     ownerPluginId = 'self-evolution-retrieval'
   } = {}) {
     this.id = SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID;
+    this.timeoutMs = 5000;
     this.ownerPluginId = String(ownerPluginId || 'self-evolution-retrieval');
     this.getStore = typeof getStore === 'function' ? getStore : () => store;
     this.dataDir = dataDir;
@@ -196,6 +197,81 @@ export class SelfEvolutionRetrievalProvider {
         };
         this.#rememberAudit(runContext, audit);
         return { blocks: [], audit, diagnostics: { reason: audit.reason } };
+      }
+
+      const adapterCanIndex = !this.embeddingAdapter
+        || typeof this.embeddingAdapter.embedNote === 'function';
+      const embeddingRequested = selected.embedding?.enabled === true && adapterCanIndex;
+      if (embeddingRequested && typeof notebook.setEmbeddingServices === 'function') {
+        notebook.setEmbeddingServices({
+          config: selected.embedding,
+          embeddingClient: this.embeddingAdapter || notebook.embeddingClient
+        });
+      }
+      if (embeddingRequested && typeof notebook.semanticSearch === 'function') {
+        const result = await notebook.semanticSearch({
+          accountId,
+          chatKey,
+          currentChatKey: chatKey,
+          query,
+          maxNotes: selected.maxNotes,
+          maxChars: selected.maxChars,
+          maxSnippetChars: selected.maxSnippetChars,
+          signal: services?.signal || runContext?.signal || null
+        });
+        const blocks = [];
+        let usedChars = 0;
+        for (const block of (result.contextBlocks || [])) {
+          const meta = {
+            noteId: text(block.noteId),
+            revision: block.revision ?? null,
+            rankingSource: text(block.rankingSource || 'sqlite-vec'),
+            chars: text(block.snippet).length,
+            budget: block.budget || null,
+            degradationReason: block.degradationReason || result.degradationReason || null
+          };
+          const prefix = `【过去保存的信息】\n${HISTORICAL_WARNING}\n- `;
+          const remaining = Math.max(0, selected.maxChars - usedChars - prefix.length);
+          if (remaining <= 0) break;
+          const snippet = text(block.snippet).slice(0, remaining);
+          if (!snippet) continue;
+          const rendered = {
+            id: `${this.id}:${meta.noteId}:${meta.revision}`,
+            title: '历史 Notebook 参考',
+            text: `${prefix}${snippet}`.trim(),
+            sourceRefs: [`notebook:${meta.noteId}@${meta.revision}`, sourceRef(meta)],
+            noteId: meta.noteId,
+            revision: meta.revision,
+            snippet,
+            rankingSource: meta.rankingSource,
+            budget: meta.budget,
+            degradationReason: meta.degradationReason
+          };
+          usedChars += text(rendered.text).length;
+          blocks.push(rendered);
+        }
+        audit = {
+          ...audit,
+          available: result.degradationReason !== 'extension-unavailable'
+            && result.degradationReason !== 'embedding-not-configured',
+          reason: blocks.length > 0
+            ? ''
+            : (result.degradationReason || 'no-matches'),
+          hitNoteIds: blocks.map((block) => block.noteId),
+          hits: blocks.map((block) => ({
+            noteId: block.noteId,
+            revision: block.revision,
+            rankingSource: block.rankingSource,
+            snippetChars: text(block.snippet).length
+          })),
+          injectedChars: blocks.reduce((sum, block) => sum + text(block.text).length, 0),
+          budget: result.budget || audit.budget,
+          degradationReasons: result.degradationReasons || [],
+          zeroHit: blocks.length === 0,
+          diagnostics: result.diagnostics || {}
+        };
+        this.#rememberAudit(runContext, audit);
+        return { blocks, audit, diagnostics: audit.diagnostics };
       }
 
       // NotebookStore performs the authoritative account/scope/status

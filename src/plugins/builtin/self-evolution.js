@@ -8,6 +8,7 @@ import {
   notebookDatabasePath
 } from '../self-evolution/notebook-store.js';
 import { selfEvolutionConfig } from '../self-evolution/config.js';
+import { createEmbeddingClient } from '../self-evolution/embedding-client.js';
 
 function ok(value) {
   return { content: JSON.stringify(value) };
@@ -133,16 +134,31 @@ function makeTools(getStore) {
         if (!store) return errorResult(new NotebookError('NOTEBOOK_DISABLED', 'self-evolution Notebook 当前未启用'));
         try {
           const source = toolSource(ctx);
-          return ok(store.search({
-            accountId: source.accountId,
-            currentChatKey: source.chatKey,
-            scope: args.scope,
-            query: args.query,
-            tags: args.tags,
-            limit: args.limit,
-            includeArchived: false,
-            admin: false
-          }));
+          const vectorStatus = store.embeddingStatus?.() || {};
+          const vectorEnabled = vectorStatus.configured === true
+            || store.embeddingConfig?.enabled === true;
+          const result = args.query && vectorEnabled
+            ? await store.semanticSearch({
+                accountId: source.accountId,
+                currentChatKey: source.chatKey,
+                chatKey: source.chatKey,
+                query: args.query,
+                scope: args.scope,
+                maxNotes: args.limit,
+                maxChars: 2400,
+                maxSnippetChars: 600
+            })
+            : store.search({
+                accountId: source.accountId,
+                currentChatKey: source.chatKey,
+                scope: args.scope,
+                query: args.query,
+                tags: args.tags,
+                limit: args.limit,
+                includeArchived: false,
+                admin: false
+              });
+          return ok(result);
         } catch (error) {
           return errorResult(error);
         }
@@ -231,7 +247,8 @@ export function createSelfEvolutionPlugin({
   dataDir = DATA_DIR,
   filename = notebookDatabasePath(dataDir),
   limits = DEFAULT_NOTEBOOK_LIMITS,
-  now
+  now,
+  embeddingClient = null
 } = {}) {
   let store = null;
   const tools = makeTools(() => store);
@@ -248,11 +265,21 @@ export function createSelfEvolutionPlugin({
     start(_services, config = {}) {
       if (store) return store;
       const selected = selfEvolutionConfig(config);
+      const embeddingConfig = selected.retrieval?.embedding
+        && typeof selected.retrieval.embedding === 'object'
+        ? selected.retrieval.embedding
+        : {};
+      const client = embeddingClient
+        || (selected.retrievalEnabled && embeddingConfig.enabled === true
+          ? createEmbeddingClient({ config: embeddingConfig })
+          : null);
       store = new NotebookStore({
         dataDir,
         filename,
         limits: { ...limits, ...selected.raw.limits },
-        now
+        now,
+        embeddingConfig,
+        embeddingClient: client
       });
       return store;
     },

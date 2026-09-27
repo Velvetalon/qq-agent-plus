@@ -3,6 +3,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../../core/config.js';
+import {
+  VectorMemory,
+  ensureVectorSchema,
+  obsoleteEmbedding,
+  queueEmbedding
+} from './vector-memory.js';
 
 export const SELF_EVOLUTION_PLUGIN_ID = 'self-evolution';
 export const NOTEBOOK_SCOPES = Object.freeze(['global', 'chat']);
@@ -256,14 +262,21 @@ export class NotebookStore {
     create = true,
     readOnly = false,
     limits = {},
-    now = () => Date.now()
+    now = () => Date.now(),
+    embeddingConfig = {},
+    embeddingClient = null
   } = {}) {
     this.dataDir = dataDir;
     this.filename = filename;
     this.readOnly = readOnly === true;
     this.limits = normalizeLimits(limits);
     this.now = typeof now === 'function' ? now : () => Date.now();
+    this.embeddingConfig = embeddingConfig && typeof embeddingConfig === 'object'
+      ? { ...embeddingConfig }
+      : {};
+    this.embeddingClient = embeddingClient;
     this.db = null;
+    this.vectorMemory = null;
     if (create !== false || fs.existsSync(filename)) this.open({ create: create !== false });
   }
 
@@ -289,8 +302,8 @@ export class NotebookStore {
     }
     if (!fs.existsSync(this.filename) && this.readOnly) return this;
     this.db = this.readOnly
-      ? new DatabaseSync(this.filename, { readOnly: true })
-      : new DatabaseSync(this.filename);
+      ? new DatabaseSync(this.filename, { readOnly: true, allowExtension: true })
+      : new DatabaseSync(this.filename, { allowExtension: true });
     if (!this.readOnly) {
       this.db.exec(`
         PRAGMA journal_mode=WAL;
@@ -350,8 +363,20 @@ export class NotebookStore {
         CREATE INDEX IF NOT EXISTS notebook_operations_run
           ON notebook_operations(account_id, run_id, created_at);
       `);
+      ensureVectorSchema(this.db);
     } else {
       this.db.exec('PRAGMA busy_timeout=5000;');
+    }
+    try {
+      this.vectorMemory = new VectorMemory({
+        db: this.db,
+        config: this.embeddingConfig,
+        embeddingClient: this.embeddingClient,
+        now: this.now,
+        readOnly: this.readOnly
+      });
+    } catch {
+      this.vectorMemory = null;
     }
     if (!this.readOnly) {
       for (const suffix of ['', '-wal', '-shm']) {
@@ -376,6 +401,92 @@ export class NotebookStore {
     const db = this.#requireDb();
     if (this.readOnly) fail('NOTEBOOK_READ_ONLY', 'Notebook 当前仅可读');
     return db;
+  }
+
+  get database() {
+    return this.db;
+  }
+
+  getVectorMemory() {
+    return this.vectorMemory;
+  }
+
+  setEmbeddingServices({
+    config = this.embeddingConfig,
+    embeddingClient = this.embeddingClient
+  } = {}) {
+    this.embeddingConfig = config && typeof config === 'object' ? { ...config } : {};
+    this.embeddingClient = embeddingClient;
+    this.vectorMemory?.configure({
+      config: this.embeddingConfig,
+      embeddingClient: this.embeddingClient
+    });
+    return this;
+  }
+
+  embeddingStatus() {
+    return this.vectorMemory?.status?.() || {
+      configured: false,
+      reason: 'extension-unavailable',
+      profileId: '',
+      stats: {}
+    };
+  }
+
+  async processEmbeddingQueue(options = {}) {
+    return this.vectorMemory?.processPending?.(options)
+      || { processed: 0, reason: 'extension-unavailable' };
+  }
+
+  async semanticSearch(options = {}) {
+    if (!this.vectorMemory) {
+      return {
+        results: [],
+        notes: [],
+        contextBlocks: [],
+        degradationReason: 'extension-unavailable',
+        degradationReasons: ['extension-unavailable'],
+        budget: {
+          maxNotes: Number(options.maxNotes) || 5,
+          maxChars: Number(options.maxChars) || 2400,
+          maxSnippetChars: Number(options.maxSnippetChars) || 600,
+          usedNotes: 0,
+          usedChars: 0,
+          truncated: false
+        },
+        diagnostics: {}
+      };
+    }
+    await this.processEmbeddingQueue({
+      limit: Math.max(1, Number(options.indexLimit) || 8),
+      signal: options.signal || null
+    });
+    const result = await this.vectorMemory.search(options);
+    return {
+      ...result,
+      notes: Array.isArray(result.results) ? result.results : []
+    };
+  }
+
+  #queueEmbedding(db, note) {
+    try {
+      return queueEmbedding(db, note, { now: this.now });
+    } catch {
+      return { queued: false, reason: 'queue-failed' };
+    }
+  }
+
+  #obsoleteEmbedding(db, note) {
+    try {
+      obsoleteEmbedding(db, {
+        accountId: note?.account_id ?? note?.accountId,
+        noteId: note?.id ?? note?.noteId,
+        revision: note?.revision,
+        now: this.now
+      });
+    } catch {
+      // Derived indexes are best effort and never block the authoritative write.
+    }
   }
 
   #transaction(fn) {
@@ -724,6 +835,7 @@ export class NotebookStore {
         const note = noteView(db.prepare(
           'SELECT * FROM notebook_notes WHERE id=?'
         ).get(id));
+        this.#queueEmbedding(db, note);
         return { saved: true, operationId, note, revision: note.revision };
       }
     });
@@ -840,6 +952,7 @@ export class NotebookStore {
         const note = noteView(db.prepare(
           'SELECT * FROM notebook_notes WHERE id=?'
         ).get(id));
+        this.#queueEmbedding(db, note);
         return { saved: true, operationId, note, revision: note.revision };
       }
     });
@@ -932,6 +1045,7 @@ export class NotebookStore {
         const note = noteView(db.prepare(
           'SELECT * FROM notebook_notes WHERE id=?'
         ).get(id));
+        this.#obsoleteEmbedding(db, note);
         return { saved: true, operationId, note, revision: note.revision };
       }
     });
@@ -982,6 +1096,7 @@ export class NotebookStore {
             currentRevision: actual
           });
         }
+        this.#obsoleteEmbedding(db, current);
         db.prepare('DELETE FROM notebook_versions WHERE note_id=? AND account_id=?')
           .run(id, namespace);
         const changed = db.prepare(

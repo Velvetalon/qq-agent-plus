@@ -482,7 +482,12 @@ export class ChatStore {
     return !!this.db.prepare("SELECT 1 FROM outbox WHERE run_id=? AND state IN ('sending','unknown') LIMIT 1").get(id);
   }
 
-  failLease(id, error, { retryable = true, delayMs = 5000, maxAttempts = 3 } = {}) {
+  failLease(id, error, {
+    retryable = true,
+    delayMs = 5000,
+    maxAttempts = 3,
+    completionEvents = []
+  } = {}) {
     return this.#transaction(() => {
       const held = this.hasEffects(id);
       // held 的行把 run id 留在 lease_id 上（leased 之外的状态没有 lease 语义）：否则租约
@@ -493,6 +498,7 @@ export class ChatStore {
         .run(held ? 1 : 0, maxAttempts, retryable ? 0 : 1, held ? 1 : 0, id, Date.now() + delayMs, String(error).slice(0, 1000), id);
       this.db.prepare("UPDATE runs SET state=?,error=? WHERE id=? AND state='leased'")
         .run(held ? 'held' : 'failed', String(error).slice(0, 1000), id);
+      this.#enqueueExtensionEvents(completionEvents);
       return held;
     });
   }

@@ -412,18 +412,28 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     const active = plugin?.running === true;
     const retrieval = selected.retrieval;
     const embeddingEnabled = retrieval.embedding?.enabled === true;
+    const vector = withNotebookStore((store) => (
+      store?.embeddingStatus?.() || {
+        reason: embeddingEnabled ? 'embedding-not-configured' : 'disabled',
+        configured: false,
+        extension: { available: false }
+      }
+    ));
     return {
       enabled,
       integrated: true,
       available: active,
       configured: retrieval.enabled === true,
       running: active,
-      mode: embeddingEnabled ? 'hybrid' : 'lexical',
+      mode: embeddingEnabled ? 'sqlite-vec' : 'unavailable',
       adapter: 'self-evolution-notebook',
+      vector,
       reason: !selected.enabled
         ? 'self-evolution-disabled'
         : active
-          ? 'ready'
+          ? (embeddingEnabled && vector.reason !== 'ready'
+            ? vector.reason
+            : 'ready')
           : enabled
             ? 'not-running'
             : 'disabled-by-config'

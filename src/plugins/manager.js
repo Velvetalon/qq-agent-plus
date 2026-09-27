@@ -276,7 +276,12 @@ export class PluginManager {
             timeoutHandle = setTimeout(() => {
               providerController.abort(new Error('provider timeout'));
               reject(new Error('provider timeout'));
-            }, Math.max(1, Number(timeoutMs) || 500));
+            }, Math.max(
+              1,
+              Number(provider.timeoutMs)
+                || (String(provider.id || '').includes('self-evolution.retrieval') ? 5000 : 500),
+              Number(timeoutMs) || 500
+            ));
           })
         ]);
         const candidates = Array.isArray(result?.blocks) ? result.blocks : [];
@@ -312,6 +317,33 @@ export class PluginManager {
     originKind = 'chat_run', evidenceVersion = 0, conversationEvidence = []
   } = {}) {
     if (!snapshot || snapshot.signal.aborted) return [];
+    const rawEvidence = Array.isArray(conversationEvidence) ? conversationEvidence : [];
+    const normalizedEvidence = rawEvidence.map((item) => {
+      const rawText = String(item?.text || '').replace(/\s+/g, ' ').trim();
+      const clipped = rawText.slice(0, 240);
+      return {
+        evidenceId: String(item?.evidenceId || '').slice(0, 160),
+        sourceRecordType: String(item?.sourceRecordType || (
+          String(item?.evidenceId || '').split(':', 1)[0] || 'message'
+        )).slice(0, 40),
+        sourceRecordId: String(item?.sourceRecordId || item?.messageId || '').slice(0, 160),
+        messageId: String(item?.messageId || '').slice(0, 160),
+        senderId: String(item?.senderId || '').slice(0, 40),
+        role: String(item?.role || '').slice(0, 20),
+        speaker: String(item?.speaker || item?.role || '').slice(0, 20),
+        at: Number(item?.at) || 0,
+        text: clipped,
+        truncated: rawText.length > clipped.length || item?.truncated === true,
+        confirmed: item?.confirmed === true
+      };
+    }).filter((item) => item.evidenceId && item.text);
+    const userEvidence = normalizedEvidence.filter((item) => item.role !== 'assistant').slice(-10);
+    const assistantEvidence = normalizedEvidence.filter((item) => item.role === 'assistant').slice(-10);
+    const selectedEvidence = [...new Map(
+      [...userEvidence, ...assistantEvidence]
+        .sort((left, right) => left.at - right.at || left.evidenceId.localeCompare(right.evidenceId))
+        .map((item) => [item.evidenceId, item])
+    ).values()].slice(-20);
     return snapshot.sessionObservers
       .filter((observer) => snapshot.isActive(observer.ownerPluginId, snapshot.generations[observer.ownerPluginId]))
       .map((observer) => ({
@@ -326,7 +358,7 @@ export class PluginManager {
         resultClass: String(resultClass || ''),
         observerPluginId: observer.ownerPluginId,
         actionSummary: {
-          evidenceVersion: Math.max(0, Number(evidenceVersion) || 0),
+          evidenceVersion: Math.max(2, Number(evidenceVersion) || 0),
           sentCount: Number(actionSummary.sentCount) || 0,
           finishReason: String(actionSummary.finishReason || '').slice(0, 300),
           outboundAttempted: actionSummary.outboundAttempted === true,
@@ -343,17 +375,7 @@ export class PluginManager {
             && typeof actionSummary.executionOutcome === 'object'
             ? structuredClone(actionSummary.executionOutcome)
             : null,
-          conversationEvidence: (Array.isArray(conversationEvidence)
-            ? conversationEvidence
-            : []).slice(0, 20).map((item) => ({
-            evidenceId: String(item?.evidenceId || '').slice(0, 160),
-            messageId: String(item?.messageId || '').slice(0, 160),
-            senderId: String(item?.senderId || '').slice(0, 40),
-            role: String(item?.role || '').slice(0, 20),
-            at: Number(item?.at) || 0,
-            text: String(item?.text || '').replace(/\s+/g, ' ').trim().slice(0, 240),
-            confirmed: item?.confirmed === true
-          })).filter((item) => item.evidenceId && item.text)
+          conversationEvidence: selectedEvidence
         },
         sourceMessageIds: (Array.isArray(sourceMessageIds) ? sourceMessageIds : []).map(String).slice(0, 32),
         completedAt: Number(completedAt) || Date.now()

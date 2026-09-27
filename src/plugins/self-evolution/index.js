@@ -63,6 +63,22 @@ export {
 } from '../builtin/self-evolution.js';
 
 export {
+  EMBEDDING_INPUT_VERSION,
+  EmbeddingClient,
+  createEmbeddingClient,
+  embeddingInputHash,
+  embeddingProfileId
+} from './embedding-client.js';
+
+export {
+  VectorMemory,
+  createVectorMemory,
+  ensureVectorSchema,
+  loadSqliteVec,
+  validateEmbeddingVector
+} from './vector-memory.js';
+
+export {
   SELF_EVOLUTION_RETRIEVAL_PLUGIN_ID,
   createSelfEvolutionRetrievalPlugin
 } from '../builtin/self-evolution-retrieval.js';
