@@ -24,10 +24,31 @@ const f1 = '<tool_call>\n<function=get_sticker_image>\n<parameter=stickerId>277<
 check('格式1 Hermes XML', JSON.stringify(parseInlineToolCalls(f1)) === JSON.stringify([{ name: 'get_sticker_image', args: { stickerId: 277 } }]));
 const f2 = '<tool_call>{"name":"submit_relationship_events","arguments":{"events":[]}}</tool_call>';
 check('格式2 包裹 JSON', parseInlineToolCalls(f2)[0]?.name === 'submit_relationship_events');
+const f2Special = '<|tool_call|>{"name":"submit_relationship_events","arguments":{"events":[]}}<|/tool_call|>';
+check('格式2b 特殊 tool_call 标记', parseInlineToolCalls(f2Special)[0]?.name === 'submit_relationship_events');
 const f3 = '<tool_call>\nsend_message\n{"messages":"在的"}\n</tool_call>';
 check('格式3 首行函数名', parseInlineToolCalls(f3)[0]?.args?.messages === '在的');
+const f3Bare = '<function=submit_relationship_events>\n<parameter=events>[]</parameter>\n</function>';
+check('格式3b 裸 function 块', parseInlineToolCalls(f3Bare)[0]?.name === 'submit_relationship_events');
 const f4 = '{"name":"submit_daily_moment","arguments":{"decision":"skip","reason":"今天没什么好说的"}}';
 check('格式4 裸 name-JSON', resolveToolCalls({ content: f4 })[0]?.function?.name === 'submit_daily_moment');
+check('reasoning_content 内联调用', resolveToolCalls({ reasoning_content: f2 })[0]?.function?.name === 'submit_relationship_events');
+check('数组 content 内联调用', resolveToolCalls({
+  content: [{ type: 'text', text: f2 }]
+})[0]?.function?.name === 'submit_relationship_events');
+check('content tool_use 块', resolveToolCalls({
+  content: [{ type: 'tool_use', id: 'call_1', name: 'submit_relationship_events', input: { events: [] } }]
+})[0]?.function?.name === 'submit_relationship_events');
+check('legacy function_call', resolveToolCalls({
+  function_call: { name: 'submit_relationship_events', arguments: { events: [] } }
+})[0]?.function?.name === 'submit_relationship_events');
+check('非标准结构化调用字段', resolveToolCalls({
+  tool_calls: [{ name: 'submit_relationship_events', arguments: { events: [] } }]
+})[0]?.function?.name === 'submit_relationship_events');
+check('坏的结构化调用回退正文', resolveToolCalls({
+  tool_calls: [{ type: 'function' }],
+  content: f2
+})[0]?.function?.name === 'submit_relationship_events');
 check('反例：普通文本不误判', resolveToolCalls({ content: '今天群里挺热闹的，我就看看' }).length === 0);
 check('反例：没有 name 的 JSON 不误判', resolveToolCalls({ content: '{"save":true,"note":"x"}' }).length === 0);
 const structured = [{ id: 'call_1', type: 'function', function: { name: 'send_message', arguments: '{}' } }];

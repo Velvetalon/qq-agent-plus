@@ -46,7 +46,7 @@ function parseInlineBlock(block) {
 
 export function parseInlineToolCalls(text) {
   const out = [];
-  const blockRe = /<tool_call\b[^>]*>([\s\S]*?)<\/tool_call>/gi;
+  const blockRe = /<\|?tool_call\|?(?:\s[^>]*)?>([\s\S]*?)(?:<\/\|?tool_call\|?>|<\|\/tool_call\|>)/gi;
   let match;
   while ((match = blockRe.exec(String(text || ''))) !== null) {
     const block = match[1].trim();
@@ -54,21 +54,62 @@ export function parseInlineToolCalls(text) {
     const call = parseInlineBlock(block);
     if (call) out.push(call);
   }
+  if (!out.length && /<function\s*=/i.test(String(text || ''))) {
+    const call = parseInlineBlock(String(text || '').trim());
+    if (call) out.push(call);
+  }
   return out;
 }
 
-/**
- * 统一取一次响应里的工具调用，返回 OpenAI 结构（照旧读 call.function.name / arguments）。
- * 优先原生 tool_calls；没有就解析文本里的内联调用（含"整段是带 name 的 JSON"这一种）。
- */
-export function resolveToolCalls(message) {
-  const structured = Array.isArray(message?.tool_calls) ? message.tool_calls.filter(Boolean) : [];
-  if (structured.length) return structured;
-  const text = typeof message?.content === 'string' ? message.content : '';
-  if (!text) return [];
-  let parsed = /<tool_call/i.test(text) ? parseInlineToolCalls(text) : [];
+function textContent(value) {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return '';
+  return value.map((part) => {
+    if (typeof part === 'string') return part;
+    if (!part || typeof part !== 'object') return '';
+    return typeof part.text === 'string'
+      ? part.text
+      : typeof part.content === 'string'
+        ? part.content
+        : '';
+  }).filter(Boolean).join('\n');
+}
+
+function normalizeStructuredCall(call, index) {
+  if (!call || typeof call !== 'object') return null;
+  const fn = call.function && typeof call.function === 'object' ? call.function : {};
+  const name = String(
+    fn.name
+      || call.name
+      || call.function_name
+      || call.tool_name
+      || ''
+  ).trim();
+  if (!name) return null;
+  const args = fn.arguments
+    ?? fn.parameters
+    ?? call.arguments
+    ?? call.parameters
+    ?? call.args
+    ?? call.input
+    ?? {};
+  const argumentsText = typeof args === 'string' ? args : JSON.stringify(args);
+  return {
+    id: String(call.id || `structured_${index + 1}`),
+    type: String(call.type || 'function'),
+    function: {
+      name,
+      arguments: argumentsText || '{}'
+    }
+  };
+}
+
+function resolveTextToolCalls(text) {
+  const value = textContent(text);
+  if (!value) return [];
+  let parsed = /<tool_call/i.test(value) ? parseInlineToolCalls(value) : [];
   if (!parsed.length) {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = value.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
         const obj = JSON.parse(jsonMatch[0]);
@@ -80,9 +121,58 @@ export function resolveToolCalls(message) {
       } catch { /* 不是 JSON，当普通文本 */ }
     }
   }
-  return parsed.map((call, index) => ({
-    id: `inline_${index + 1}`,
-    type: 'function',
-    function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) }
-  }));
+  return parsed;
+}
+
+function structuredContentToolCalls(content) {
+  if (!Array.isArray(content)) return [];
+  return content.map((part, index) => {
+    if (!part || typeof part !== 'object') return null;
+    const type = String(part.type || '').toLowerCase();
+    if (!['tool_use', 'tool_call', 'function_call'].includes(type)) return null;
+    return normalizeStructuredCall({
+      id: part.id,
+      type: 'function',
+      function: {
+        name: part.name || part.function?.name,
+        arguments: part.arguments ?? part.input ?? part.function?.arguments
+      }
+    }, index);
+  }).filter(Boolean);
+}
+
+/**
+ * 统一取一次响应里的工具调用，返回 OpenAI 结构（照旧读 call.function.name / arguments）。
+ * 优先原生 tool_calls；兼容 legacy function_call、数组 content、reasoning_content
+ * 以及模型写在文本里的内联调用。只有明确识别到调用时才转成 OpenAI 结构。
+ */
+export function resolveToolCalls(message) {
+  const rawStructured = Array.isArray(message?.tool_calls)
+    ? message.tool_calls
+    : message?.tool_calls && typeof message.tool_calls === 'object'
+      ? [message.tool_calls]
+      : [];
+  const structured = rawStructured
+    .map(normalizeStructuredCall)
+    .filter(Boolean);
+  if (structured.length === rawStructured.length && structured.length) return structured;
+
+  const legacy = normalizeStructuredCall(message?.function_call, 0);
+  if (legacy) return [legacy];
+
+  const contentCalls = structuredContentToolCalls(message?.content);
+  if (contentCalls.length) return contentCalls;
+
+  const textCandidates = [message?.content, message?.reasoning_content];
+  for (const candidate of textCandidates) {
+    const parsed = resolveTextToolCalls(candidate);
+    if (parsed.length) {
+      return parsed.map((call, index) => ({
+        id: `inline_${index + 1}`,
+        type: 'function',
+        function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) }
+      }));
+    }
+  }
+  return [];
 }
