@@ -163,7 +163,11 @@ export function resolveToolCalls(message) {
   const contentCalls = structuredContentToolCalls(message?.content);
   if (contentCalls.length) return contentCalls;
 
-  const textCandidates = [message?.content, message?.reasoning_content];
+  const textCandidates = [
+    message?.content,
+    message?.reasoning_content,
+    message?.reasoning
+  ];
   for (const candidate of textCandidates) {
     const parsed = resolveTextToolCalls(candidate);
     if (parsed.length) {

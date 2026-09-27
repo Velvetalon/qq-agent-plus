@@ -33,6 +33,7 @@ check('格式3b 裸 function 块', parseInlineToolCalls(f3Bare)[0]?.name === 'su
 const f4 = '{"name":"submit_daily_moment","arguments":{"decision":"skip","reason":"今天没什么好说的"}}';
 check('格式4 裸 name-JSON', resolveToolCalls({ content: f4 })[0]?.function?.name === 'submit_daily_moment');
 check('reasoning_content 内联调用', resolveToolCalls({ reasoning_content: f2 })[0]?.function?.name === 'submit_relationship_events');
+check('reasoning 内联调用', resolveToolCalls({ reasoning: f2 })[0]?.function?.name === 'submit_relationship_events');
 check('数组 content 内联调用', resolveToolCalls({
   content: [{ type: 'text', text: f2 }]
 })[0]?.function?.name === 'submit_relationship_events');
