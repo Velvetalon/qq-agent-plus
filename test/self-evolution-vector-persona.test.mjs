@@ -37,6 +37,7 @@ function embeddingConfig(overrides = {}) {
     dimension: 2,
     allowPrivate: true,
     allowQuery: true,
+    allowAnonymous: true,
     ...overrides
   };
 }

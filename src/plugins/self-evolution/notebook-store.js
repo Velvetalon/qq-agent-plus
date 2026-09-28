@@ -438,6 +438,19 @@ export class NotebookStore {
       || { processed: 0, reason: 'extension-unavailable' };
   }
 
+  startEmbeddingWorker(options = {}) {
+    return this.vectorMemory?.startWorker?.(options) || false;
+  }
+
+  async stopEmbeddingWorker(reason) {
+    await this.vectorMemory?.stopWorker?.(reason);
+  }
+
+  retryEmbeddingQueue(options = {}) {
+    return this.vectorMemory?.retryFailed?.(options)
+      || { retried: 0, reason: 'extension-unavailable' };
+  }
+
   async semanticSearch(options = {}) {
     if (!this.vectorMemory) {
       return {
@@ -457,10 +470,6 @@ export class NotebookStore {
         diagnostics: {}
       };
     }
-    await this.processEmbeddingQueue({
-      limit: Math.max(1, Number(options.indexLimit) || 8),
-      signal: options.signal || null
-    });
     const result = await this.vectorMemory.search(options);
     return {
       ...result,
@@ -470,7 +479,10 @@ export class NotebookStore {
 
   #queueEmbedding(db, note) {
     try {
-      return queueEmbedding(db, note, { now: this.now });
+      return queueEmbedding(db, note, {
+        now: this.now,
+        profileId: this.vectorMemory?.profileId || ''
+      });
     } catch {
       return { queued: false, reason: 'queue-failed' };
     }
@@ -835,8 +847,14 @@ export class NotebookStore {
         const note = noteView(db.prepare(
           'SELECT * FROM notebook_notes WHERE id=?'
         ).get(id));
-        this.#queueEmbedding(db, note);
-        return { saved: true, operationId, note, revision: note.revision };
+        const index = this.#queueEmbedding(db, note);
+        return {
+          saved: true,
+          indexStatus: index.queued ? 'pending' : index.reason || 'not-queued',
+          operationId,
+          note,
+          revision: note.revision
+        };
       }
     });
   }
@@ -952,8 +970,14 @@ export class NotebookStore {
         const note = noteView(db.prepare(
           'SELECT * FROM notebook_notes WHERE id=?'
         ).get(id));
-        this.#queueEmbedding(db, note);
-        return { saved: true, operationId, note, revision: note.revision };
+        const index = this.#queueEmbedding(db, note);
+        return {
+          saved: true,
+          indexStatus: index.queued ? 'pending' : index.reason || 'not-queued',
+          operationId,
+          note,
+          revision: note.revision
+        };
       }
     });
   }

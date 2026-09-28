@@ -14,7 +14,6 @@ import {
 import { ReflectionWorker } from './reflection-worker.js';
 import { createLearnedSelfContextProvider } from './learned-self-provider.js';
 import { selfEvolutionConfig } from './config.js';
-import { createEmbeddingClient } from './embedding-client.js';
 
 export function reflectionConfig(config = {}) {
   const selected = selfEvolutionConfig(config);
@@ -98,10 +97,7 @@ export function createReflectionPlugin({
         && typeof evolution.retrieval.embedding === 'object'
         ? evolution.retrieval.embedding
         : {};
-      const client = embeddingClient
-        || (evolution.retrievalEnabled && embeddingConfig.enabled === true
-          ? createEmbeddingClient({ config: embeddingConfig })
-          : null);
+      const client = embeddingClient || _services?.capabilities?.embedding || null;
       const selectedLimits = { ...limits, ...selected };
       store ||= new ReflectionStore({ dataDir, filename, limits: selectedLimits, now });
       notebook ||= new NotebookStore({

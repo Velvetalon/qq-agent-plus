@@ -40,6 +40,7 @@ import { createReflectionPlugin, reflectionConfig } from '../plugins/self-evolut
 import { selfEvolutionConfig } from '../plugins/self-evolution/config.js';
 import { NotebookStore, notebookDatabasePath } from '../plugins/self-evolution/notebook-store.js';
 import { ReflectionStore, hashBasePersona, reflectionDatabasePath } from '../plugins/self-evolution/reflection-store.js';
+import { createEmbeddingCapability } from '../plugins/self-evolution/embedding-runtime.js';
 import { repairJsonObject } from '../core/json-repair.js';
 
 import { AssetObserver } from './asset-observer.js';
@@ -355,6 +356,20 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       return selfId;
     }
   });
+
+  function embeddingCapability() {
+    const config = getConfig().selfEvolution?.retrieval?.embedding;
+    return createEmbeddingCapability({
+      config: config && typeof config === 'object' ? config : {}
+    });
+  }
+
+  function pluginServices() {
+    return {
+      logger: (...args) => log('[self-evolution]', ...args),
+      capabilities: { embedding: embeddingCapability() }
+    };
+  }
   // 注册本身不建库、不起 worker、不发模型调用；是否真的启动由各自
   // isEnabled(config)（selfEvolution.enabled / reflection.enabled）决定，
   // 禁用时插件保持 registered+stopped，管理端仍能看见并显式启用。
@@ -423,11 +438,18 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       enabled,
       integrated: true,
       available: active,
-      configured: retrieval.enabled === true,
+      configured: vector.configured === true,
       running: active,
-      mode: embeddingEnabled ? 'sqlite-vec' : 'unavailable',
+      mode: vector.extension?.available === true ? 'sqlite-vec' : 'unavailable',
       adapter: 'self-evolution-notebook',
       vector,
+      coverage: {
+        ready: Number(vector.stats?.ready) || 0,
+        pending: Number(vector.stats?.pending) || 0,
+        blocked: Number(vector.stats?.blocked) || 0,
+        failed: Number(vector.stats?.failed) || 0,
+        obsolete: Number(vector.stats?.obsolete) || 0
+      },
       reason: !selected.enabled
         ? 'self-evolution-disabled'
         : active
@@ -482,7 +504,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     try {
       await manager.startAll({
         config: getConfig(),
-        services: { logger: (...args) => log('[self-evolution]', ...args) }
+        services: pluginServices()
       });
       return null;
     } catch (error) {
@@ -492,7 +514,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     }
   }
 
-  async function reconcileSelfEvolutionRuntime() {
+  async function reconcileSelfEvolutionRuntime({ restart = false } = {}) {
     const manager = orchestrator.pluginManager;
     const selected = selfEvolutionConfig(getConfig());
     if (selected.notebookEnabled && accountNamespace().source !== 'selfId') {
@@ -504,6 +526,13 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       [RETRIEVAL_PLUGIN_ID, selected.retrievalEnabled],
       [REFLECTION_PLUGIN_ID, selected.reflectionEnabled]
     ]);
+    if (restart) {
+      for (const pluginId of CONTROLLABLE_PLUGIN_IDS) {
+        if (pluginStatusEntry(pluginId)?.running === true) {
+          await manager.disable(pluginId, 'config-changed');
+        }
+      }
+    }
     for (const [pluginId, enabled] of desired) {
       const status = pluginStatusEntry(pluginId);
       if (!enabled && status?.running === true) {
@@ -515,7 +544,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     syncSelfEvolutionPluginOverrides();
     await manager.startAll({
       config: getConfig(),
-      services: { logger: (...args) => log('[self-evolution]', ...args) }
+      services: pluginServices()
     });
   }
 
@@ -2644,8 +2673,14 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           }
         }
         if (JSON.stringify(next.selfEvolution || {}) !== JSON.stringify(previousSelfEvolution)) {
+          const previousEmbedding = JSON.stringify(
+            previousSelfEvolution?.retrieval?.embedding || {}
+          );
+          const nextEmbedding = JSON.stringify(
+            next.selfEvolution?.retrieval?.embedding || {}
+          );
           try {
-            await reconcileSelfEvolutionRuntime();
+            await reconcileSelfEvolutionRuntime({ restart: previousEmbedding !== nextEmbedding });
           } catch (error) {
             const reverted = updateConfig({ selfEvolution: previousSelfEvolution });
             try { await reconcileSelfEvolutionRuntime(); } catch { /* preserve original failure */ }
@@ -3625,6 +3660,29 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         return json(res, 200, selfEvolutionStatusPayload());
       }
 
+      if (pathname === '/api/self-evolution/embedding/retry' && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        if (!selfEvolutionEnabled()) {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_DISABLED', '自我迭代已停用，索引恢复被拒绝');
+        }
+        let body = {};
+        try { body = await readJsonBody(req); } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        const limit = Math.min(500, Math.max(1, Number(body.limit) || 100));
+        const store = selfEvolutionPlugin.getStore?.();
+        if (!store) return apiFailure(res, 409, 'SELF_EVOLUTION_UNAVAILABLE', '自我迭代存储未运行');
+        const retried = store.retryEmbeddingQueue?.({ limit }) || { retried: 0 };
+        const processed = await store.processEmbeddingQueue?.({ limit });
+        return json(res, 200, {
+          ok: true,
+          retried,
+          processed: processed || { processed: 0 },
+          status: store.embeddingStatus?.() || null
+        });
+      }
+
       // ── P7：Notebook（管理员可见，可含归档） ────────────────────────────
       if (pathname === '/api/self-evolution/notebook' && method === 'GET') {
         const account = accountNamespace();
@@ -4069,7 +4127,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     }
     refreshTimeControl();
     syncSelfEvolutionPluginOverrides();
-    await orchestrator.startPlugins();
+    await orchestrator.pluginManager.startAll({
+      config: getConfig(),
+      services: pluginServices()
+    });
     orchestrator.startRecoveryLoop();
     if (getConfig().dailyMoments?.enabled) dailyMoments.start();
     if (getConfig().qzoneInteractions?.enabled) qzoneInteractions.start();

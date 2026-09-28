@@ -1026,8 +1026,36 @@ function aggregateObservations(rows, observationKey) {
     ));
   const first = fullObservations[0] || {};
   const observations = fullObservations.map((item) => {
-    const metadata = { ...item };
-    delete metadata.conversationEvidence;
+    const metadata = {
+      sourceKind: item.sourceKind,
+      evidenceVersion: item.evidenceVersion,
+      eventId: item.eventId,
+      sessionId: item.sessionId,
+      runId: item.runId,
+      chatKey: item.chatKey,
+      resultClass: item.resultClass,
+      completedAt: item.completedAt,
+      reliability: item.reliability,
+      validSession: item.validSession,
+      failureKinds: Array.isArray(item.failureKinds) ? item.failureKinds.slice(0, 12) : [],
+      actionSummary: {
+        sentCount: Number(item.actionSummary?.sentCount) || 0,
+        finishReason: String(item.actionSummary?.finishReason || '').slice(0, 300),
+        outboundAttempted: item.actionSummary?.outboundAttempted === true,
+        participation: item.actionSummary?.participation || {},
+        termination: item.actionSummary?.termination || {},
+        outbound: item.actionSummary?.outbound || {}
+      },
+      executionOutcome: {
+        kind: String(item.executionOutcome?.kind || '').slice(0, 80),
+        status: String(item.executionOutcome?.status || '').slice(0, 80),
+        code: String(item.executionOutcome?.code || '').slice(0, 120),
+        noReply: item.executionOutcome?.noReply === true,
+        failed: item.executionOutcome?.failed === true,
+        timeout: item.executionOutcome?.timeout === true,
+        cancelled: item.executionOutcome?.cancelled === true
+      }
+    };
     return metadata;
   });
   const evidenceIds = [...new Set(fullObservations.flatMap((item) => (

@@ -405,6 +405,7 @@ export class PluginManager {
       config: snapshotPluginConfig(config),
       signal,
       logger: this.services.logger || (() => {}),
+      capabilities: Object.freeze(this.services.capabilities || {}),
       resources: Object.freeze({ setTimer, clearTimer })
     });
   }

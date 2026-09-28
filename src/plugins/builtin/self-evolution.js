@@ -8,7 +8,6 @@ import {
   notebookDatabasePath
 } from '../self-evolution/notebook-store.js';
 import { selfEvolutionConfig } from '../self-evolution/config.js';
-import { createEmbeddingClient } from '../self-evolution/embedding-client.js';
 
 function ok(value) {
   return { content: JSON.stringify(value) };
@@ -137,8 +136,9 @@ function makeTools(getStore) {
           const vectorStatus = store.embeddingStatus?.() || {};
           const vectorEnabled = vectorStatus.configured === true
             || store.embeddingConfig?.enabled === true;
-          const result = args.query && vectorEnabled
-            ? await store.semanticSearch({
+          const result = args.query
+            ? vectorEnabled
+              ? await store.semanticSearch({
                 accountId: source.accountId,
                 currentChatKey: source.chatKey,
                 chatKey: source.chatKey,
@@ -147,7 +147,17 @@ function makeTools(getStore) {
                 maxNotes: args.limit,
                 maxChars: 2400,
                 maxSnippetChars: 600
-            })
+              })
+              : store.search({
+                  accountId: source.accountId,
+                  currentChatKey: source.chatKey,
+                  scope: args.scope,
+                  query: args.query,
+                  tags: args.tags,
+                  limit: args.limit,
+                  includeArchived: false,
+                  admin: false
+                })
             : store.search({
                 accountId: source.accountId,
                 currentChatKey: source.chatKey,
@@ -269,10 +279,7 @@ export function createSelfEvolutionPlugin({
         && typeof selected.retrieval.embedding === 'object'
         ? selected.retrieval.embedding
         : {};
-      const client = embeddingClient
-        || (selected.retrievalEnabled && embeddingConfig.enabled === true
-          ? createEmbeddingClient({ config: embeddingConfig })
-          : null);
+      const client = embeddingClient || _services?.capabilities?.embedding || null;
       store = new NotebookStore({
         dataDir,
         filename,
@@ -281,9 +288,17 @@ export function createSelfEvolutionPlugin({
         embeddingConfig,
         embeddingClient: client
       });
+      if (embeddingConfig.enabled === true
+        && client?.isConfigured?.() !== false) {
+        store.startEmbeddingWorker?.({
+          signal: _services?.signal || null,
+          resources: _services?.resources || null
+        });
+      }
       return store;
     },
-    stop() {
+    async stop(reason) {
+      await store?.stopEmbeddingWorker?.(reason);
       store?.close();
       store = null;
     },
