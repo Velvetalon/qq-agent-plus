@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { runtimeControlPlugin } from '../src/plugins/builtin/runtime-control.js';
+import { longtimePlugin } from '../src/plugins/builtin/longtime.js';
 import { longtimeTool } from '../src/plugins/builtin/runtime-control-tools.js';
 import { createRuntimeControlContext } from '../src/plugins/context.js';
 import { executeLongtimeCommand } from '../src/tools/longtime.js';
@@ -81,14 +81,17 @@ function harness(triggerEntries = [entry()]) {
   return { execute, sent, session, entries, marked };
 }
 
-test('runtime-control exposes #龙time as a required system tool', () => {
+test('longtime is a required system plugin with the #龙time tool', () => {
   const tools = [];
-  runtimeControlPlugin.declare({
+  longtimePlugin.declare({
     addTools(value) { tools.push(...(Array.isArray(value) ? value : [value])); }
   });
   const tool = tools.find((item) => item.name === 'longtime');
   assert.ok(tool);
-  assert.equal(tool.ownerPluginId, 'runtime-control');
+  assert.equal(longtimePlugin.id, 'longtime');
+  assert.equal(longtimePlugin.name, '龙time');
+  assert.equal(longtimePlugin.required, true);
+  assert.equal(tool.ownerPluginId, 'longtime');
   assert.equal(tool.effect, 'external-write');
   assert.match(tool.description, /#龙time/);
   assert.equal(longtimeTool.parameters.required[0], 'messageId');

@@ -306,10 +306,15 @@ test('plugin inventory exposes the P7 read model and restricts runtime control',
     assert.equal(inventory.json.accountId, '20002');
     assert.equal(inventory.json.accountSource, 'selfId');
     const ids = inventory.json.plugins.map((plugin) => plugin.id);
-    for (const id of ['runtime-control', 'messaging', 'memory-tools', 'legacy-tools',
+    for (const id of ['runtime-control', 'longtime', 'messaging', 'memory-tools', 'legacy-tools',
       'self-evolution', 'self-evolution-retrieval', 'self-evolution-reflection']) {
       assert.ok(ids.includes(id), `插件清单缺少 ${id}`);
     }
+    const longtimePluginStatus = inventory.json.plugins.find((plugin) => plugin.id === 'longtime');
+    assert.equal(longtimePluginStatus.name, '龙time');
+    assert.equal(longtimePluginStatus.required, true);
+    assert.equal(longtimePluginStatus.running, true);
+    assert.ok(longtimePluginStatus.capabilities.tools.includes('longtime'));
     const selfEvolution = inventory.json.plugins.find((plugin) => plugin.id === 'self-evolution');
     assert.deepEqual(
       Object.keys(selfEvolution).sort(),

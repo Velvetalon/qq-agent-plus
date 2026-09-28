@@ -29,7 +29,7 @@
 | 表情同步防清空 | `src/onebot/stickers.js` | QQ 收藏列表为空/失败时不剪枝，避免本地库（含备注）被清空 | `apply-sticker-sync-guard.sh` |
 | 找不到表情时的兜底 | `src/onebot/stickers.js`、`src/tools/tools-core.js` | 报错里带上有效 id；`findSticker` 加唯一命中的模糊匹配；提示直接用备注名选图 | `apply-sticker-lookup-help.sh` |
 | 表情备注上限 | `src/onebot/sticker-manager.js` | 16 → 24 字 | `apply-sticker-note-length.sh` |
-| `#龙time` 系统工具 | `src/tools/longtime.js`、`src/plugins/builtin/runtime-control*.js` | 从人物卡协议收敛为 runtime-control 系统工具：精确标签随机发图、带图投稿判断、收藏打标或单次短怼 | 本仓库新增 |
+| `#龙time` 系统插件 | `src/tools/longtime.js`、`src/plugins/builtin/longtime.js`、`src/plugins/builtin/runtime-control-tools.js` | 从人物卡协议收敛为独立必需系统插件：精确标签随机发图、带图投稿判断、收藏打标或单次短怼 | 本仓库新增 |
 | `[表情包]` 标签与收藏规则收紧 | `src/console/app.js`、`src/llm/prompt.js`、`src/tools/tools-core.js`、`src/onebot/stickers.js`、`src/onebot/sticker-manager.js` | 表情包消息单独标注；只收真表情包，生活照/自拍不收 | `apply-sticker-label-and-rule.sh` |
 | 提示词告知可攒表情 | `src/llm/prompt.js` | 工具一直有，只是没告诉模型 | `apply-sticker-collect-prompt.sh` |
 | 主动开话题节奏 | `src/core/orchestrator.js` | 间隔 2.5-3.5 小时；"没有安静的群"不算消耗本轮（45 分钟后再看） | `apply-proactive-cadence.sh` |

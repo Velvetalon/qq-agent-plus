@@ -45,7 +45,8 @@ const MEMORY_TOOLS = new Set([
   'person_memory_lookup',
   'memory_remove'
 ]);
-const RUNTIME_CONTROL_TOOLS = new Set(['schedule_wake', 'finish', 'stay_silent', 'longtime']);
+const RUNTIME_CONTROL_TOOLS = new Set(['schedule_wake', 'finish', 'stay_silent']);
+const LONGTIME_TOOLS = new Set(['longtime']);
 
 function snapshotPluginContextMetadata(pluginContext) {
   if (!pluginContext || typeof pluginContext !== 'object') return Object.freeze({});
@@ -297,6 +298,9 @@ export function createToolCallbackContext(tool, hostCtx = {}) {
     return createMemoryToolsContext(hostCtx);
   }
   if (ownerPluginId === 'runtime-control' && RUNTIME_CONTROL_TOOLS.has(toolName)) {
+    return createRuntimeControlContext(hostCtx);
+  }
+  if (ownerPluginId === 'longtime' && LONGTIME_TOOLS.has(toolName)) {
     return createRuntimeControlContext(hostCtx);
   }
   return Object.freeze(genericToolCallbackContext(hostCtx));

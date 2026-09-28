@@ -1,13 +1,13 @@
 import { buildToolDefs } from '../../tools/tools-core.js';
 import { decorateLegacyTool } from './legacy-tools.js';
-import { longtimeTool, staySilentTool } from './runtime-control-tools.js';
+import { staySilentTool } from './runtime-control-tools.js';
 
 const TOOLS = new Set(['schedule_wake', 'finish']);
 
 export const runtimeControlPlugin = Object.freeze({
   id: 'runtime-control',
   name: 'Runtime control',
-  version: '1.2.0',
+  version: '1.1.0',
   apiVersion: 1,
   required: true,
   declare(registrar) {
@@ -19,11 +19,6 @@ export const runtimeControlPlugin = Object.freeze({
       ...staySilentTool,
       ownerPluginId: 'runtime-control',
       order: 1000
-    });
-    registrar.addTools({
-      ...longtimeTool,
-      ownerPluginId: 'runtime-control',
-      order: 1001
     });
   }
 });

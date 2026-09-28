@@ -1,8 +1,8 @@
 # `#龙time` System Tool Verification
 
 - Baseline before this change: `7ed9bf3`
-- Scope: convert the live persona's `#龙time` protocol into a built-in
-  `runtime-control` tool.
+- Scope: convert the live persona's `#龙time` protocol into a required built-in
+  system plugin and tool.
 - Result: PASS for local registration, routing, authorization, sticker tagging,
   image return, and decision handling.
 
@@ -11,7 +11,7 @@
 - `src/tools/longtime.js`: current-message lookup, image refresh/loading,
   random exact-tag selection, local collection with `龙图`, and one-shot reply.
 - `src/plugins/builtin/runtime-control-tools.js`: model-facing `longtime` tool.
-- `src/plugins/builtin/runtime-control.js`: required system-plugin registration.
+- `src/plugins/builtin/longtime.js`: required `龙time` system-plugin registration.
 - `src/plugins/context.js`: restricted host-bound `longtimeCommand` facade.
 - `src/core/orchestrator.js`: binds the current trigger batch, chat, Sender,
   sticker store, OneBot, session, signal, and random source.

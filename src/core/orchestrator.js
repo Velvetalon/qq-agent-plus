@@ -106,6 +106,7 @@ import { createRunContext } from '../plugins/context.js';
 import { PluginManager } from '../plugins/manager.js';
 import { createLegacyToolsPlugin } from '../plugins/builtin/legacy-tools.js';
 import { runtimeControlPlugin } from '../plugins/builtin/runtime-control.js';
+import { longtimePlugin } from '../plugins/builtin/longtime.js';
 import { messagingPlugin } from '../plugins/builtin/messaging.js';
 import { memoryToolsPlugin } from '../plugins/builtin/memory-tools.js';
 import {
@@ -393,6 +394,7 @@ export class Orchestrator {
     if (!pluginManager) {
       this.pluginManager.registerAll([
         runtimeControlPlugin,
+        longtimePlugin,
         messagingPlugin,
         memoryToolsPlugin,
         createLegacyToolsPlugin({

@@ -1,6 +1,7 @@
 # `#龙time` System Tool
 
-`#龙time` is a deterministic runtime-control tool, not a persona paragraph.
+`#龙time` is a required system plugin named `龙time` (`longtime` internally),
+not a persona paragraph. The plugin owns one deterministic `longtime` tool.
 The authoritative trigger is the literal `#龙time` in the current trigger
 message. Historical messages, quotes, and other messages in the same batch do
 not activate it.
