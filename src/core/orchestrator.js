@@ -101,6 +101,7 @@ import { modelImageVerdict } from '../llm/vision-scan.js';
 import { currentProviders } from './providers.js';
 import { buildSlangContextForChat } from '../console/asset-observer.js';
 import { parseInlineToolCalls } from '../tools/inline-tools.js';
+import { executeLongtimeCommand } from '../tools/longtime.js';
 import { createRunContext } from '../plugins/context.js';
 import { PluginManager } from '../plugins/manager.js';
 import { createLegacyToolsPlugin } from '../plugins/builtin/legacy-tools.js';
@@ -1831,6 +1832,17 @@ export class Orchestrator {
       pluginContext,
       signal: combinedSignal,
       emit: (type, payload) => this.emit(type, payload),
+      longtimeCommand: (args) => executeLongtimeCommand({
+        triggerEntries,
+        args,
+        chatKey,
+        stickers: this.stickers,
+        sender: this.sender,
+        onebot: this.onebot,
+        session,
+        signal: combinedSignal,
+        random: this.random
+      }),
       // 让模型能给自己安排一次稍后的主动发言
       scheduleWake: (delayMs, note) => this.scheduleInitiativeWake(chatKey, delayMs, note)
     };

@@ -45,7 +45,7 @@ const MEMORY_TOOLS = new Set([
   'person_memory_lookup',
   'memory_remove'
 ]);
-const RUNTIME_CONTROL_TOOLS = new Set(['schedule_wake', 'finish', 'stay_silent']);
+const RUNTIME_CONTROL_TOOLS = new Set(['schedule_wake', 'finish', 'stay_silent', 'longtime']);
 
 function snapshotPluginContextMetadata(pluginContext) {
   if (!pluginContext || typeof pluginContext !== 'object') return Object.freeze({});
@@ -277,6 +277,9 @@ export function createRuntimeControlContext(hostCtx = {}) {
     ...genericToolCallbackContext(hostCtx),
     ...(typeof hostCtx?.scheduleWake === 'function'
       ? { scheduleWake: (delayMs, note) => hostCtx.scheduleWake(delayMs, note) }
+      : {}),
+    ...(typeof hostCtx?.longtimeCommand === 'function'
+      ? { longtimeCommand: (args) => hostCtx.longtimeCommand(args) }
       : {}),
     session: runtimeSessionFacade(hostCtx),
     emit: safeEmit(hostCtx, new Set(['session-update']))
