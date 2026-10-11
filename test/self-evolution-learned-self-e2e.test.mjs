@@ -129,7 +129,8 @@ test('learned self is injected into the next user prompt and rollback removes th
       leaseMs: 30000,
       workerLeaseMs: 30000,
       maxCallsPerDay: 20,
-      backoffMs: 0
+      backoffMs: 0,
+      autoApplyBehaviorTraits: true
     },
     reflector: async ({ job }) => job.sessionId === 'job-1'
       ? reflectionOutput(job, 'communication_style', 'concise')

@@ -68,6 +68,11 @@ export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
   maxAttempts: 3,
   maxCallsPerDay: 100,
   minValidSessions: 1,
+  minTraitValidSessions: 3,
+  minTraitUserEvidence: 2,
+  minTraitGlobalChats: 2,
+  autoApplyBehaviorTraits: false,
+  traitTtlMs: 30 * 24 * 60 * 60 * 1000,
   observationWindowMs: 0,
   leaseMs: 60000,
   workerLeaseMs: 90000,
@@ -83,7 +88,6 @@ export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
 const LOW_RISK_TRAIT_KEYS = new Set([
   'communication_style',
   'language_preference',
-  'working_habit',
   'topic_interests',
   'interaction_preferences',
   'expression_preferences'
@@ -110,6 +114,19 @@ const DISINTEREST_PATTERNS = Object.freeze([
   /not\s+interested/i,
   /lost\s+interest/i,
   /no\s+longer\s+interested/i
+]);
+const USER_ROLES = new Set(['user', 'human', 'member', 'sender']);
+const ASSISTANT_ROLES = new Set(['assistant', 'bot', 'system', 'tool', 'model']);
+const PROCEDURAL_TRAIT_PATTERNS = Object.freeze([
+  /result\s*=\s*\d+/iu,
+  /\b(?:retry|retries|queue|queued|schedule|scheduled|wake|wakeup|cron|system\s+reminder)\b/iu,
+  /(?:重试|队列|排队|定时|调度|唤醒|系统提醒|发送失败|外发失败|消息状态|发送状态)/u,
+  /(?:\bmsg(?:id)?\b|\bmessage[_ -]?id\b|\bqq(?:号|id)?\b)\s*[:=#-]?\s*\d+/iu,
+  /\b(?:at|on)\s+\d{4}[-/]\d{1,2}[-/]\d{1,2}/iu,
+  /(?:固定(?:回复|台词|表情|触发)|每次(?:都)?(?:回复|发送)|看到.+就(?:回复|发送))/u
+]);
+const PROCEDURAL_KEY_PATTERNS = Object.freeze([
+  /(?:working_habit|routine|schedule|retry|queue|wake|send|outbound|delivery|execution|runtime|status)/iu
 ]);
 const SAFE_ID_RE = /^[a-z][a-z0-9._-]{0,127}$/;
 const TRAIT_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
@@ -211,10 +228,15 @@ function normalizeLimits(limits = {}) {
   result.maxAttempts = Math.max(1, result.maxAttempts);
   result.maxCallsPerDay = Math.max(1, result.maxCallsPerDay);
   result.minValidSessions = Math.max(1, result.minValidSessions);
+  result.minTraitValidSessions = Math.max(1, result.minTraitValidSessions);
+  result.minTraitUserEvidence = Math.max(0, result.minTraitUserEvidence);
+  result.minTraitGlobalChats = Math.max(1, result.minTraitGlobalChats);
+  result.traitTtlMs = Math.max(1, result.traitTtlMs);
   result.observationWindowMs = Math.max(0, result.observationWindowMs);
   result.leaseMs = Math.max(1, result.leaseMs);
   result.workerLeaseMs = Math.max(1, result.workerLeaseMs);
   result.backoffMs = Math.max(0, result.backoffMs);
+  result.autoApplyBehaviorTraits = limits.autoApplyBehaviorTraits === true;
   return Object.freeze(result);
 }
 
@@ -323,7 +345,10 @@ function boundedConversationEvidence(value) {
       at: Math.max(0, Number(item?.at) || 0),
       text: content,
       truncated: item?.truncated === true,
-      confirmed: item?.confirmed === true
+      confirmed: item?.confirmed === true,
+      delivered: item?.delivered === true,
+      userEvidence: item?.userEvidence === true,
+      userConfirmed: item?.userConfirmed === true
     };
     const current = unique.get(evidenceId);
     if (!current || (normalized.confirmed && !current.confirmed)
@@ -332,6 +357,15 @@ function boundedConversationEvidence(value) {
     }
   }
   return [...unique.values()].slice(0, 20);
+}
+
+function evidenceRole(item) {
+  const explicit = String(item?.role || item?.speaker || '').trim().toLowerCase();
+  if (USER_ROLES.has(explicit)) return 'user';
+  if (ASSISTANT_ROLES.has(explicit)) return 'assistant';
+  if (item?.userEvidence === true || item?.userConfirmed === true) return 'user';
+  if (item?.delivered === true) return 'assistant';
+  return 'unknown';
 }
 
 function failureKinds(
@@ -443,9 +477,27 @@ export function hashBasePersona(basePersona = {}) {
 export function normalizeCompletionObservation(event) {
   const lineage = sourceLineage(event);
   const actionSummary = plainObject(event.actionSummary) ? event.actionSummary : {};
+  const rawConversationEvidence = Array.isArray(actionSummary.conversationEvidence)
+    ? actionSummary.conversationEvidence
+    : [];
+  const rawEvidenceVersion = Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0;
+  const structuredEvidence = Array.isArray(actionSummary.conversationEvidence) && (
+    rawEvidenceVersion >= 3
+    || actionSummary.userEvidenceProvided === true
+    || rawConversationEvidence.some((item) => (
+      Object.hasOwn(item || {}, 'userEvidence')
+      || Object.hasOwn(item || {}, 'userConfirmed')
+      || Object.hasOwn(item || {}, 'delivered')
+      || String(item?.role || item?.speaker || '').toLowerCase() === 'assistant'
+    ))
+  );
   const conversationEvidence = boundedConversationEvidence(actionSummary.conversationEvidence)
     .map((item) => ({
       ...item,
+      sessionId: lineage.sessionId,
+      chatKey: lineage.chatKey,
+      userEvidence: item.userEvidence === true || evidenceRole(item) === 'user',
+      assistantContext: item.delivered === true || evidenceRole(item) === 'assistant',
       sourceRef: [
         lineage.accountId,
         lineage.chatKey || 'account',
@@ -475,6 +527,28 @@ export function normalizeCompletionObservation(event) {
   const invalidEvidenceKinds = failures.filter((kind) =>
     REFLECTION_INVALID_EVIDENCE_KINDS.includes(kind)
   );
+  const explicitSilence = termination.kind === 'explicit_silence'
+    && outbound.attempted === 0
+    && outbound.succeeded === 0
+    && outbound.failed === 0
+    && outbound.unknown === 0
+    && outbound.held === 0;
+  const explicitPreference = actionSummary.explicitPreference === true
+    || actionSummary.userPreferenceConfirmed === true
+    || conversationEvidence.some((item) => item.userConfirmed === true);
+  const participationMode = `${participation.mode} ${participation.decision} ${participation.reasonCode}`.toLowerCase();
+  const proactive = actionSummary.proactive === true
+    || /\b(?:proactive|scheduled|schedule|wake|wakeup|manual_wake|cron)\b/u.test(participationMode);
+  const userEvidence = conversationEvidence.filter((item) => item.userEvidence === true);
+  const userEvidenceRefs = [...new Set(userEvidence.map((item) =>
+    item.sourceRef || item.evidenceId
+  ).filter(Boolean))];
+  const userEvidenceSessionIds = [...new Set(userEvidence.map((item) =>
+    String(item.sessionId || lineage.sessionId || '').trim()
+  ).filter(Boolean))];
+  const userEvidenceChatKeys = [...new Set(userEvidence.map((item) =>
+    String(item.chatKey || lineage.chatKey || '').trim()
+  ).filter(Boolean))];
   const sourceMessageIds = (Array.isArray(event.sourceMessageIds) ? event.sourceMessageIds : [])
     .map(String)
     .map((item) => item.trim())
@@ -498,6 +572,7 @@ export function normalizeCompletionObservation(event) {
     observerId: lineage.observerId,
     observerPluginId: lineage.observerPluginId,
     originKind: lineage.originKind,
+    structuredEvidence,
     accountId: lineage.accountId,
     sessionId: lineage.sessionId,
     runId: lineage.runId,
@@ -525,6 +600,13 @@ export function normalizeCompletionObservation(event) {
           finishReason
         },
     conversationEvidence,
+    userEvidenceRefs,
+    userEvidenceCount: userEvidenceRefs.length,
+    userEvidenceSessionCount: userEvidenceSessionIds.length,
+    userEvidenceChatCount: userEvidenceChatKeys.length,
+    explicitSilence,
+    explicitPreference,
+    proactive,
     sourceMessageIds,
     completedAt: Math.max(0, Number(event.completedAt) || 0),
     evidenceIds: [...new Set(evidenceIds)],
@@ -554,7 +636,7 @@ export function observationWindowKey(event, { windowMs = 0 } = {}) {
   return hash(stableJson({
     observerId: normalized.observerId,
     accountId: normalized.accountId,
-    chatKey: normalized.chatKey,
+    chatKey: normalized.observationWindowId ? '' : normalized.chatKey,
     window: observationWindowToken(normalized, windowMs)
   }));
 }
@@ -617,6 +699,104 @@ function noControlChars(value, pathName) {
 
 function disinterestLike(value) {
   return DISINTEREST_PATTERNS.some((pattern) => pattern.test(String(value)));
+}
+
+function traitEvidenceGate(evidence, limits = DEFAULT_REFLECTION_LIMITS, item = null) {
+  if (evidence?.structuredEvidence !== true) {
+    return {
+      mode: 'legacy',
+      eligible: true,
+      globalScopeEligible: true,
+      reasons: [],
+      validSessionCount: Number(evidence?.validSessionCount) || 1,
+      userEvidenceCount: Number(evidence?.userEvidenceCount) || 0,
+      userEvidenceRefs: Array.isArray(evidence?.userEvidenceRefs)
+        ? evidence.userEvidenceRefs.slice()
+        : [],
+      userEvidenceSessionCount: Number(evidence?.userEvidenceSessionCount) || 0,
+      userEvidenceChatCount: Number(evidence?.userEvidenceChatCount) || 0,
+      explicitSilence: evidence?.explicitSilence === true,
+      explicitPreference: evidence?.explicitPreference === true,
+      proactive: evidence?.proactive === true
+    };
+  }
+  const gate = plainObject(evidence?.traitGate) ? evidence.traitGate : {};
+  const userEvidence = Array.isArray(evidence?.conversationEvidence)
+    ? evidence.conversationEvidence.filter((entry) => (
+        entry?.userEvidence === true || evidenceRole(entry) === 'user'
+      ))
+    : [];
+  const userRefs = [...new Set(userEvidence.map((entry) =>
+    String(entry?.sourceRef || entry?.evidenceId || '').trim()
+  ).filter(Boolean))];
+  const userSessions = [...new Set(userEvidence.map((entry) =>
+    String(entry?.sessionId || evidence?.sessionId || '').trim()
+  ).filter(Boolean))];
+  const userChats = [...new Set(userEvidence.map((entry) =>
+    String(entry?.chatKey || evidence?.chatKey || '').trim()
+  ).filter(Boolean))];
+  const validSessions = Math.max(
+    Number(gate.validSessionCount) || 0,
+    Number(evidence?.validSessionCount) || 0,
+    Array.isArray(evidence?.sessionIds) ? evidence.sessionIds.length : 0
+  );
+  const userEvidenceCount = Math.max(
+    Number(gate.userEvidenceCount) || 0,
+    Number(evidence?.userEvidenceCount) || 0,
+    userRefs.length
+  );
+  const sessionCount = Math.max(
+    Number(gate.userEvidenceSessionCount) || 0,
+    Number(evidence?.userEvidenceSessionCount) || 0,
+    userSessions.length,
+    validSessions
+  );
+  const chatCount = Math.max(
+    Number(gate.userEvidenceChatCount) || 0,
+    Number(evidence?.userEvidenceChatCount) || 0,
+    userChats.length
+  );
+  const explicitSilence = gate.explicitSilence === true || evidence?.explicitSilence === true;
+  const explicitPreference = gate.explicitPreference === true
+    || evidence?.explicitPreference === true
+    || userEvidence.some((entry) => entry?.userConfirmed === true);
+  const proactive = gate.proactive === true || evidence?.proactive === true;
+  const reasons = [];
+  if (proactive) reasons.push('proactive-run');
+  if (userEvidenceCount === 0) reasons.push('assistant-only');
+  if (explicitSilence && !explicitPreference) reasons.push('explicit-silence');
+  if (sessionCount < Number(limits.minTraitValidSessions)) reasons.push('insufficient-sessions');
+  if (userEvidenceCount < Number(limits.minTraitUserEvidence)) reasons.push('insufficient-user-evidence');
+  const scope = item?.scope || '';
+  const globalScopeEligible = scope !== 'global'
+    || chatCount >= Number(limits.minTraitGlobalChats);
+  if (scope === 'global' && !globalScopeEligible) reasons.push('insufficient-global-chats');
+  return {
+    mode: 'structured',
+    eligible: reasons.length === 0 && globalScopeEligible,
+    globalScopeEligible,
+    reasons: [...new Set(reasons)],
+    validSessionCount: sessionCount,
+    userEvidenceCount,
+    userEvidenceRefs: userRefs,
+    userEvidenceSessionCount: userSessions.length,
+    userEvidenceChatCount: chatCount,
+    explicitSilence,
+    explicitPreference,
+    proactive
+  };
+}
+
+function proceduralTraitReason(key, value) {
+  const keyText = String(key || '').trim();
+  const valueText = String(value || '').replace(/\s+/g, ' ').trim();
+  if (PROCEDURAL_KEY_PATTERNS.some((pattern) => pattern.test(keyText))) {
+    return 'procedural-key';
+  }
+  if (PROCEDURAL_TRAIT_PATTERNS.some((pattern) => pattern.test(valueText))) {
+    return 'procedural-value';
+  }
+  return '';
 }
 
 function noteContentRejection(content) {
@@ -750,6 +930,12 @@ function validateTraitProposal(raw, index, evidence, limits) {
   } else if (raw.value !== undefined) {
     fail('REFLECTION_INVALID_OUTPUT', `${pathName}.value is not allowed for remove`);
   }
+  const proceduralReason = proceduralTraitReason(key, result.value || '');
+  if (proceduralReason) {
+    fail('REFLECTION_PROCEDURAL_TRAIT',
+      `${pathName} contains procedural or scripted behavior`,
+      { reason: proceduralReason });
+  }
   const invalidKinds = Array.isArray(evidence.invalidEvidenceKinds)
     ? evidence.invalidEvidenceKinds
     : (Array.isArray(evidence.failureKinds)
@@ -760,6 +946,12 @@ function validateTraitProposal(raw, index, evidence, limits) {
       `${pathName} requires valid chat evidence`,
       { invalidEvidenceKinds: invalidKinds }
     );
+  }
+  const gate = traitEvidenceGate(evidence, limits, result);
+  if (!gate.eligible) {
+    fail('REFLECTION_EVIDENCE_GATE',
+      `${pathName} does not have enough independent user evidence`,
+      { reasons: gate.reasons, gate });
   }
   const unreliable = evidence.reliability !== 'normal';
   if (unreliable && (disinterestLike(key) || disinterestLike(result.value || ''))) {
@@ -990,6 +1182,168 @@ function normalizeProfile(profile) {
   };
 }
 
+function traitStoredValue(value) {
+  return plainObject(value) && Object.hasOwn(value, 'value')
+    ? String(value.value ?? '')
+    : String(value ?? '');
+}
+
+function normalizeStoredTrait(value, { scope = 'global', chatKey = '', now = 0 } = {}) {
+  if (plainObject(value) && Object.hasOwn(value, 'value')) {
+    return {
+      ...structuredClone(value),
+      value: traitStoredValue(value),
+      scope: String(value.scope || scope),
+      chatKey: String(value.chatKey || chatKey || ''),
+      evidenceRefs: Array.isArray(value.evidenceRefs)
+        ? [...new Set(value.evidenceRefs.map(String).filter(Boolean))].slice(0, 32)
+        : [],
+      sourceChats: Array.isArray(value.sourceChats)
+        ? [...new Set(value.sourceChats.map(String).filter(Boolean))].slice(0, 16)
+        : (chatKey ? [chatKey] : []),
+      confidence: Number.isFinite(Number(value.confidence))
+        ? Math.max(0, Math.min(1, Number(value.confidence)))
+        : 0,
+      createdAt: Math.max(0, Number(value.createdAt) || Number(value.updatedAt) || now),
+      lastObservedAt: Math.max(
+        0,
+        Number(value.lastObservedAt) || Number(value.updatedAt) || now
+      ),
+      expiresAt: Math.max(0, Number(value.expiresAt) || 0)
+    };
+  }
+  return {
+    value: traitStoredValue(value),
+    scope,
+    chatKey,
+    evidenceRefs: [],
+    sourceChats: chatKey ? [chatKey] : [],
+    confidence: 0,
+    createdAt: Math.max(0, Number(now) || 0),
+    lastObservedAt: Math.max(0, Number(now) || 0),
+    expiresAt: 0
+  };
+}
+
+function activeProfile(profile, now) {
+  const normalized = normalizeProfile(profile);
+  const current = emptyProfile();
+  let activeCount = 0;
+  let expiredCount = 0;
+  const copyBucket = (source, target, scope, chatKey = '') => {
+    for (const [key, value] of Object.entries(source || {})) {
+      const entry = normalizeStoredTrait(value, { scope, chatKey, now });
+      if (entry.expiresAt > 0 && entry.expiresAt <= now) {
+        expiredCount += 1;
+        continue;
+      }
+      target[key] = entry;
+      activeCount += 1;
+    }
+  };
+  copyBucket(normalized.global, current.global, 'global');
+  for (const [chatKey, chatProfile] of Object.entries(normalized.chats)) {
+    if (!plainObject(chatProfile)) continue;
+    const target = {};
+    copyBucket(chatProfile, target, 'chat', chatKey);
+    if (Object.keys(target).length) current.chats[chatKey] = target;
+  }
+  return { profile: current, activeCount, expiredCount };
+}
+
+function strictSafeInteger(value, field, minimum = 0) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) {
+    fail('REFLECTION_INVALID_ARGUMENT',
+      `${field} must be a typed safe integer >= ${minimum}`);
+  }
+  return value;
+}
+
+function rawProfileEntry(profile, { scope, chatKey = '', key }) {
+  const normalized = normalizeProfile(profile);
+  const bucket = scope === 'chat'
+    ? (plainObject(normalized.chats?.[chatKey]) ? normalized.chats[chatKey] : null)
+    : normalized.global;
+  if (!bucket || !Object.hasOwn(bucket, key)) return { exists: false, value: undefined };
+  return { exists: true, value: structuredClone(bucket[key]) };
+}
+
+function profileEntryDescriptor(profile, {
+  accountId,
+  revision,
+  scope,
+  chatKey = '',
+  key
+} = {}) {
+  const raw = rawProfileEntry(profile, { scope, chatKey, key });
+  if (!raw.exists) return null;
+  const entry = plainObject(raw.value) && Object.hasOwn(raw.value, 'value')
+    ? raw.value
+    : {};
+  return {
+    accountId: String(accountId || ''),
+    key: String(key || ''),
+    scope: scope === 'chat' ? 'chat' : 'global',
+    chatKey: scope === 'chat' ? String(chatKey || '') : '',
+    value: plainObject(raw.value) && Object.hasOwn(raw.value, 'value')
+      ? String(raw.value.value ?? '')
+      : String(raw.value ?? ''),
+    entry: raw.value,
+    evidenceRefs: Array.isArray(entry.evidenceRefs)
+      ? [...new Set(entry.evidenceRefs.map(String).filter(Boolean))].slice(0, 32)
+      : [],
+    createdAt: Number.isFinite(Number(entry.createdAt))
+      ? Number(entry.createdAt)
+      : Number.isFinite(Number(entry.updatedAt)) ? Number(entry.updatedAt) : 0,
+    updatedAt: Number.isFinite(Number(entry.updatedAt)) ? Number(entry.updatedAt) : 0,
+    sourceRevision: Number(revision) || 0
+  };
+}
+
+function profileEntryDescriptors(profile, { accountId = '', revision = 0 } = {}) {
+  const normalized = normalizeProfile(profile);
+  const result = [];
+  for (const key of Object.keys(normalized.global)) {
+    const descriptor = profileEntryDescriptor(normalized, {
+      accountId,
+      revision,
+      scope: 'global',
+      key
+    });
+    if (descriptor) result.push(descriptor);
+  }
+  for (const [chatKey, chatProfile] of Object.entries(normalized.chats)) {
+    if (!plainObject(chatProfile)) continue;
+    for (const key of Object.keys(chatProfile)) {
+      const descriptor = profileEntryDescriptor(normalized, {
+        accountId,
+        revision,
+        scope: 'chat',
+        chatKey,
+        key
+      });
+      if (descriptor) result.push(descriptor);
+    }
+  }
+  return result;
+}
+
+function descriptorIdentity(descriptor) {
+  return `${descriptor.scope}:${descriptor.chatKey || ''}:${descriptor.key}`;
+}
+
+function diffProfileEntries(before, after) {
+  const beforeMap = new Map(before.map((entry) => [descriptorIdentity(entry), entry]));
+  const afterMap = new Map(after.map((entry) => [descriptorIdentity(entry), entry]));
+  const removed = [];
+  const retained = [];
+  for (const [identity, entry] of beforeMap) {
+    if (afterMap.has(identity)) retained.push(entry);
+    else removed.push(entry);
+  }
+  return { removed, retained };
+}
+
 function validateMode(mode) {
   const value = String(mode || 'review');
   if (!MODE_SET.has(value)) fail('REFLECTION_INVALID_ARGUMENT', 'mode must be review or bounded_auto');
@@ -1018,7 +1372,7 @@ function nextUtcPeriod(ts) {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
 }
 
-function aggregateObservations(rows, observationKey) {
+function aggregateObservations(rows, observationKey, limits = DEFAULT_REFLECTION_LIMITS) {
   const fullObservations = rows.map((row) => parseJson(row.evidence_json, {}))
     .sort((left, right) => (
       (Number(left.completedAt) || 0) - (Number(right.completedAt) || 0)
@@ -1029,6 +1383,7 @@ function aggregateObservations(rows, observationKey) {
     const metadata = {
       sourceKind: item.sourceKind,
       evidenceVersion: item.evidenceVersion,
+      structuredEvidence: item.structuredEvidence === true,
       eventId: item.eventId,
       sessionId: item.sessionId,
       runId: item.runId,
@@ -1037,6 +1392,10 @@ function aggregateObservations(rows, observationKey) {
       completedAt: item.completedAt,
       reliability: item.reliability,
       validSession: item.validSession,
+      userEvidenceCount: Number(item.userEvidenceCount) || 0,
+      explicitSilence: item.explicitSilence === true,
+      explicitPreference: item.explicitPreference === true,
+      proactive: item.proactive === true,
       failureKinds: Array.isArray(item.failureKinds) ? item.failureKinds.slice(0, 12) : [],
       actionSummary: {
         sentCount: Number(item.actionSummary?.sentCount) || 0,
@@ -1075,10 +1434,42 @@ function aggregateObservations(rows, observationKey) {
     )).map((item) => [String(item.sourceRef || item.evidenceId || ''), item])
   ).values()].filter((item) => item.evidenceId);
   const validSessionCount = fullObservations.filter((item) => item.validSession === true).length;
+  const structuredEvidence = fullObservations.some((item) => item.structuredEvidence === true);
+  const userEvidence = conversationEvidence.filter((item) => (
+    item.userEvidence === true || evidenceRole(item) === 'user'
+  ));
+  const userEvidenceRefs = [...new Set(userEvidence.map((item) =>
+    String(item.sourceRef || item.evidenceId || '').trim()
+  ).filter(Boolean))];
+  const userEvidenceSessionIds = [...new Set(userEvidence.map((item) =>
+    String(item.sessionId || '').trim()
+  ).filter(Boolean))];
+  const userEvidenceChatKeys = [...new Set(userEvidence.map((item) =>
+    String(item.chatKey || '').trim()
+  ).filter(Boolean))];
+  const explicitSilence = fullObservations.some((item) => item.explicitSilence === true);
+  const explicitPreference = fullObservations.some((item) => item.explicitPreference === true)
+    || userEvidence.some((item) => item.userConfirmed === true);
+  const proactive = fullObservations.some((item) => item.proactive === true);
+  const traitGate = traitEvidenceGate({
+    ...first,
+    structuredEvidence,
+    validSessionCount,
+    sessionIds,
+    conversationEvidence,
+    userEvidenceRefs,
+    userEvidenceCount: userEvidenceRefs.length,
+    userEvidenceSessionCount: userEvidenceSessionIds.length,
+    userEvidenceChatCount: userEvidenceChatKeys.length,
+    explicitSilence,
+    explicitPreference,
+    proactive
+  }, limits);
   const aggregate = {
     ...first,
     evidenceVersion: Math.max(2, Number(first.evidenceVersion) || 0),
     observationWindowKey: String(observationKey || ''),
+    structuredEvidence,
     sessionIds,
     observations,
     validSessionCount,
@@ -1090,6 +1481,19 @@ function aggregateObservations(rows, observationKey) {
     ).slice(0, 300),
     evidenceIds,
     conversationEvidence,
+    userEvidenceRefs,
+    userEvidenceCount: userEvidenceRefs.length,
+    userEvidenceSessionCount: userEvidenceSessionIds.length,
+    userEvidenceChatCount: userEvidenceChatKeys.length,
+    explicitSilence,
+    explicitPreference,
+    proactive,
+    traitGate: {
+      ...traitGate,
+      validSessionCount,
+      userEvidenceSessionCount: userEvidenceSessionIds.length,
+      userEvidenceChatCount: userEvidenceChatKeys.length
+    },
     failureKinds,
     invalidEvidenceKinds,
     reliability: failureKinds.length > 0 ? 'unreliable' : 'normal',
@@ -1106,7 +1510,8 @@ export class ReflectionError extends Error {
     this.code = String(code || 'REFLECTION_ERROR');
     this.details = plainObject(details) ? details : {};
     this.httpStatus = this.code === 'REFLECTION_CAS_CONFLICT'
-      || this.code === 'REFLECTION_BASE_PERSONA_CHANGED' ? 409
+      || this.code === 'REFLECTION_BASE_PERSONA_CHANGED'
+      || this.code === 'REFLECTION_CONFIRM_REQUIRED' ? 409
       : this.code === 'REFLECTION_DISABLED' || this.code === 'REFLECTION_READ_ONLY' ? 409
         : 400;
   }
@@ -1452,7 +1857,7 @@ export class ReflectionStore {
       const behaviorChange = rows.some((row) => row.behavior_change === 1);
       if (existing) {
         if (existing.status === 'pending') {
-          const aggregate = aggregateObservations(rows, observationKey);
+          const aggregate = aggregateObservations(rows, observationKey, this.limits);
           const aggregateJson = safeJson(aggregate);
           if (aggregateJson.length > this.limits.maxEvidenceChars) {
             fail('REFLECTION_LIMIT_EXCEEDED',
@@ -1470,6 +1875,39 @@ export class ReflectionStore {
           job: jobView(db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(existing.id)),
           validSessionCount,
           behaviorChange
+        };
+      }
+      const aggregate = aggregateObservations(rows, observationKey, this.limits);
+      if (aggregate.structuredEvidence && aggregate.traitGate?.eligible !== true) {
+        const reasons = Array.isArray(aggregate.traitGate.reasons)
+          ? aggregate.traitGate.reasons
+          : [];
+        this.#audit(db, {
+          accountId: evidence.accountId,
+          event: 'trait-evidence-gate',
+          code: 'REFLECTION_EVIDENCE_GATE',
+          message: 'observation did not meet the behavior-trait evidence gate',
+          details: {
+            observationWindowKey: observationKey,
+            reasons,
+            validSessionCount: aggregate.validSessionCount,
+            userEvidenceCount: aggregate.userEvidenceCount,
+            userEvidenceChatCount: aggregate.userEvidenceChatCount
+          },
+          ts
+        });
+        return {
+          created: false,
+          reason: reasons.some((reason) => (
+            ['assistant-only', 'proactive-run', 'explicit-silence'].includes(reason)
+          ))
+            ? 'trait-evidence-gate'
+            : 'trait-evidence-threshold',
+          job: null,
+          observationWindowKey: observationKey,
+          validSessionCount,
+          behaviorChange,
+          traitGate: aggregate.traitGate
         };
       }
       // The legacy P6 default reflects every completed session, including an
@@ -1500,7 +1938,6 @@ export class ReflectionStore {
           behaviorChange
         };
       }
-      const aggregate = aggregateObservations(rows, observationKey);
       const aggregateJson = safeJson(aggregate);
       if (aggregateJson.length > this.limits.maxEvidenceChars) {
         fail('REFLECTION_LIMIT_EXCEEDED',
@@ -2058,49 +2495,67 @@ export class ReflectionStore {
             rejectedCount += 1;
           }
         }
-        const highRiskTraits = proposals.filter((entry) => (
-          entry.type === 'trait' && entry.risk !== 'low'
-        ));
-        for (const proposal of highRiskTraits) {
-          db.prepare(`
-            UPDATE reflection_proposals
-            SET status='rejected',reviewed_at=?,reviewer=?,
-              error_code='REFLECTION_HIGH_RISK_REJECTED',
-              error_message='High-risk reflection behavior is rejected by policy'
-            WHERE id=? AND status='pending'
-          `).run(ts, policyActor, proposal.id);
-          rejectedCount += 1;
-        }
-        const lowRiskTraits = proposals.filter((entry) => entry.type === 'trait' && entry.risk === 'low');
-        if (lowRiskTraits.length > 0) {
-          const result = this.#applyTraitProposals(db, {
+        const traitProposals = proposals.filter((entry) => entry.type === 'trait');
+        if (traitProposals.length > 0 && this.limits.autoApplyBehaviorTraits !== true) {
+          this.#audit(db, {
             accountId: current.account_id,
-            proposals: lowRiskTraits,
-            baseHash,
-            expectedRevision,
-            actor: policyActor,
-            source: {
+            jobId: current.id,
+            event: 'behavior-trait-review-required',
+            code: 'REFLECTION_BEHAVIOR_REVIEW_REQUIRED',
+            message: 'bounded_auto keeps behavior traits pending for human review',
+            details: { batchId, proposals: traitProposals.length },
+            ts
+          });
+        } else if (traitProposals.length > 0) {
+          const highRiskTraits = traitProposals.filter((entry) => entry.risk !== 'low');
+          for (const proposal of highRiskTraits) {
+            db.prepare(`
+              UPDATE reflection_proposals
+              SET status='rejected',reviewed_at=?,reviewer=?,
+                error_code='REFLECTION_HIGH_RISK_REJECTED',
+                error_message='High-risk reflection behavior is rejected by policy'
+              WHERE id=? AND status='pending'
+            `).run(ts, policyActor, proposal.id);
+            rejectedCount += 1;
+          }
+          const lowRiskTraits = traitProposals.filter((entry) => entry.risk === 'low');
+          if (lowRiskTraits.length > 0) {
+            const result = this.#applyTraitProposals(db, {
+              accountId: current.account_id,
+              proposals: lowRiskTraits,
+              baseHash,
+              expectedRevision,
+              actor: policyActor,
+              source: {
               kind: 'reflection',
               jobId: current.id,
               batchId,
-              mode: normalizedMode
-            },
-            ts
-          });
-          appliedCount += result.applied;
-          invalidCount += result.invalid;
-          appliedTraitCount += result.applied;
-          noopCount += result.nooped;
-          rejectedCount += result.invalid;
-          profileRevision = result.profileRevision;
-          if (result.applied > 0) {
-            db.prepare(`
-              UPDATE reflection_batches SET expected_profile_revision=? WHERE id=?
-            `).run(profileRevision, batchId);
-            db.prepare(`
-              UPDATE reflection_proposals SET expected_profile_revision=?
-              WHERE batch_id=? AND status='pending'
-            `).run(profileRevision, batchId);
+              mode: normalizedMode,
+              sourceChatKeys: [
+                ...new Set(
+                  (parseJson(current.evidence_json, {}).conversationEvidence || [])
+                    .map((item) => String(item?.chatKey || '').trim())
+                    .filter(Boolean)
+                )
+              ]
+              },
+              ts
+            });
+            appliedCount += result.applied;
+            invalidCount += result.invalid;
+            appliedTraitCount += result.applied;
+            noopCount += result.nooped;
+            rejectedCount += result.invalid;
+            profileRevision = result.profileRevision;
+            if (result.applied > 0) {
+              db.prepare(`
+                UPDATE reflection_batches SET expected_profile_revision=? WHERE id=?
+              `).run(profileRevision, batchId);
+              db.prepare(`
+                UPDATE reflection_proposals SET expected_profile_revision=?
+                WHERE batch_id=? AND status='pending'
+              `).run(profileRevision, batchId);
+            }
           }
         }
       }
@@ -2354,7 +2809,18 @@ export class ReflectionStore {
         baseHash: currentBaseHash,
         expectedRevision,
         actor: reviewer,
-        source: { kind: 'reflection-review', batchId: batch.id, decision: 'approve' },
+        source: {
+          kind: 'reflection-review',
+          batchId: batch.id,
+          decision: 'approve',
+          sourceChatKeys: [
+            ...new Set(
+              (batch.evidence.conversationEvidence || [])
+                .map((item) => String(item?.chatKey || '').trim())
+                .filter(Boolean)
+            )
+          ]
+        },
         ts
       });
       this.#finishBatchAfterReview(innerDb, batch.id, ts, reviewer, '', '');
@@ -2381,7 +2847,16 @@ export class ReflectionStore {
     const head = db.prepare(
       'SELECT * FROM learned_self_heads WHERE account_id=?'
     ).get(account);
-    if (!head) return { revision: 0, profile: emptyProfile(), stale: false, context: {} };
+    if (!head) {
+      return {
+        revision: 0,
+        profile: emptyProfile(),
+        stale: false,
+        context: {},
+        activeTraitCount: 0,
+        expiredTraitCount: 0
+      };
+    }
     const version = profileView(db.prepare(`
       SELECT * FROM learned_self_versions WHERE account_id=? AND revision=?
     `).get(account, head.revision));
@@ -2395,16 +2870,19 @@ export class ReflectionStore {
         context: {}
       };
     }
-    const chatProfile = chatKey ? (version.profile.chats?.[chatKey] || {}) : {};
+    const active = activeProfile(version.profile, nowValue(this.now));
+    const chatProfile = chatKey ? (active.profile.chats?.[chatKey] || {}) : {};
     return {
       revision: version.revision,
-      profile: structuredClone(version.profile),
+      profile: structuredClone(active.profile),
       stale: false,
       context: {
-        ...structuredClone(version.profile.global || {}),
+        ...structuredClone(active.profile.global || {}),
         ...structuredClone(chatProfile)
       },
-      basePersonaHash: version.basePersonaHash
+      basePersonaHash: version.basePersonaHash,
+      activeTraitCount: active.activeCount,
+      expiredTraitCount: active.expiredCount
     };
   }
 
@@ -2422,6 +2900,444 @@ export class ReflectionStore {
       SELECT * FROM learned_self_versions
       WHERE account_id=? ORDER BY revision DESC LIMIT ?
     `).all(account, max).map(profileView);
+  }
+
+  auditProfile({ accountId, revision } = {}) {
+    const db = this.#requireDb();
+    const account = text(String(accountId || ''), 'accountId', 100);
+    const headRevision = this.#headRevision(db, account);
+    const selectedRevision = revision === undefined
+      ? headRevision
+      : strictSafeInteger(revision, 'revision', 1);
+    if (selectedRevision === 0) {
+      return {
+        accountId: account,
+        headRevision,
+        revision: 0,
+        parentRevision: 0,
+        basePersonaHash: '',
+        appliedBy: '',
+        source: [],
+        createdAt: 0,
+        entries: []
+      };
+    }
+    const rows = db.prepare(`
+      SELECT * FROM learned_self_versions
+      WHERE account_id=? AND revision<=?
+      ORDER BY revision DESC
+    `).all(account, selectedRevision);
+    const current = rows.find((row) => Number(row.revision) === selectedRevision);
+    if (!current) fail('REFLECTION_NOT_FOUND', 'profile revision not found');
+    const profile = parseJson(current.profile_json, emptyProfile());
+    const entries = profileEntryDescriptors(profile, {
+      accountId: account,
+      revision: selectedRevision
+    });
+    const profiles = new Map(rows.map((row) => [
+      Number(row.revision),
+      parseJson(row.profile_json, emptyProfile())
+    ]));
+    for (const entry of entries) {
+      let sourceRevision = selectedRevision;
+      for (let candidate = selectedRevision - 1; candidate >= 1; candidate -= 1) {
+        const previous = profiles.get(candidate);
+        if (!previous) break;
+        const before = rawProfileEntry(previous, entry);
+        if (!before.exists || stableJson(before.value) !== stableJson(entry.entry)) break;
+        sourceRevision = candidate;
+      }
+      entry.sourceRevision = sourceRevision;
+    }
+    return {
+      accountId: account,
+      headRevision,
+      revision: selectedRevision,
+      parentRevision: Number(current.parent_revision) || 0,
+      basePersonaHash: String(current.base_persona_hash || ''),
+      appliedBy: String(current.applied_by || ''),
+      source: parseJson(current.source_json, []),
+      createdAt: Number(current.created_at) || 0,
+      entries
+    };
+  }
+
+  previewProfileReset({ accountId, expectedCurrentRevision } = {}) {
+    const account = text(String(accountId || ''), 'accountId', 100);
+    const expected = strictSafeInteger(
+      expectedCurrentRevision,
+      'expectedCurrentRevision',
+      0
+    );
+    const audit = this.auditProfile({ accountId: account });
+    if (audit.headRevision !== expected) {
+      fail('REFLECTION_CAS_CONFLICT', 'Learned Self revision changed', {
+        expectedRevision: expected,
+        currentRevision: audit.headRevision
+      });
+    }
+    const entries = structuredClone(audit.entries);
+    return {
+      accountId: account,
+      mode: 'quarantine_all',
+      currentRevision: audit.revision,
+      nextRevision: entries.length ? audit.revision + 1 : audit.revision,
+      rollbackTargetRevision: audit.revision > 0 ? audit.revision : 0,
+      removedEntries: entries,
+      retainedEntries: [],
+      removedCount: entries.length,
+      retainedCount: 0,
+      noOp: entries.length === 0
+    };
+  }
+
+  resetProfile({
+    accountId,
+    expectedCurrentRevision,
+    actor,
+    reason,
+    confirm
+  } = {}) {
+    const account = text(String(accountId || ''), 'accountId', 100);
+    const expected = strictSafeInteger(
+      expectedCurrentRevision,
+      'expectedCurrentRevision',
+      0
+    );
+    const applier = text(actor, 'actor', 160);
+    const resetReason = text(reason, 'reason', 300);
+    if (confirm !== true) {
+      fail('REFLECTION_CONFIRM_REQUIRED', 'profile reset requires confirm=true');
+    }
+    return this.#transaction((db) => {
+      const ts = nowValue(this.now);
+      const currentRevision = this.#headRevision(db, account);
+      if (currentRevision !== expected) {
+        fail('REFLECTION_CAS_CONFLICT', 'Learned Self revision changed', {
+          expectedRevision: expected,
+          currentRevision
+        });
+      }
+      if (currentRevision === 0) {
+        return {
+          reset: false,
+          noOp: true,
+          accountId: account,
+          currentRevision: 0,
+          revision: 0,
+          removedCount: 0,
+          retainedCount: 0,
+          rollbackTargetRevision: 0
+        };
+      }
+      const current = db.prepare(`
+        SELECT * FROM learned_self_versions WHERE account_id=? AND revision=?
+      `).get(account, currentRevision);
+      const before = profileEntryDescriptors(
+        parseJson(current?.profile_json, emptyProfile()),
+        { accountId: account, revision: currentRevision }
+      );
+      if (!before.length) {
+        return {
+          reset: false,
+          noOp: true,
+          accountId: account,
+          currentRevision,
+          revision: currentRevision,
+          removedCount: 0,
+          retainedCount: 0,
+          rollbackTargetRevision: currentRevision
+        };
+      }
+      const changes = before.map((entry) => ({
+        scope: entry.scope,
+        chatKey: entry.chatKey,
+        key: entry.key,
+        evidenceRefs: entry.evidenceRefs,
+        valueLength: entry.value.length,
+        sourceRevision: entry.sourceRevision
+      }));
+      const nextRevision = currentRevision + 1;
+      const evidence = [{
+        kind: 'profile-reset',
+        mode: 'quarantine_all',
+        fromRevision: currentRevision,
+        removedCount: before.length,
+        retainedCount: 0,
+        actor: applier,
+        reason: resetReason,
+        changes
+      }];
+      const source = [{
+        kind: 'profile-reset',
+        mode: 'quarantine_all',
+        targetRevision: currentRevision,
+        actor: applier
+      }];
+      db.prepare(`
+        INSERT INTO learned_self_versions
+          (account_id,revision,parent_revision,profile_json,evidence_json,
+           base_persona_hash,applied_by,source_json,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(
+        account,
+        nextRevision,
+        currentRevision,
+        safeJson(emptyProfile()),
+        safeJson(evidence),
+        String(current.base_persona_hash || ''),
+        applier,
+        safeJson(source),
+        ts
+      );
+      db.prepare(`
+        INSERT INTO learned_self_heads(account_id,revision,updated_at)
+        VALUES (?,?,?)
+        ON CONFLICT(account_id) DO UPDATE SET revision=excluded.revision,updated_at=excluded.updated_at
+      `).run(account, nextRevision, ts);
+      this.#audit(db, {
+        accountId: account,
+        event: 'profile-reset',
+        message: resetReason,
+        details: {
+          mode: 'quarantine_all',
+          actor: applier,
+          reason: resetReason,
+          beforeRevision: currentRevision,
+          afterRevision: nextRevision,
+          removedCount: before.length,
+          retainedCount: 0,
+          changes
+        },
+        ts
+      });
+      return {
+        reset: true,
+        noOp: false,
+        accountId: account,
+        mode: 'quarantine_all',
+        currentRevision,
+        revision: nextRevision,
+        parentRevision: currentRevision,
+        rollbackTargetRevision: currentRevision,
+        removedCount: before.length,
+        retainedCount: 0,
+        removedEntries: before,
+        retainedEntries: [],
+        profile: emptyProfile()
+      };
+    });
+  }
+
+  correctProfileTrait({
+    accountId,
+    key,
+    scope = 'global',
+    chatKey = '',
+    action = 'remove',
+    value,
+    confidence = 1,
+    expectedCurrentRevision,
+    basePersonaHash,
+    basePersona,
+    actor,
+    reason,
+    confirm
+  } = {}) {
+    const account = text(String(accountId || ''), 'accountId', 100);
+    const traitKey = text(key, 'key', 64);
+    if (!TRAIT_KEY_RE.test(traitKey)) {
+      fail('REFLECTION_INVALID_ARGUMENT', 'key must be a stable identifier');
+    }
+    const traitScope = String(scope || 'global');
+    if (!['global', 'chat'].includes(traitScope)) {
+      fail('REFLECTION_INVALID_ARGUMENT', 'scope must be global or chat');
+    }
+    const traitChatKey = String(chatKey || '').trim();
+    if (traitScope === 'global' && traitChatKey) {
+      fail('REFLECTION_SCOPE', 'global correction cannot include chatKey');
+    }
+    if (traitScope === 'chat' && !/^(group|private):\d+$/.test(traitChatKey)) {
+      fail('REFLECTION_SCOPE', 'chat correction requires a scoped chatKey');
+    }
+    const correctionAction = String(action || 'remove').toLowerCase();
+    if (!['set', 'remove'].includes(correctionAction)) {
+      fail('REFLECTION_INVALID_ARGUMENT', 'action must be set or remove');
+    }
+    const correctedValue = correctionAction === 'set'
+      ? text(value, 'value', this.limits.maxTraitValueChars)
+      : '';
+    const proceduralReason = proceduralTraitReason(traitKey, correctedValue);
+    if (proceduralReason) {
+      fail('REFLECTION_PROCEDURAL_TRAIT',
+        'correction cannot create a procedural or scripted trait',
+        { reason: proceduralReason });
+    }
+    const expected = strictSafeInteger(
+      expectedCurrentRevision,
+      'expectedCurrentRevision',
+      0
+    );
+    const applier = text(actor, 'actor', 160);
+    const correctionReason = text(reason, 'reason', 300);
+    if (confirm !== true) {
+      fail('REFLECTION_CONFIRM_REQUIRED', 'profile correction requires confirm=true');
+    }
+    return this.#transaction((db) => {
+      const ts = nowValue(this.now);
+      const currentRevision = this.#headRevision(db, account);
+      if (currentRevision !== expected) {
+        fail('REFLECTION_CAS_CONFLICT', 'Learned Self revision changed', {
+          expectedRevision: expected,
+          currentRevision
+        });
+      }
+      if (currentRevision === 0) {
+        return {
+          corrected: false,
+          noOp: true,
+          accountId: account,
+          revision: 0,
+          currentRevision: 0
+        };
+      }
+      const current = db.prepare(`
+        SELECT * FROM learned_self_versions WHERE account_id=? AND revision=?
+      `).get(account, currentRevision);
+      const currentHash = basePersonaHash || hashBasePersona(basePersona || {});
+      if (String(current.base_persona_hash || '') !== currentHash) {
+        fail('REFLECTION_BASE_PERSONA_CHANGED',
+          'current profile was learned against a different Base Persona');
+      }
+      const profile = normalizeProfile(parseJson(current.profile_json, emptyProfile()));
+      const bucket = traitScope === 'chat'
+        ? (profile.chats[traitChatKey] ||= {})
+        : profile.global;
+      const existing = bucket[traitKey];
+      if (correctionAction === 'remove' && !Object.hasOwn(bucket, traitKey)) {
+        this.#audit(db, {
+          accountId: account,
+          event: 'profile-correction',
+          code: 'REFLECTION_NOOP_DUPLICATE',
+          message: correctionReason,
+          details: {
+            action: correctionAction,
+            key: traitKey,
+            scope: traitScope,
+            chatKey: traitChatKey,
+            revision: currentRevision,
+            noOp: true,
+            actor: applier
+          },
+          ts
+        });
+        return {
+          corrected: false,
+          noOp: true,
+          accountId: account,
+          revision: currentRevision,
+          currentRevision
+        };
+      }
+      if (correctionAction === 'set'
+        && existing
+        && traitStoredValue(existing) === correctedValue) {
+        return {
+          corrected: false,
+          noOp: true,
+          accountId: account,
+          revision: currentRevision,
+          currentRevision
+        };
+      }
+      if (correctionAction === 'remove') {
+        delete bucket[traitKey];
+      } else {
+        const old = normalizeStoredTrait(existing, {
+          scope: traitScope,
+          chatKey: traitChatKey,
+          now: ts
+        });
+        bucket[traitKey] = {
+          value: correctedValue,
+          confidence: Math.max(0, Math.min(1, Number(confidence) || 1)),
+          evidenceRefs: [],
+          evidenceCount: 0,
+          sourceChats: traitChatKey ? [traitChatKey] : [],
+          scope: traitScope,
+          chatKey: traitChatKey,
+          createdAt: old.createdAt || ts,
+          lastObservedAt: ts,
+          expiresAt: ts + this.limits.traitTtlMs
+        };
+      }
+      const nextRevision = currentRevision + 1;
+      const evidence = [{
+        kind: 'profile-correction',
+        action: correctionAction,
+        key: traitKey,
+        scope: traitScope,
+        chatKey: traitChatKey,
+        reason: correctionReason,
+        actor: applier
+      }];
+      const source = [{
+        kind: 'profile-correction',
+        action: correctionAction,
+        key: traitKey,
+        scope: traitScope,
+        chatKey: traitChatKey,
+        actor: applier
+      }];
+      db.prepare(`
+        INSERT INTO learned_self_versions
+          (account_id,revision,parent_revision,profile_json,evidence_json,
+           base_persona_hash,applied_by,source_json,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(
+        account,
+        nextRevision,
+        currentRevision,
+        safeJson(profile),
+        safeJson(evidence),
+        currentHash,
+        applier,
+        safeJson(source),
+        ts
+      );
+      db.prepare(`
+        INSERT INTO learned_self_heads(account_id,revision,updated_at)
+        VALUES (?,?,?)
+        ON CONFLICT(account_id) DO UPDATE SET revision=excluded.revision,updated_at=excluded.updated_at
+      `).run(account, nextRevision, ts);
+      this.#audit(db, {
+        accountId: account,
+        event: 'profile-correction',
+        message: correctionReason,
+        details: {
+          action: correctionAction,
+          key: traitKey,
+          scope: traitScope,
+          chatKey: traitChatKey,
+          actor: applier,
+          beforeRevision: currentRevision,
+          afterRevision: nextRevision
+        },
+        ts
+      });
+      return {
+        corrected: true,
+        noOp: false,
+        accountId: account,
+        revision: nextRevision,
+        parentRevision: currentRevision,
+        action: correctionAction,
+        key: traitKey,
+        scope: traitScope,
+        chatKey: traitChatKey,
+        profile
+      };
+    });
   }
 
   rollbackProfile({
@@ -2456,16 +3372,70 @@ export class ReflectionStore {
         SELECT * FROM learned_self_versions WHERE account_id=? AND revision=?
       `).get(account, Number(targetRevision)));
       if (!target) fail('REFLECTION_NOT_FOUND', 'target profile version not found');
+      const currentVersion = profileView(db.prepare(`
+        SELECT * FROM learned_self_versions WHERE account_id=? AND revision=?
+      `).get(account, currentRevision));
       const currentHash = basePersonaHash || hashBasePersona(basePersona || {});
       if (target.basePersonaHash !== currentHash) {
         fail('REFLECTION_BASE_PERSONA_CHANGED',
           'target profile was learned against a different Base Persona');
       }
       const nextRevision = currentRevision + 1;
+      const beforeEntries = profileEntryDescriptors(currentVersion?.profile, {
+        accountId: account,
+        revision: currentRevision
+      });
+      const afterEntries = profileEntryDescriptors(target.profile, {
+        accountId: account,
+        revision: Number(targetRevision)
+      });
+      const beforeMap = new Map(beforeEntries.map((entry) => [
+        descriptorIdentity(entry),
+        entry
+      ]));
+      const afterMap = new Map(afterEntries.map((entry) => [
+        descriptorIdentity(entry),
+        entry
+      ]));
+      const changes = [];
+      for (const [identity, entry] of beforeMap) {
+        const next = afterMap.get(identity);
+        if (!next || stableJson(entry.entry) !== stableJson(next.entry)) {
+          changes.push({
+            scope: entry.scope,
+            chatKey: entry.chatKey,
+            key: entry.key,
+            action: next ? 'replace' : 'remove',
+            beforeValueLength: entry.value.length,
+            afterValueLength: next ? next.value.length : 0
+          });
+        }
+      }
+      for (const [identity, entry] of afterMap) {
+        if (!beforeMap.has(identity)) {
+          changes.push({
+            scope: entry.scope,
+            chatKey: entry.chatKey,
+            key: entry.key,
+            action: 'add',
+            beforeValueLength: 0,
+            afterValueLength: entry.value.length
+          });
+        }
+      }
       const evidence = [{
         kind: 'rollback',
         targetRevision: Number(targetRevision),
-        reason: String(reason || '').slice(0, 300)
+        beforeRevision: currentRevision,
+        afterRevision: nextRevision,
+        actor: applier,
+        reason: String(reason || '').slice(0, 300),
+        changes
+      }];
+      const source = [{
+        kind: 'profile-rollback',
+        targetRevision: Number(targetRevision),
+        actor: applier
       }];
       db.prepare(`
         INSERT INTO learned_self_versions
@@ -2480,7 +3450,7 @@ export class ReflectionStore {
         safeJson(evidence),
         currentHash,
         applier,
-        safeJson([{ kind: 'profile-rollback', targetRevision: Number(targetRevision) }]),
+        safeJson(source),
         ts
       );
       db.prepare(`
@@ -2491,7 +3461,14 @@ export class ReflectionStore {
       this.#audit(db, {
         accountId: account,
         event: 'profile-rollback',
-        details: { targetRevision: Number(targetRevision), revision: nextRevision },
+        details: {
+          targetRevision: Number(targetRevision),
+          beforeRevision: currentRevision,
+          afterRevision: nextRevision,
+          actor: applier,
+          reason: String(reason || '').slice(0, 300),
+          changes
+        },
         ts
       });
       return {
@@ -2584,6 +3561,55 @@ export class ReflectionStore {
       details: parseJson(row.details_json, {}),
       createdAt: Number(row.created_at) || 0
     }));
+  }
+
+  learnedSelfMetrics({ accountId = '' } = {}) {
+    const db = this.#requireDb();
+    const account = accountId ? String(accountId) : '';
+    const profileRow = account
+      ? db.prepare(`
+          SELECT v.* FROM learned_self_versions v
+          JOIN learned_self_heads h
+            ON h.account_id=v.account_id AND h.revision=v.revision
+          WHERE v.account_id=?
+        `).get(account)
+      : null;
+    const active = profileRow
+      ? activeProfile(parseJson(profileRow.profile_json, emptyProfile()), nowValue(this.now))
+      : { activeCount: 0, expiredCount: 0 };
+    const jobRows = db.prepare(`
+      SELECT evidence_json FROM reflection_jobs
+      ${account ? 'WHERE account_id=?' : ''}
+    `).all(...(account ? [account] : []));
+    const structuredJobs = jobRows
+      .map((row) => parseJson(row.evidence_json, {}))
+      .filter((evidence) => evidence.structuredEvidence === true);
+    const userEvidenceJobs = structuredJobs.filter((evidence) =>
+      Number(evidence.userEvidenceCount) > 0
+    );
+    const audits = db.prepare(`
+      SELECT event,code,details_json FROM reflection_audit
+      ${account ? 'WHERE account_id=?' : ''}
+    `).all(...(account ? [account] : []));
+    const detailRows = audits.map((row) => parseJson(row.details_json, {}));
+    return {
+      accountId: account,
+      currentRevision: Number(profileRow?.revision) || 0,
+      injectedCount: active.activeCount,
+      expiredCount: active.expiredCount,
+      userEvidenceRatio: structuredJobs.length
+        ? userEvidenceJobs.length / structuredJobs.length
+        : 0,
+      assistantOnlyRejected: detailRows.filter((details) =>
+        Array.isArray(details.reasons) && details.reasons.includes('assistant-only')
+      ).length,
+      proceduralRejected: audits.filter((row) =>
+        row.code === 'REFLECTION_PROCEDURAL_TRAIT'
+      ).length,
+      globalPromotionCount: audits.filter((row) =>
+        row.event === 'global-trait-applied'
+      ).length
+    };
   }
 
   counts({ accountId = '' } = {}) {
@@ -2755,6 +3781,11 @@ export class ReflectionStore {
         ? (profile.chats[item.chatKey] ||= {})
         : profile.global;
       const currentValue = bucket[item.key];
+      const currentEntry = normalizeStoredTrait(currentValue, {
+        scope: item.scope,
+        chatKey: item.chatKey,
+        now: ts
+      });
       if (item.action === 'remove') {
         if (!Object.hasOwn(bucket, item.key)) {
           nooped += 1;
@@ -2767,7 +3798,7 @@ export class ReflectionStore {
         }
         delete bucket[item.key];
       } else {
-        if (currentValue && currentValue.value === item.value) {
+        if (currentValue && traitStoredValue(currentValue) === item.value) {
           nooped += 1;
           db.prepare(`
             UPDATE reflection_proposals SET status='applied',reviewed_at=?,applied_at=?,
@@ -2776,11 +3807,21 @@ export class ReflectionStore {
           `).run(ts, ts, actor, proposal.id);
           continue;
         }
+        const sourceChatKeys = [
+          ...(Array.isArray(source?.sourceChatKeys) ? source.sourceChatKeys : []),
+          ...(item.chatKey ? [item.chatKey] : [])
+        ];
         bucket[item.key] = {
           value: item.value,
           confidence: item.confidence,
           evidenceRefs: item.evidenceRefs,
-          updatedAt: ts
+          sourceChats: [...new Set(sourceChatKeys.map(String).filter(Boolean))].slice(0, 16),
+          scope: item.scope,
+          chatKey: item.chatKey || '',
+          createdAt: currentEntry.createdAt || ts,
+          lastObservedAt: Number(source?.lastObservedAt) || ts,
+          expiresAt: ts + this.limits.traitTtlMs,
+          evidenceCount: item.evidenceRefs.length
         };
       }
       db.prepare(`
@@ -2788,6 +3829,21 @@ export class ReflectionStore {
         WHERE id=? AND status='pending'
       `).run(ts, ts, actor, proposal.id);
       applied += 1;
+      if (item.scope === 'global') {
+        this.#audit(db, {
+          accountId,
+          jobId: String(source?.jobId || ''),
+          event: 'global-trait-applied',
+          details: {
+            key: item.key,
+            evidenceCount: item.evidenceRefs.length,
+            sourceChats: Array.isArray(source?.sourceChatKeys)
+              ? source.sourceChatKeys.slice(0, 16)
+              : []
+          },
+          ts
+        });
+      }
     }
     if (applied === 0) return { applied, invalid, nooped, profileRevision: currentRevision };
     const nextRevision = currentRevision + 1;
@@ -3025,10 +4081,12 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
     'Use only the canonical nested field names below. Do not invent aliases such as op, type, target, note, trait, or evidenceIds.',
     reflectionRoleNoteText(),
     'Do not create notes that only contain run telemetry, token/budget usage, sent/replied counts, transient execution state, or ordinary bookkeeping. If there is no useful future-facing note, return noteOperations: [].',
+    'Treat executionState, delivery status, retry/queue/schedule/wake information, system reminders, timestamps, and message IDs as diagnostics only; never turn them into Learned Self traits.',
+    'Only preferenceEvidence with explicit user evidence may support a behavior trait. Assistant context or delivered outbound text is not user confirmation.',
     'noteOperations item schema: operation (append|update|archive), scope (global|chat), chatKey, content, tags, noteId, expectedRevision, evidenceRefs.',
     'For noteOperations: append requires operation, scope, content, tags, evidenceRefs and omits noteId/expectedRevision; update requires noteId and expectedRevision plus content or tags; archive requires noteId and expectedRevision and omits content/tags.',
     'traitProposals item schema: action (set|remove), key, value (only for set), scope (global|chat), chatKey, confidence, evidenceRefs.',
-    'Allowed preference keys: communication_style, language_preference, working_habit, topic_interests, interaction_preferences, expression_preferences.',
+    'Allowed preference keys: communication_style, language_preference, working_habit, topic_interests, interaction_preferences, expression_preferences. working_habit is never bounded-auto and requires human review.',
     'capabilityGapProposals item schema: category, capability, requestKey, scope (global|chat), chatKey, detail, evidenceRefs.',
     'Use chatKey="" for global scope. For chat scope, use the observed chatKey exactly. Use [] when a collection has no proposal.',
     'Canonical empty shape: {"noteOperations":[],"traitProposals":[],"capabilityGapProposals":[],"summary":"没有足够证据时说明原因"}.',
@@ -3041,6 +4099,10 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
   ].join('\n');
   const input = plainObject(reflectionInput) ? structuredClone(reflectionInput) : {};
   const shrink = () => {
+    if (Array.isArray(input.preferenceEvidence) && input.preferenceEvidence.length > 8) {
+      input.preferenceEvidence = input.preferenceEvidence.slice(-8);
+      return true;
+    }
     if (Array.isArray(input.conversationEvidence) && input.conversationEvidence.length > 8) {
       input.conversationEvidence = input.conversationEvidence.slice(-8);
       return true;
@@ -3077,6 +4139,9 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
   if (serialized.length > available) {
     input.conversationEvidence = Array.isArray(input.conversationEvidence)
       ? input.conversationEvidence.slice(-4)
+      : [];
+    input.preferenceEvidence = Array.isArray(input.preferenceEvidence)
+      ? input.preferenceEvidence.slice(-4)
       : [];
     input.notebook = Array.isArray(input.notebook)
       ? input.notebook.slice(0, 2)

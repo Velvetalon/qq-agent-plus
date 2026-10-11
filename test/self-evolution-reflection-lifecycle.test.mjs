@@ -121,7 +121,8 @@ function reflectionPluginFixture() {
       leaseMs: 10,
       workerLeaseMs: 10,
       maxCallsPerDay: 20,
-      backoffMs: 0
+      backoffMs: 0,
+      autoApplyBehaviorTraits: true
     }
   });
   const started = plugin.start({}, {

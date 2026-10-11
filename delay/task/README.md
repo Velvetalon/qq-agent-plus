@@ -27,3 +27,10 @@
 4. `LSR4-injection-closure.md`：注入元数据、TTL、纠正入口、观测和完整闭环验收。
 
 本轮任务卡不授权直接改生产 SQLite、部署、重新启用反思、调用真实收费模型或发送生产 QQ 消息。每张卡完成后必须保存命令/退出码、PASS/FAIL/NOT_RUN/LIVE_NOT_RUN、实际装配证据和回退方式。
+
+LSR1-LSR4 已完成本地实现与 focused/regression 验证；验证记录见
+`docs/verification/vnext-learned-self-lsr1.md`、
+`docs/verification/vnext-learned-self-lsr2.md`、
+`docs/verification/vnext-learned-self-lsr3.md` 和
+`docs/verification/vnext-learned-self-lsr4.md`。生产 profile reset、部署和真实
+模型/QQ 行为验证均为 `NOT_RUN` / `LIVE_NOT_RUN`，等待明确授权。

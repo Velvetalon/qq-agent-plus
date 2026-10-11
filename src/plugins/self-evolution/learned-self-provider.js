@@ -23,6 +23,35 @@ function traitValue(value) {
   return text(value);
 }
 
+function traitEntry(value) {
+  if (value && typeof value === 'object' && Object.hasOwn(value, 'value')) {
+    return value;
+  }
+  return { value };
+}
+
+function traitMetadata(value) {
+  const entry = traitEntry(value);
+  const scope = entry.scope === 'chat' ? 'chat' : 'global';
+  const sourceChats = Array.isArray(entry.sourceChats)
+    ? [...new Set(entry.sourceChats.map(String).filter(Boolean))]
+    : [];
+  const date = (raw) => {
+    const timestamp = Number(raw) || 0;
+    return timestamp > 0 ? new Date(timestamp).toISOString().slice(0, 10) : 'unknown';
+  };
+  return [
+    `scope=${scope}`,
+    `sourceChats=${sourceChats.length}`,
+    `evidence=${Math.max(0, Number(entry.evidenceCount) || (
+      Array.isArray(entry.evidenceRefs) ? entry.evidenceRefs.length : 0
+    ))}`,
+    `createdAt=${date(entry.createdAt)}`,
+    `lastObservedAt=${date(entry.lastObservedAt)}`,
+    `expiresAt=${date(entry.expiresAt)}`
+  ].join('; ');
+}
+
 function safeLine(value, max = 300) {
   return sanitizeUserText(text(value).replace(/\s+/g, ' ').trim()).slice(0, max);
 }
@@ -87,21 +116,29 @@ export class LearnedSelfContextProvider {
       }
 
       const entries = Object.entries(learned?.context || {})
-        .map(([key, value]) => [safeLine(key, 80), safeLine(traitValue(value), 240)])
+        .map(([key, value]) => [
+          safeLine(key, 80),
+          safeLine(traitValue(value), 240),
+          traitMetadata(value)
+        ])
         .filter(([key, value]) => key && value)
         .sort(([left], [right]) => left.localeCompare(right, 'en'))
         .slice(0, this.maxTraits);
       if (!entries.length) {
         return {
           blocks: [],
-          diagnostics: { reason: 'empty-profile', revision: Number(learned?.revision) || 0 }
+          diagnostics: {
+            reason: 'empty-profile',
+            revision: Number(learned?.revision) || 0,
+            expiredTraitCount: Number(learned?.expiredTraitCount) || 0
+          }
         };
       }
 
       const lines = [];
       let used = `【习得自我参考】\n${LEARNED_SELF_WARNING}`.length;
-      for (const [key, value] of entries) {
-        const line = `- ${key}：${value}`;
+      for (const [key, value, metadata] of entries) {
+        const line = `- ${key}：${value}（${metadata}）`;
         if (used + line.length + 1 > this.maxChars) break;
         lines.push(line);
         used += line.length + 1;
@@ -126,6 +163,7 @@ export class LearnedSelfContextProvider {
           reason: 'ok',
           revision,
           traitCount: lines.length,
+          expiredTraitCount: Number(learned?.expiredTraitCount) || 0,
           injectedChars: used
         }
       };

@@ -3963,6 +3963,116 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         }
       }
 
+      if (pathname === '/api/self-evolution/reflection/profiles/audit' && method === 'GET') {
+        const account = accountNamespace();
+        const rawRevision = url.searchParams.get('revision');
+        if (rawRevision !== null && !/^[1-9]\d*$/.test(rawRevision)) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'revision 必须是正整数');
+        }
+        try {
+          return withReflectionStore((store) => {
+            if (!store) {
+              return json(res, 200, {
+                accountId: account.accountId,
+                accountSource: account.source,
+                revision: 0,
+                headRevision: 0,
+                entries: [],
+                disabled: !selfEvolutionEnabled(),
+                reason: 'reflection-unavailable'
+              });
+            }
+            const audit = store.auditProfile({
+              accountId: account.accountId,
+              revision: rawRevision === null ? undefined : Number(rawRevision)
+            });
+            return json(res, 200, {
+              ...audit,
+              accountSource: account.source,
+              disabled: !selfEvolutionEnabled()
+            });
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      if (pathname === '/api/self-evolution/reflection/metrics' && method === 'GET') {
+        const account = accountNamespace();
+        try {
+          return withReflectionStore((store) => json(res, 200, {
+            accountId: account.accountId,
+            accountSource: account.source,
+            ...(store
+              ? store.learnedSelfMetrics({ accountId: account.accountId })
+              : {
+                  currentRevision: 0,
+                  injectedCount: 0,
+                  expiredCount: 0,
+                  userEvidenceRatio: 0,
+                  assistantOnlyRejected: 0,
+                  proceduralRejected: 0,
+                  globalPromotionCount: 0
+                }),
+            disabled: !selfEvolutionEnabled()
+          }));
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      if (pathname === '/api/self-evolution/reflection/profiles/correct' && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (error) {
+          return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY',
+            String(error?.message ?? error));
+        }
+        if (!selfEvolutionEnabled()) {
+          return apiFailure(res, 409, 'REFLECTION_DISABLED', '自我迭代已停用，纠正被拒绝');
+        }
+        if (body.confirm !== true) {
+          return apiFailure(res, 409, 'REFLECTION_CONFIRM_REQUIRED', '纠正需要 confirm=true');
+        }
+        if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是非负整数');
+        }
+        const account = accountNamespace();
+        if (account.source !== 'selfId') {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED',
+            '无法确认 OneBot selfId，自我迭代写入被拒绝');
+        }
+        const store = reflectionPlugin.getStore?.();
+        if (!store) {
+          return apiFailure(res, 409, 'REFLECTION_DISABLED', '反思插件未运行，纠正被拒绝');
+        }
+        try {
+          const result = store.correctProfileTrait({
+            accountId: account.accountId,
+            key: body.key,
+            scope: body.scope,
+            chatKey: body.chatKey,
+            action: body.action,
+            value: body.value,
+            confidence: body.confidence,
+            expectedCurrentRevision: body.expectedRevision,
+            basePersona: reflectionBasePersona(),
+            actor: body.actor || 'console',
+            reason: body.reason,
+            confirm: true
+          });
+          return json(res, 200, {
+            accountId: account.accountId,
+            accountSource: account.source,
+            ...result
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
       const profileRollbackMatch
         = /^\/api\/self-evolution\/reflection\/profiles\/(\d{1,9})\/rollback$/.exec(pathname);
       if (profileRollbackMatch && method === 'POST') {

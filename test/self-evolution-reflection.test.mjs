@@ -41,6 +41,7 @@ function fixture(options = {}) {
       maxAttempts: 2,
       maxCallsPerDay: 20,
       backoffMs: 0,
+      autoApplyBehaviorTraits: true,
       ...options.limits
     }
   });
@@ -907,7 +908,8 @@ test('plugin reads the live account head without basePersonaHash and preserves s
       leaseMs: 10,
       workerLeaseMs: 10,
       maxCallsPerDay: 20,
-      backoffMs: 0
+      backoffMs: 0,
+      autoApplyBehaviorTraits: true
     }
   });
   const started = plugin.start({}, {
@@ -949,7 +951,7 @@ test('plugin reads the live account head without basePersonaHash and preserves s
     releaseStale(reflectionOutput('plugin-revision-stale', {
       traitProposals: [{
         action: 'set',
-        key: 'working_habit',
+        key: 'topic_interests',
         value: 'stale result',
         scope: 'global',
         confidence: 0.95,
@@ -969,7 +971,7 @@ test('plugin reads the live account head without basePersonaHash and preserves s
     assert.equal(context.revision, 3);
     assert.equal(context.context.communication_style.value, 'concise');
     assert.equal(context.context.language_preference, undefined);
-    assert.equal(context.context.working_habit, undefined);
+    assert.equal(context.context.topic_interests, undefined);
     assert.deepEqual(base, baseSnapshot);
 
     const changedBase = persona({ roleText: 'changed only for stale read' });

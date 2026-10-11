@@ -495,6 +495,12 @@ export class ReflectionWorker {
       conversationEvidence: Array.isArray(evidence.conversationEvidence)
         ? evidence.conversationEvidence
         : [],
+      preferenceEvidence: Array.isArray(evidence.conversationEvidence)
+        ? evidence.conversationEvidence
+          .filter((item) => item?.userEvidence === true || item?.role === 'user')
+          .slice(-8)
+        : [],
+      executionState: evidence.executionOutcome || evidence.actionSummary || {},
       executionOutcome: evidence.executionOutcome || evidence.actionSummary || {},
       basePersona: {
         roleText: String(persona.roleText || '').slice(0, 3000),

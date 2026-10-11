@@ -520,7 +520,12 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
     dataDir,
     filename: REFLECTION_FILE,
     now: (() => { let t = 5000; return () => ++t; })(),
-    limits: { leaseMs: 60000, workerLeaseMs: 60000, backoffMs: 0 }
+    limits: {
+      leaseMs: 60000,
+      workerLeaseMs: 60000,
+      backoffMs: 0,
+      autoApplyBehaviorTraits: true
+    }
   });
   const generation = seed.beginWorkerGeneration({ owner: 'p7-seed' });
   for (const suffix of ['a', 'b', 'c']) {
@@ -627,6 +632,34 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
     assert.equal(rolledBack.status, 200);
     assert.equal(rolledBack.json.rolledBack, true);
     assert.equal(rolledBack.json.revision, 2);
+
+    const corrected = await request(port, 'POST',
+      '/api/self-evolution/reflection/profiles/correct',
+      {
+        body: {
+          expectedRevision: 2,
+          action: 'set',
+          key: 'communication_style',
+          value: '简短',
+          reason: 'P7 correction',
+          actor: 'p7-admin',
+          confirm: true
+        }
+      });
+    assert.equal(corrected.status, 200);
+    assert.equal(corrected.json.revision, 3);
+
+    const audit = await request(port, 'GET',
+      '/api/self-evolution/reflection/profiles/audit');
+    assert.equal(audit.status, 200);
+    assert.equal(audit.json.revision, 3);
+    assert.equal(audit.json.entries[0].key, 'communication_style');
+
+    const metrics = await request(port, 'GET',
+      '/api/self-evolution/reflection/metrics');
+    assert.equal(metrics.status, 200);
+    assert.equal(metrics.json.injectedCount, 1);
+    assert.equal(metrics.json.globalPromotionCount >= 1, true);
   } finally {
     await stop();
   }
