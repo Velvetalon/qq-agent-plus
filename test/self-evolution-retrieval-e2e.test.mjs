@@ -251,7 +251,8 @@ test('Notebook survives close/reopen and reaches a real Orchestrator model reque
       reopened.history({
         accountId: 'account-a',
         noteId: relevant.note.id,
-        currentChatKey: 'group:100'
+        currentChatKey: 'group:100',
+        admin: true
       }).versions.length,
       3
     );

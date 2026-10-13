@@ -170,7 +170,7 @@ test('Notebook writes queue a derived sqlite-vec index, survive restart, and rej
   reopened.close();
 });
 
-test('canonical evidence deduplicates message text and ignores free-text failure words', () => {
+test('legacy canonical evidence deduplicates text without qualifying traits or inferring failures', () => {
   const event = normalizeCompletionObservation({
     eventId: 'event-a',
     observerId: 'self-evolution.reflection',
@@ -180,6 +180,8 @@ test('canonical evidence deduplicates message text and ignores free-text failure
     runId: 'run-a',
     chatKey: 'group:1',
     resultClass: 'done',
+    schemaVersion: 2,
+    evidenceVersion: 2,
     actionSummary: {
       finishReason: 'normal API tool discussion with HTTP examples',
       participation: { decision: 'reply' },
@@ -208,7 +210,8 @@ test('canonical evidence deduplicates message text and ignores free-text failure
   assert.equal(event.conversationEvidence.length, 1);
   assert.equal(event.evidenceVersion, 2);
   assert.deepEqual(event.failureKinds, []);
-  assert.equal(event.traitEligible, true);
+  assert.equal(event.structuredEvidence, false, 'legacy evidence must remain history-only');
+  assert.equal(event.conversationEvidence[0].userEvidence, false);
   const structuredFailure = normalizeCompletionObservation({
     ...event,
     eventId: 'event-api-failure',

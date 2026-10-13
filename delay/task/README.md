@@ -2,12 +2,18 @@
 
 ## 当前：拟人群聊内核完整设计（2026-10-13）
 
-**代码开发已按用户要求暂停。用户随后授权将全部未完成代码与文档提交GitHub作为WIP交接；这不是完成验收，也不授权自动恢复编码或上线。先读[当前工作交接入口](../README.md)。**
+最新保存点见
+[2026-10-14 GitHub WIP 交接](../schedule/2026-10-14-github-wip-handoff.md)：
+全部当前未完成项目代码纳入保存，全量单测 660 PASS / 45 FAIL / 3 SKIP；
+不得宣称完整开发、完整验收或生产部署已经完成。
+
+**2026-10-13 用户已明确恢复开发，接管基线为 `8233c83`。当前接口与文件所有权见[接管契约 V1](../../plan_doc/2026-10-13-social-takeover-contract-v1.md)，逐阶段实测进度见[恢复开发记录](../schedule/2026-10-13-social-engine-resumed.md)。原 WIP 保存不等于完成验收；本次仍不授权生产上线或清理。**
 
 1. [完整架构设计](../../plan_doc/2026-10-13-social-conversation-engine.md)：当前/目标对比、模块职责、事件与ID、场景、Planner/Replyer、主动意图、四类记忆、迁移与回退。
 2. [开发规划 SC0-SC8](../../plan_doc/2026-10-13-social-conversation-development-plan.md)：依赖顺序、各阶段范围/不做/交付和Agent决策空间。
 3. [单元与闭环验收](../../plan_doc/2026-10-13-social-conversation-acceptance.md)：A-E/S/P/R/I/D/M/L/C/H/B用例，区分单元、主链与真实模型效果。
 4. [暂停交接](../schedule/2026-10-13-social-engine.md)：已有未提交草稿、局部验证、未完成项及恢复边界。
+5. [2026-10-14 本地验证检查点](../../docs/verification/social-engine-closure.md)：248 项联合回归、35 项独立关键路径复核通过；剩余完整验收、配置兴趣来源入口和 LIVE_NOT_RUN 边界。
 
 本方案替代后续发言内核方向；下方PR/LSR记录是历史计划和当时验证，不自动代表当前线上效果。旧的“所有笔记需用户确认”“所有沉默不得记忆”等限制不得覆盖本方案的经历/偏好分离设计。
 

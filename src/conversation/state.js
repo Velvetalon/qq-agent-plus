@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 const MAX_MESSAGES_PER_TOPIC = 200;
 const MAX_INTENT_SOURCES = 8;
+const MAX_TARGETS = 8;
 const MAX_INTENT_LIFETIME = 30 * 24 * 60 * 60 * 1000;
 const OPEN = ['pending', 'leased'];
 const TERMINAL = ['completed', 'expired', 'cancelled', 'held'];
@@ -17,6 +18,10 @@ const norm = (value) => clean(value, 10000).toLocaleLowerCase().replace(/[\p{P}\
 const commonAck = (value) => new Set(['好', '好的', '好呀', '嗯', '嗯嗯', '哦', '哦哦', '是', '是的', '收到', '谢谢', '谢了', '哈哈', 'ok', 'okay', 'thx', 'thanks']).has(norm(value));
 const goalNorm = (value) => clean(value, 300).toLocaleLowerCase().replace(/[\p{P}\p{S}\s]+/gu, ' ').trim();
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
+const stableJson = (value) => JSON.stringify(value && typeof value === 'object'
+  ? Array.isArray(value) ? value.map((item) => JSON.parse(stableJson(item)))
+    : Object.fromEntries(Object.keys(value).sort().map((key) => [key, JSON.parse(stableJson(value[key]) ?? 'null')]))
+  : value);
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const scopeOf = ({ accountId, chatKey }) => {
   const account = id(accountId), chat = id(chatKey);
@@ -25,7 +30,10 @@ const scopeOf = ({ accountId, chatKey }) => {
 };
 const replyParts = (value) => {
   const reply = typeof value === 'string' ? json(value, {}) : (value && typeof value === 'object' ? value : {});
-  return { messageId: id(reply.messageId ?? reply.message_id ?? reply.id), mid: id(reply.messageId ?? reply.message_id ?? reply.mid ?? reply.id) };
+  return {
+    messageId: id(reply.localMessageId ?? reply.sourceMessageId),
+    mid: id(reply.platformMessageId ?? reply.mid ?? reply.message_id ?? reply.id ?? reply.messageId)
+  };
 };
 const messageData = (value, selfId) => {
   const senderId = id(value?.senderId ?? value?.sender_id);
@@ -87,10 +95,13 @@ export class SocialStateStore {
       "CREATE TABLE IF NOT EXISTS social_scope_state (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(account_id,chat_key))",
       "CREATE TABLE IF NOT EXISTS social_topics (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,topic_id TEXT NOT NULL,topic TEXT NOT NULL DEFAULT '',participant_ids TEXT NOT NULL DEFAULT '[]',status TEXT NOT NULL DEFAULT 'active',version INTEGER NOT NULL DEFAULT 1,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,last_human_id TEXT,last_human_at INTEGER NOT NULL DEFAULT 0,last_self_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(account_id,chat_key,topic_id))",
       "CREATE INDEX IF NOT EXISTS social_topics_recent ON social_topics(account_id,chat_key,status,updated_at DESC)",
-      "CREATE TABLE IF NOT EXISTS social_messages (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,message_id TEXT NOT NULL,mid TEXT,ts INTEGER NOT NULL,sender_id TEXT NOT NULL DEFAULT '',sender_name TEXT NOT NULL DEFAULT '',self INTEGER NOT NULL DEFAULT 0,text TEXT NOT NULL DEFAULT '',reply_json TEXT,reply_to_message_id TEXT,reply_to_mid TEXT,mentions_self INTEGER NOT NULL DEFAULT 0,topic_id TEXT,observed_at INTEGER NOT NULL,observed_revision INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(account_id,chat_key,message_id),UNIQUE(account_id,chat_key,mid))",
+      "CREATE TABLE IF NOT EXISTS social_messages (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,message_id TEXT NOT NULL,mid TEXT,ts INTEGER NOT NULL,sender_id TEXT NOT NULL DEFAULT '',sender_name TEXT NOT NULL DEFAULT '',self INTEGER NOT NULL DEFAULT 0,text TEXT NOT NULL DEFAULT '',reply_json TEXT,reply_to_message_id TEXT,reply_to_mid TEXT,mentions_self INTEGER NOT NULL DEFAULT 0,topic_id TEXT,interaction_id TEXT,observed_at INTEGER NOT NULL,observed_revision INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(account_id,chat_key,message_id),UNIQUE(account_id,chat_key,mid))",
       "CREATE INDEX IF NOT EXISTS social_messages_topic ON social_messages(account_id,chat_key,topic_id,ts DESC)",
       "CREATE INDEX IF NOT EXISTS social_messages_mid ON social_messages(account_id,chat_key,mid)",
-      "CREATE TABLE IF NOT EXISTS social_intents (id TEXT PRIMARY KEY,account_id TEXT NOT NULL,chat_key TEXT NOT NULL,topic_id TEXT NOT NULL,source_message_ids TEXT NOT NULL,goal TEXT NOT NULL,semantic_key TEXT NOT NULL,due_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,status TEXT NOT NULL,lease_id TEXT,lease_until INTEGER NOT NULL DEFAULT 0,reason TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,finished_at INTEGER,answered_at INTEGER,UNIQUE(account_id,chat_key,semantic_key))",
+      "CREATE TABLE IF NOT EXISTS social_interactions (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,topic_id TEXT NOT NULL,interaction_id TEXT NOT NULL,causal_root_id TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open',opened_at INTEGER NOT NULL,last_event_at INTEGER NOT NULL,PRIMARY KEY(account_id,chat_key,interaction_id))",
+      "CREATE INDEX IF NOT EXISTS social_interactions_topic ON social_interactions(account_id,chat_key,topic_id,status,last_event_at DESC)",
+      "CREATE TABLE IF NOT EXISTS social_external_observations (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,source_id TEXT NOT NULL,topic_id TEXT,source_refs TEXT NOT NULL,content_text TEXT NOT NULL DEFAULT '',expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(account_id,chat_key,source_id))",
+      "CREATE TABLE IF NOT EXISTS social_intents (id TEXT PRIMARY KEY,account_id TEXT NOT NULL,chat_key TEXT NOT NULL,topic_id TEXT NOT NULL,source_message_ids TEXT NOT NULL,source_refs TEXT NOT NULL DEFAULT '[]',causal_root_id TEXT NOT NULL DEFAULT '',evaluation_attempts INTEGER NOT NULL DEFAULT 0,postponements INTEGER NOT NULL DEFAULT 0,goal TEXT NOT NULL,semantic_key TEXT NOT NULL,due_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,status TEXT NOT NULL,lease_id TEXT,lease_until INTEGER NOT NULL DEFAULT 0,reason TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,finished_at INTEGER,answered_at INTEGER,UNIQUE(account_id,chat_key,semantic_key))",
       "CREATE INDEX IF NOT EXISTS social_intents_due ON social_intents(account_id,chat_key,status,due_at,expires_at)",
       "CREATE TABLE IF NOT EXISTS social_intent_events (event_id TEXT PRIMARY KEY,intent_id TEXT NOT NULL,account_id TEXT NOT NULL,chat_key TEXT NOT NULL,from_status TEXT,to_status TEXT NOT NULL,reason TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL)",
       "CREATE INDEX IF NOT EXISTS social_intent_events_audit ON social_intent_events(account_id,chat_key,intent_id,created_at)",
@@ -105,8 +116,20 @@ export class SocialStateStore {
     };
     addColumn('social_messages', 'sender_name', "TEXT NOT NULL DEFAULT ''");
     addColumn('social_messages', 'observed_revision', 'INTEGER NOT NULL DEFAULT 1');
+    addColumn('social_messages', 'interaction_id', 'TEXT');
     addColumn('social_intents', 'answered_at', 'INTEGER');
+    addColumn('social_intents', 'source_refs', "TEXT NOT NULL DEFAULT '[]'");
+    addColumn('social_intents', 'causal_root_id', "TEXT NOT NULL DEFAULT ''");
+    addColumn('social_intents', 'evaluation_attempts', 'INTEGER NOT NULL DEFAULT 0');
+    addColumn('social_intents', 'postponements', 'INTEGER NOT NULL DEFAULT 0');
+    addColumn('social_external_observations', 'content_text', "TEXT NOT NULL DEFAULT ''");
     this.#ready = true;
+  }
+
+  #requireInitialized() {
+    if (!this.#ready && !SocialStateStore.isInitialized(this.#db)) {
+      throw fail('SOCIAL_STATE_NOT_INITIALIZED', 'social state has not been initialized');
+    }
   }
 
   #tx(fn) {
@@ -134,6 +157,12 @@ export class SocialStateStore {
     return this.#db.prepare('SELECT rowid AS row_order,* FROM social_messages WHERE account_id=? AND chat_key=? AND message_id=?').get(scope.accountId, scope.chatKey, String(messageId)) || null;
   }
 
+  #messageByMid(scope, mid) {
+    if (!id(mid)) return null;
+    return this.#db.prepare('SELECT rowid AS row_order,* FROM social_messages WHERE account_id=? AND chat_key=? AND mid=?')
+      .get(scope.accountId, scope.chatKey, id(mid)) || null;
+  }
+
   #topic(scope, row) {
     if (!row) return null;
     const messages = this.#db.prepare('SELECT message_id FROM social_messages WHERE account_id=? AND chat_key=? AND topic_id=? ORDER BY ts,rowid LIMIT ?').all(scope.accountId, scope.chatKey, row.topic_id, MAX_MESSAGES_PER_TOPIC);
@@ -148,11 +177,28 @@ export class SocialStateStore {
     return refs.messageId ? this.#db.prepare('SELECT * FROM social_messages WHERE account_id=? AND chat_key=? AND message_id=? LIMIT 1').get(scope.accountId, scope.chatKey, refs.messageId) || null : null;
   }
 
+  #interactionFor(scope, topicId, message, target) {
+    const explicit = target?.interaction_id
+      ? this.#db.prepare('SELECT * FROM social_interactions WHERE account_id=? AND chat_key=? AND interaction_id=?').get(scope.accountId, scope.chatKey, target.interaction_id)
+      : null;
+    if (explicit && String(explicit.status) === 'open') return explicit;
+    const at = this.#time(message.ts);
+    const recent = this.#db.prepare("SELECT * FROM social_interactions WHERE account_id=? AND chat_key=? AND topic_id=? AND status='open' ORDER BY last_event_at DESC LIMIT 1")
+      .get(scope.accountId, scope.chatKey, topicId);
+    if (recent && at >= Number(recent.last_event_at) && at - Number(recent.last_event_at) <= 30 * 60 * 1000) return recent;
+    const interactionId = crypto.randomUUID();
+    const causalRootId = message.self ? `outbound:${message.id}` : String(message.id);
+    this.#db.prepare("INSERT INTO social_interactions(account_id,chat_key,topic_id,interaction_id,causal_root_id,status,opened_at,last_event_at) VALUES (?,?,?,?,?,'open',?,?)")
+      .run(scope.accountId, scope.chatKey, topicId, interactionId, causalRootId, at, at);
+    return this.#db.prepare('SELECT * FROM social_interactions WHERE account_id=? AND chat_key=? AND interaction_id=?')
+      .get(scope.accountId, scope.chatKey, interactionId);
+  }
+
   #makeRoom(scope, protect = []) {
     const count = Number(this.#db.prepare('SELECT COUNT(*) AS n FROM social_topics WHERE account_id=? AND chat_key=?').get(scope.accountId, scope.chatKey)?.n || 0);
     if (count < this.#maxTopics) return true;
     const protectedIds = new Set(protect);
-    const rows = this.#db.prepare("SELECT topic_id FROM social_topics t WHERE account_id=? AND chat_key=? AND NOT EXISTS (SELECT 1 FROM social_intents i WHERE i.account_id=t.account_id AND i.chat_key=t.chat_key AND i.topic_id=t.topic_id AND i.status IN ('pending','leased')) ORDER BY CASE status WHEN 'closed' THEN 0 ELSE 1 END,updated_at ASC").all(scope.accountId, scope.chatKey);
+    const rows = this.#db.prepare("SELECT topic_id FROM social_topics t WHERE account_id=? AND chat_key=? AND NOT EXISTS (SELECT 1 FROM social_intents i WHERE i.account_id=t.account_id AND i.chat_key=t.chat_key AND i.topic_id=t.topic_id AND (i.status IN ('pending','leased','held') OR (i.status='completed' AND i.answered_at IS NULL))) ORDER BY CASE status WHEN 'closed' THEN 0 ELSE 1 END,updated_at ASC").all(scope.accountId, scope.chatKey);
     const victim = rows.find((row) => !protectedIds.has(String(row.topic_id)));
     if (!victim) return false;
     this.#db.prepare('DELETE FROM social_messages WHERE account_id=? AND chat_key=? AND topic_id=?').run(scope.accountId, scope.chatKey, victim.topic_id);
@@ -222,7 +268,7 @@ export class SocialStateStore {
 
   #pruneMessages(scope, topicId) {
     const protectedIds = new Set();
-    const intents = this.#db.prepare("SELECT source_message_ids FROM social_intents WHERE account_id=? AND chat_key=? AND topic_id=? AND (status IN ('pending','leased') OR (status='completed' AND answered_at IS NULL))").all(scope.accountId, scope.chatKey, topicId);
+    const intents = this.#db.prepare("SELECT source_message_ids FROM social_intents WHERE account_id=? AND chat_key=? AND topic_id=? AND (status IN ('pending','leased','held') OR (status='completed' AND answered_at IS NULL))").all(scope.accountId, scope.chatKey, topicId);
     for (const row of intents) for (const sourceId of strings(json(row.source_message_ids, []), MAX_INTENT_SOURCES)) protectedIds.add(sourceId);
     const rows = this.#db.prepare('SELECT message_id FROM social_messages WHERE account_id=? AND chat_key=? AND topic_id=? ORDER BY ts DESC,rowid DESC').all(scope.accountId, scope.chatKey, topicId);
     const keep = new Set(rows.slice(0, MAX_MESSAGES_PER_TOPIC).map((row) => String(row.message_id)));
@@ -234,13 +280,14 @@ export class SocialStateStore {
   }
 
   #resolveReplies(scope) {
-    const rows = this.#db.prepare('SELECT message_id,topic_id,reply_to_mid,reply_to_message_id FROM social_messages WHERE account_id=? AND chat_key=? AND (reply_to_mid IS NOT NULL OR reply_to_message_id IS NOT NULL) ORDER BY ts,rowid LIMIT ?').all(scope.accountId, scope.chatKey, this.#maxTopics * MAX_MESSAGES_PER_TOPIC);
+    const rows = this.#db.prepare('SELECT message_id,topic_id,interaction_id,reply_to_mid,reply_to_message_id FROM social_messages WHERE account_id=? AND chat_key=? AND (reply_to_mid IS NOT NULL OR reply_to_message_id IS NOT NULL) ORDER BY ts,rowid LIMIT ?').all(scope.accountId, scope.chatKey, this.#maxTopics * MAX_MESSAGES_PER_TOPIC);
     const changed = new Set();
     for (const row of rows) {
       const target = this.#replyTarget(scope, { mid: row.reply_to_mid || '', messageId: row.reply_to_message_id || '' });
-      if (!target?.topic_id || String(row.topic_id || '') === String(target.topic_id)) continue;
+      if (!target?.topic_id || (String(row.topic_id || '') === String(target.topic_id)
+        && String(row.interaction_id || '') === String(target.interaction_id || ''))) continue;
       if (row.topic_id) changed.add(String(row.topic_id));
-      this.#db.prepare('UPDATE social_messages SET topic_id=?,observed_revision=? WHERE account_id=? AND chat_key=? AND message_id=?').run(target.topic_id, this.#revision(scope) + 1, scope.accountId, scope.chatKey, row.message_id);
+      this.#db.prepare('UPDATE social_messages SET topic_id=?,interaction_id=?,observed_revision=? WHERE account_id=? AND chat_key=? AND message_id=?').run(target.topic_id, target.interaction_id, this.#revision(scope) + 1, scope.accountId, scope.chatKey, row.message_id);
       changed.add(String(target.topic_id));
     }
     for (const topicId of changed) this.#recompute(scope, topicId);
@@ -258,7 +305,7 @@ export class SocialStateStore {
 
   #intent(row, lease = false) {
     if (!row) return null;
-    const result = { id: String(row.id), topicId: String(row.topic_id), sourceMessageIds: strings(json(row.source_message_ids, []), MAX_INTENT_SOURCES), goal: String(row.goal), dueAt: Number(row.due_at) || 0, expiresAt: Number(row.expires_at) || 0, status: String(row.status), createdAt: Number(row.created_at) || 0, updatedAt: Number(row.updated_at) || 0, answeredAt: Number(row.answered_at) || 0, reason: String(row.reason || '') };
+    const result = { id: String(row.id), topicId: String(row.topic_id), sourceMessageIds: strings(json(row.source_message_ids, []), MAX_INTENT_SOURCES), sourceRefs: json(row.source_refs, []), causalRootId: String(row.causal_root_id || ''), evaluationAttempts: Number(row.evaluation_attempts) || 0, postponements: Number(row.postponements) || 0, goal: String(row.goal), dueAt: Number(row.due_at) || 0, expiresAt: Number(row.expires_at) || 0, status: String(row.status), createdAt: Number(row.created_at) || 0, updatedAt: Number(row.updated_at) || 0, answeredAt: Number(row.answered_at) || 0, reason: String(row.reason || '') };
     if (lease) { result.leaseId = row.lease_id ? String(row.lease_id) : null; result.leaseUntil = Number(row.lease_until) || 0; }
     return result;
   }
@@ -281,19 +328,30 @@ export class SocialStateStore {
       const observedRevision = this.#revision(scope) + 1;
       for (const raw of Array.isArray(messages) ? messages : []) {
         const message = messageData(raw, selfId);
-        if (!message.id || this.#message(scope, message.id)) continue;
+        if (!message.id || this.#message(scope, message.id) || this.#messageByMid(scope, message.mid)) continue;
         const target = this.#replyTarget(scope, replyParts(message.reply));
         let topicId = this.#route(scope, message, target);
         if (!topicId) topicId = this.#createTopic(scope, message);
-        this.#db.prepare('INSERT OR IGNORE INTO social_messages(account_id,chat_key,message_id,mid,ts,sender_id,sender_name,self,text,reply_json,reply_to_message_id,reply_to_mid,mentions_self,topic_id,observed_at,observed_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
-          scope.accountId, scope.chatKey, message.id, message.mid, message.ts || this.#time(), message.senderId, message.senderName, message.self ? 1 : 0, message.text, message.replyJson, message.replyToMessageId, message.replyToMid, message.mentionsSelf ? 1 : 0, topicId || null, this.#time(), observedRevision
+        const interaction = topicId ? this.#interactionFor(scope, topicId, message, target) : null;
+        this.#db.prepare('INSERT OR IGNORE INTO social_messages(account_id,chat_key,message_id,mid,ts,sender_id,sender_name,self,text,reply_json,reply_to_message_id,reply_to_mid,mentions_self,topic_id,interaction_id,observed_at,observed_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
+          scope.accountId, scope.chatKey, message.id, message.mid, message.ts || this.#time(), message.senderId, message.senderName, message.self ? 1 : 0, message.text, message.replyJson, message.replyToMessageId, message.replyToMid, message.mentionsSelf ? 1 : 0, topicId || null, interaction?.interaction_id || null, this.#time(), observedRevision
         );
+        if (interaction && message.id) {
+          this.#db.prepare('UPDATE social_interactions SET last_event_at=MAX(last_event_at,?) WHERE account_id=? AND chat_key=? AND interaction_id=?')
+            .run(message.ts || this.#time(), scope.accountId, scope.chatKey, interaction.interaction_id);
+        }
         if (topicId) this.#touch(scope, topicId, message);
         if (topicId && !message.self) {
           const pending = this.#db.prepare("SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND topic_id=? AND status IN ('pending','leased')").all(scope.accountId, scope.chatKey, topicId);
-          for (const intent of pending) this.#transition(scope, intent, 'held', 'new human activity arrived before initiative delivery', this.#time(message.ts));
+          for (const intent of pending) {
+            const roots = strings(json(intent.source_message_ids, []), MAX_INTENT_SOURCES);
+            const related = String(intent.causal_root_id || '') === String(interaction?.causal_root_id || '')
+              || roots.some((sourceId) => sourceId === target?.message_id || (target?.mid && String(target.mid) === sourceId));
+            if (related) this.#transition(scope, intent, 'cancelled', 'related human continuation superseded due initiative', this.#time(message.ts));
+          }
           const completed = this.#db.prepare("SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND topic_id=? AND status='completed' AND answered_at IS NULL AND finished_at<?").all(scope.accountId, scope.chatKey, topicId, message.ts || this.#time());
           for (const intent of completed) {
+            if (String(intent.causal_root_id || '') !== String(interaction?.causal_root_id || '')) continue;
             const answeredAt = this.#time(message.ts);
             this.#db.prepare('UPDATE social_intents SET answered_at=?,updated_at=? WHERE account_id=? AND chat_key=? AND id=?').run(answeredAt, answeredAt, scope.accountId, scope.chatKey, intent.id);
             this.#event(scope, intent, 'completed', 'answered', 'human replied in the initiative topic', answeredAt);
@@ -311,7 +369,7 @@ export class SocialStateStore {
 
   snapshot({ accountId, chatKey } = {}) {
     const scope = scopeOf({ accountId, chatKey });
-    this.#ensure();
+    this.#requireInitialized();
     return this.#snapshot(scope);
   }
 
@@ -326,7 +384,12 @@ export class SocialStateStore {
       let targetId = id(topicId), target = targetId ? this.#topicRow(scope, targetId) : null;
       if (targetId && !target) throw fail('UNKNOWN_TOPIC', 'topicId is not in this account/chat');
       if (!targetId) {
-        targetId = this.#createTopic(scope, { senderId: messages[0].sender_id, self: Boolean(messages[0].self), ts: Number(messages[0].ts) }, topic, strings(messages.map((item) => item.topic_id)));
+        targetId = this.#createTopic(scope, {
+          id: String(messages[0].message_id),
+          senderId: messages[0].sender_id,
+          self: Boolean(messages[0].self),
+          ts: Number(messages[0].ts)
+        }, topic, strings(messages.map((item) => item.topic_id)));
         if (!targetId) throw fail('TOPIC_LIMIT', 'no topic slot is available without evicting an active initiative');
         target = this.#topicRow(scope, targetId);
       }
@@ -339,6 +402,35 @@ export class SocialStateStore {
         if (row.topic_id) old.add(String(row.topic_id));
         this.#db.prepare('UPDATE social_messages SET topic_id=?,observed_revision=? WHERE account_id=? AND chat_key=? AND message_id=?').run(targetId, this.#revision(scope) + 1, scope.accountId, scope.chatKey, row.message_id);
         changed = true;
+      }
+      const movedByInteraction = new Map();
+      for (const row of messages) {
+        if (!row.interaction_id || String(row.topic_id || '') === targetId) continue;
+        const ids = movedByInteraction.get(String(row.interaction_id)) || [];
+        ids.push(String(row.message_id));
+        movedByInteraction.set(String(row.interaction_id), ids);
+      }
+      for (const [interactionId, movedIds] of movedByInteraction) {
+        const remaining = this.#db.prepare('SELECT COUNT(*) AS n FROM social_messages WHERE account_id=? AND chat_key=? AND interaction_id=? AND topic_id<>?')
+          .get(scope.accountId, scope.chatKey, interactionId, targetId)?.n || 0;
+        if (!remaining) {
+          this.#db.prepare('UPDATE social_interactions SET topic_id=? WHERE account_id=? AND chat_key=? AND interaction_id=?')
+            .run(targetId, scope.accountId, scope.chatKey, interactionId);
+          continue;
+        }
+        const previous = this.#db.prepare('SELECT * FROM social_interactions WHERE account_id=? AND chat_key=? AND interaction_id=?')
+          .get(scope.accountId, scope.chatKey, interactionId);
+        if (!previous) continue;
+        const moved = movedIds.map((messageId) => this.#message(scope, messageId)).filter(Boolean);
+        const nextInteractionId = crypto.randomUUID();
+        this.#db.prepare('INSERT INTO social_interactions(account_id,chat_key,topic_id,interaction_id,causal_root_id,status,opened_at,last_event_at) VALUES (?,?,?,?,?,?,?,?)')
+          .run(scope.accountId, scope.chatKey, targetId, nextInteractionId, previous.causal_root_id, 'open',
+            Math.min(...moved.map((row) => Number(row.ts) || this.#time())),
+            Math.max(...moved.map((row) => Number(row.ts) || this.#time())));
+        for (const row of moved) {
+          this.#db.prepare('UPDATE social_messages SET interaction_id=? WHERE account_id=? AND chat_key=? AND message_id=?')
+            .run(nextInteractionId, scope.accountId, scope.chatKey, row.message_id);
+        }
       }
       for (const previous of old) this.#recompute(scope, previous);
       if (changed || labelChanged) this.#recompute(scope, targetId);
@@ -358,18 +450,152 @@ export class SocialStateStore {
     if (!topic || !this.#topicRow(scope, topic)) return [];
     const cap = Math.max(1, Math.min(MAX_MESSAGES_PER_TOPIC, Math.floor(Number(limit) || 40)));
     const rows = this.#db.prepare('SELECT * FROM (SELECT rowid AS row_order,* FROM social_messages WHERE account_id=? AND chat_key=? AND topic_id=? ORDER BY ts DESC,rowid DESC LIMIT ?) ORDER BY ts,row_order').all(scope.accountId, scope.chatKey, topic, cap);
-    return rows.map((row) => ({ id: String(row.message_id), mid: row.mid == null ? null : String(row.mid), ts: Number(row.ts) || 0, senderId: String(row.sender_id || ''), senderName: String(row.sender_name || ''), self: Boolean(row.self), text: String(row.text || ''), reply: json(row.reply_json, null), mentionsSelf: Boolean(row.mentions_self), topicId: String(row.topic_id), replyToMessageId: row.reply_to_message_id == null ? null : String(row.reply_to_message_id), replyToMid: row.reply_to_mid == null ? null : String(row.reply_to_mid) }));
+    return rows.map((row) => ({ id: String(row.message_id), mid: row.mid == null ? null : String(row.mid), ts: Number(row.ts) || 0, senderId: String(row.sender_id || ''), senderName: String(row.sender_name || ''), self: Boolean(row.self), text: String(row.text || ''), reply: json(row.reply_json, null), mentionsSelf: Boolean(row.mentions_self), topicId: String(row.topic_id), interactionId: row.interaction_id == null ? null : String(row.interaction_id), replyToMessageId: row.reply_to_message_id == null ? null : String(row.reply_to_message_id), replyToMid: row.reply_to_mid == null ? null : String(row.reply_to_mid) }));
   }
 
-  recordOutcome({ accountId, chatKey, topicId, targetMessageId = null, action, sent = [], runId, initiativeId = null, outcome = 'sent' } = {}) {
+  interactionIdForMessage({ accountId, chatKey, messageId } = {}) {
+    const scope = scopeOf({ accountId, chatKey });
+    this.#ensure();
+    return String(this.#message(scope, id(messageId))?.interaction_id || '');
+  }
+
+  interactionForMessage({ accountId, chatKey, messageId } = {}) {
+    const scope = scopeOf({ accountId, chatKey });
+    this.#ensure();
+    const row = this.#message(scope, id(messageId));
+    if (!row?.interaction_id) return null;
+    const interaction = this.#db.prepare('SELECT * FROM social_interactions WHERE account_id=? AND chat_key=? AND interaction_id=?')
+      .get(scope.accountId, scope.chatKey, row.interaction_id);
+    return interaction ? {
+      id: String(interaction.interaction_id),
+      topicId: String(interaction.topic_id),
+      causalRootId: String(interaction.causal_root_id),
+      status: String(interaction.status),
+      openedAt: Number(interaction.opened_at) || 0,
+      lastEventAt: Number(interaction.last_event_at) || 0
+    } : null;
+  }
+
+  sourceRefForMessage({ accountId, chatKey, messageId } = {}) {
+    const scope = scopeOf({ accountId, chatKey });
+    this.#ensure();
+    const row = this.#message(scope, id(messageId));
+    if (!row || row.self) return null;
+    return {
+      kind: 'message',
+      id: String(row.message_id),
+      revision: 1,
+      scope: { accountId: scope.accountId, chatKey: scope.chatKey },
+      visibility: 'chat',
+      policyVersion: 'social-scene-v1'
+    };
+  }
+
+  recordExternalObservation({
+    accountId, chatKey, sourceId, topicId = null, sourceRefs = [], contentText = '', expiresAt, now
+  } = {}) {
+    const scope = scopeOf({ accountId, chatKey });
+    this.#ensure();
+    const source = id(sourceId);
+    const refs = (Array.isArray(sourceRefs) ? sourceRefs : [])
+      .filter((ref) => ref && typeof ref === 'object' && !Array.isArray(ref))
+      .slice(0, 8);
+    const at = this.#time(now), expiry = Number(expiresAt), topic = id(topicId);
+    if (!source || !refs.length || !Number.isSafeInteger(expiry)
+      || expiry <= at || expiry - at > MAX_INTENT_LIFETIME) {
+      throw fail('INVALID_EXTERNAL_OBSERVATION', 'external observations need scoped refs and a bounded future expiry');
+    }
+    if (topic && !this.#topicRow(scope, topic)) throw fail('UNKNOWN_TOPIC', 'observation topic is outside this account/chat');
+    const refsJson = JSON.stringify(refs), content = clean(contentText, 2400);
+    const unreferenced = `NOT EXISTS (
+      SELECT 1 FROM social_intents i, json_each(i.source_refs) r
+      WHERE i.account_id=social_external_observations.account_id
+        AND i.chat_key=social_external_observations.chat_key
+        AND i.status IN ('pending','leased','held')
+        AND json_extract(r.value,'$.kind')='external_observation'
+        AND json_extract(r.value,'$.id')=social_external_observations.source_id
+    )`;
+    this.#tx(() => {
+      const existing = this.#db.prepare('SELECT topic_id,source_refs,content_text,expires_at FROM social_external_observations WHERE account_id=? AND chat_key=? AND source_id=?')
+        .get(scope.accountId, scope.chatKey, source);
+      if (existing) {
+        if (String(existing.topic_id || '') !== topic
+          || stableJson(json(existing.source_refs, [])) !== stableJson(refs)
+          || String(existing.content_text || '') !== content) {
+          throw fail('EXTERNAL_OBSERVATION_IMMUTABLE', 'an external source id cannot be rewritten with different content');
+        }
+        if (Number(existing.expires_at) <= at) {
+          throw fail('EXTERNAL_OBSERVATION_EXPIRED', 'an expired source cannot be renewed under the same id');
+        }
+        return;
+      }
+      this.#db.prepare('INSERT INTO social_external_observations(account_id,chat_key,source_id,topic_id,source_refs,content_text,expires_at,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(scope.accountId, scope.chatKey, source, topic || null, refsJson, content, expiry, at);
+      this.#db.prepare(`DELETE FROM social_external_observations WHERE account_id=? AND chat_key=?
+        AND ${unreferenced}
+        AND source_id NOT IN (SELECT source_id FROM social_external_observations
+          WHERE account_id=? AND chat_key=? ORDER BY created_at DESC,rowid DESC LIMIT 64)`)
+        .run(scope.accountId, scope.chatKey, scope.accountId, scope.chatKey);
+    });
+    return { kind: 'external_observation', id: source, revision: 1, scope, visibility: 'chat', policyVersion: 'social-source-v1' };
+  }
+
+  knownExternalSourceRefs({ accountId, chatKey, now } = {}) {
+    const scope = scopeOf({ accountId, chatKey }), at = this.#time(now);
+    this.#ensure();
+    return this.#db.prepare('SELECT source_id,expires_at FROM social_external_observations WHERE account_id=? AND chat_key=? AND expires_at>? ORDER BY created_at DESC LIMIT 32')
+      .all(scope.accountId, scope.chatKey, at)
+      .map((row) => ({
+        kind: 'external_observation',
+        id: String(row.source_id),
+        revision: 1,
+        scope,
+        visibility: 'chat',
+        policyVersion: 'social-source-v1'
+      }));
+  }
+
+  externalObservationText({ accountId, chatKey, sourceId, now } = {}) {
+    const scope = scopeOf({ accountId, chatKey }), at = this.#time(now);
+    this.#ensure();
+    const row = this.#db.prepare('SELECT content_text FROM social_external_observations WHERE account_id=? AND chat_key=? AND source_id=? AND expires_at>?')
+      .get(scope.accountId, scope.chatKey, id(sourceId), at);
+    return String(row?.content_text || '').slice(0, 2400);
+  }
+
+  validateSourceRefs({ accountId, chatKey, refs = [], now } = {}) {
+    const scope = scopeOf({ accountId, chatKey }), at = this.#time(now);
+    this.#ensure();
+    const valid = [], invalidRefs = [];
+    for (const ref of Array.isArray(refs) ? refs.slice(0, 8) : []) {
+      const external = ref?.kind === 'external_observation'
+        ? this.#db.prepare(`SELECT source_id FROM social_external_observations
+            WHERE account_id=? AND chat_key=? AND source_id=? AND expires_at>?`)
+          .get(scope.accountId, scope.chatKey, String(ref.id || ''), at)
+        : null;
+      const current = ref?.kind === 'message'
+        ? this.sourceRefForMessage({ ...scope, messageId: ref.id })
+        : external
+          ? { kind: 'external_observation', id: String(ref.id), revision: 1, scope, visibility: 'chat', policyVersion: 'social-source-v1' }
+          : null;
+      if (!current || stableJson(current) !== stableJson(ref)) invalidRefs.push(ref);
+      else valid.push(current);
+    }
+    return { valid, invalidRefs };
+  }
+
+  recordOutcome({ accountId, chatKey, topicId, targetMessageId = null, targetMessageIds = [], action, sent = [], runId, initiativeId = null, intentLeaseId = null, outcome = 'sent' } = {}) {
     const scope = scopeOf({ accountId, chatKey });
     return this.#tx(() => {
-      const topic = id(topicId), target = id(targetMessageId) || null;
+      const topic = id(topicId), target = id(targetMessageIds[0] || targetMessageId) || null;
       if (!topic || !this.#topicRow(scope, topic)) throw fail('UNKNOWN_TOPIC', 'outcome topic is not in this account/chat');
       if (target && !this.#message(scope, target)) throw fail('UNKNOWN_MESSAGE', 'outcome target must be host-observed in this account/chat');
       const initiative = id(initiativeId) || null;
       const intent = initiative ? this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND id=?').get(scope.accountId, scope.chatKey, initiative) : null;
       if (initiative && !intent) throw fail('UNKNOWN_INTENT', 'initiative is not in this account/chat');
+      if (initiative && String(intent.status) === 'leased' && String(intent.lease_id || '') !== String(intentLeaseId || '')) {
+        throw fail('INTENT_LEASE_MISMATCH', 'only the current lease owner can record this initiative outcome');
+      }
       const actionValue = clean(action || 'reply', 40), outcomeValue = clean(outcome || 'sent', 40).toLowerCase();
       const sentValue = (Array.isArray(sent) ? sent : sent == null ? [] : [sent]).slice(0, 20).map((value) => typeof value === 'string' ? clean(value, 4000) : value);
       const sentJson = JSON.stringify(sentValue), run = clean(runId || '', 200);
@@ -381,8 +607,11 @@ export class SocialStateStore {
         if (visible && ['sent', 'partial', 'delivered'].includes(outcomeValue)) this.#db.prepare("UPDATE social_topics SET last_self_at=?,updated_at=?,version=version+1,status='active' WHERE account_id=? AND chat_key=? AND topic_id=?").run(now, now, scope.accountId, scope.chatKey, topic);
         if (actionValue === 'close') this.#db.prepare("UPDATE social_topics SET status='closed',updated_at=?,version=version+1 WHERE account_id=? AND chat_key=? AND topic_id=?").run(now, scope.accountId, scope.chatKey, topic);
         if (initiative && OPEN.includes(String(intent.status))) {
-          const next = visible && ['sent', 'partial', 'delivered'].includes(outcomeValue) ? 'completed' : 'held';
+          const next = ['unknown', 'partial', 'held', 'uncertain'].includes(outcomeValue) ? 'held' : 'completed';
           this.#transition(scope, intent, next, next === 'completed' ? 'initiative delivery recorded' : 'delivery outcome ' + outcomeValue + ' is not safe to replay', now);
+          if (next === 'completed' && !visible) {
+            this.#db.prepare('UPDATE social_intents SET answered_at=? WHERE account_id=? AND chat_key=? AND id=?').run(now, scope.accountId, scope.chatKey, initiative);
+          }
         }
         this.#bump(scope);
       }
@@ -391,13 +620,25 @@ export class SocialStateStore {
     });
   }
 
-  addIntent({ accountId, chatKey, topicId, sourceMessageIds = [], goal, dueAt, expiresAt } = {}) {
+  addIntent({ accountId, chatKey, topicId, sourceMessageIds = [], sourceRefs = [], goal, dueAt, expiresAt } = {}) {
     const scope = scopeOf({ accountId, chatKey });
     return this.#tx(() => {
       const topic = id(topicId);
       if (!topic || !this.#topicRow(scope, topic)) throw fail('UNKNOWN_TOPIC', 'initiative topic is not in this account/chat');
       const sources = strings(sourceMessageIds, MAX_INTENT_SOURCES);
-      if (!sources.length) throw fail('INVALID_SOURCES', 'initiative needs host-observed human source messages');
+      const refs = (Array.isArray(sourceRefs) ? sourceRefs : []).filter((ref) => ref && typeof ref === 'object').slice(0, 8);
+      const checkedRefs = this.validateSourceRefs({ ...scope, refs });
+      if (checkedRefs.invalidRefs.length) throw fail('INVALID_SOURCES', 'initiative source references are not current or visible');
+      for (const ref of checkedRefs.valid) {
+        if (ref.kind === 'message') {
+          const source = this.#message(scope, ref.id);
+          if (!source || source.self || String(source.topic_id || '') !== topic) throw fail('INVALID_SOURCES', 'initiative message sources must be human messages in its topic');
+        } else if (ref.kind === 'external_observation') {
+          const source = this.#db.prepare('SELECT topic_id FROM social_external_observations WHERE account_id=? AND chat_key=? AND source_id=?').get(scope.accountId, scope.chatKey, ref.id);
+          if (source?.topic_id && String(source.topic_id) !== topic) throw fail('INVALID_SOURCES', 'external source is outside the initiative topic');
+        }
+      }
+      if (!sources.length && !refs.length) throw fail('INVALID_SOURCES', 'initiative needs host-observed source material');
       for (const sourceId of sources) {
         const source = this.#message(scope, sourceId);
         if (!source || String(source.topic_id || '') !== topic || source.self) throw fail('INVALID_SOURCES', 'initiative sources must be observed human messages in its topic');
@@ -406,13 +647,21 @@ export class SocialStateStore {
       if (goalValue.length < 4 || /\b(?:send|post|publish|poke)\s+(?:(?:a|the)\s+)?(?:message|reply|notification)\b|\b(?:run|execute|invoke)\b[^.!?]{0,30}\b(?:tool|command|script|api)\b|\b(?:delete|write to|edit file|change setting|auto(?:matic)?[- ]retry|schedule another)\b|调用(?:工具|接口)|执行(?:命令|脚本)|删除(?:文件|数据)|自动重试/i.test(goalValue)) throw fail('INVALID_GOAL', 'initiative goal must be a bounded conversational goal, not an operation');
       const now = this.#time(), due = Number(dueAt), expiry = Number(expiresAt);
       if (!Number.isFinite(due) || !Number.isFinite(expiry) || due <= now || expiry <= due || expiry - now > MAX_INTENT_LIFETIME) throw fail('INVALID_DATES', 'initiative needs future due and expiry times within 30 days');
-      const semantic = hash(JSON.stringify([sources.slice().sort(), goalNorm(goalValue)]));
+      const firstSource = sources.length ? this.#message(scope, sources[0]) : null;
+      const sourceInteraction = firstSource?.interaction_id
+        ? this.#db.prepare('SELECT causal_root_id FROM social_interactions WHERE account_id=? AND chat_key=? AND interaction_id=?')
+          .get(scope.accountId, scope.chatKey, firstSource.interaction_id)
+        : null;
+      const causalRootId = sources.length
+        ? String(sourceInteraction?.causal_root_id || sources[0])
+        : String(refs[0]?.id || '');
+      const semantic = hash(JSON.stringify([causalRootId, sources.slice().sort(), refs.map((ref) => [ref.kind, ref.id, ref.revision]).sort(), goalNorm(goalValue)]));
       const existing = this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND semantic_key=?').get(scope.accountId, scope.chatKey, semantic);
       if (existing) return this.#intent(existing);
       const active = this.#db.prepare("SELECT id FROM social_intents WHERE account_id=? AND chat_key=? AND (status IN ('pending','leased') OR (status='completed' AND answered_at IS NULL)) LIMIT 1").get(scope.accountId, scope.chatKey);
       if (active) throw fail('INITIATIVE_LIMIT', 'one unanswered initiative is allowed per account/chat');
       const intentId = crypto.randomUUID();
-      this.#db.prepare("INSERT INTO social_intents(id,account_id,chat_key,topic_id,source_message_ids,goal,semantic_key,due_at,expires_at,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'pending',?,?)").run(intentId, scope.accountId, scope.chatKey, topic, JSON.stringify(sources), goalValue, semantic, Math.round(due), Math.round(expiry), now, now);
+      this.#db.prepare("INSERT INTO social_intents(id,account_id,chat_key,topic_id,source_message_ids,source_refs,causal_root_id,goal,semantic_key,due_at,expires_at,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)").run(intentId, scope.accountId, scope.chatKey, topic, JSON.stringify(sources), JSON.stringify(refs), causalRootId, goalValue, semantic, Math.round(due), Math.round(expiry), now, now);
       const row = this.#db.prepare('SELECT * FROM social_intents WHERE id=?').get(intentId);
       this.#event(scope, row, null, 'pending', 'grounded initiative created', now);
       this.#bump(scope);
@@ -432,20 +681,23 @@ export class SocialStateStore {
       if (!due) { if (expired.length || leases.length) this.#bump(scope); return null; }
       if (!this.#topicRow(scope, due.topic_id)) { this.#transition(scope, due, 'held', 'initiative topic is no longer available', at); this.#bump(scope); return null; }
       const leaseId = crypto.randomUUID();
-      this.#db.prepare("UPDATE social_intents SET status='leased',lease_id=?,lease_until=?,updated_at=?,reason='' WHERE account_id=? AND chat_key=? AND id=? AND status='pending'").run(leaseId, at + lease, at, scope.accountId, scope.chatKey, due.id);
+      this.#db.prepare("UPDATE social_intents SET status='leased',lease_id=?,lease_until=?,updated_at=?,evaluation_attempts=evaluation_attempts+1,reason='' WHERE account_id=? AND chat_key=? AND id=? AND status='pending'").run(leaseId, at + lease, at, scope.accountId, scope.chatKey, due.id);
       this.#event(scope, due, 'pending', 'leased', 'due initiative claimed', at);
       this.#bump(scope);
       return this.#intent(this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND id=?').get(scope.accountId, scope.chatKey, due.id), true);
     });
   }
 
-  finishIntent({ accountId, chatKey, id: intentId, status, reason = '' } = {}) {
+  finishIntent({ accountId, chatKey, id: intentId, leaseId = null, status, reason = '' } = {}) {
     const scope = scopeOf({ accountId, chatKey });
     return this.#tx(() => {
       const next = id(status).toLowerCase();
       if (!TERMINAL.includes(next)) throw fail('INVALID_INTENT_STATUS', 'finish status must be a terminal initiative state');
       const row = this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND id=?').get(scope.accountId, scope.chatKey, id(intentId));
       if (!row) return null;
+      if (String(row.status) === 'leased' && String(row.lease_id || '') !== String(leaseId || '')) {
+        throw fail('INTENT_LEASE_MISMATCH', 'only the current lease owner can resolve this initiative');
+      }
       if (!OPEN.includes(String(row.status))) {
         if (String(row.status) !== next) throw fail('INTENT_TERMINAL', 'initiative already has a terminal state');
         return this.#intent(row, true);
@@ -473,55 +725,81 @@ export class SocialStateStore {
 
   listIntents({ accountId, chatKey, limit = 50 } = {}) {
     const scope = scopeOf({ accountId, chatKey });
-    this.#ensure();
+    this.#requireInitialized();
     const cap = Math.max(1, Math.min(200, Math.floor(Number(limit) || 50)));
     return this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? ORDER BY created_at DESC,id DESC LIMIT ?').all(scope.accountId, scope.chatKey, cap).map((row) => this.#intent(row));
   }
 
-  eligibleToSend({ accountId, chatKey, topicId, targetMessageId = null, snapshotRevision, currentMessages = [], text = '', initiativeId = null, direct = false } = {}) {
+  getIntent({ accountId, chatKey, id: intentId } = {}) {
+    const scope = scopeOf({ accountId, chatKey });
+    this.#requireInitialized();
+    const row = this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND id=?')
+      .get(scope.accountId, scope.chatKey, id(intentId));
+    return row ? this.#intent(row, true) : null;
+  }
+
+  eligibleToSend({ accountId, chatKey, topicId, targetMessageId = null, targetMessageIds = [], snapshotRevision, coveredMessageIds = [], currentMessages = [], text = '', initiativeId = null, intentLeaseId = null, direct = false } = {}) {
     const scope = scopeOf({ accountId, chatKey });
     return this.#tx(() => {
     const topic = id(topicId), topicRow = topic ? this.#topicRow(scope, topic) : null;
     if (!topicRow || String(topicRow.status) !== 'active') return { allowed: false, reason: 'unknown-or-closed-topic' };
     if (snapshotRevision != null && Number(snapshotRevision) > this.#revision(scope)) return { allowed: false, reason: 'invalid-future-revision' };
-    const targetId = id(targetMessageId), target = targetId ? this.#message(scope, targetId) : null;
-    if (!targetId && !direct) return { allowed: false, reason: 'missing-target' };
-    if (targetId && (!target || String(target.topic_id || '') !== topic)) return { allowed: false, reason: 'target-not-in-topic' };
-    if (target?.self) return { allowed: false, reason: 'target-is-self' };
+    const targets = strings(targetMessageIds.length ? targetMessageIds : targetMessageId ? [targetMessageId] : [], MAX_TARGETS);
+    const targetRows = targets.map((target) => this.#message(scope, target));
+    if (!targets.length && !direct) return { allowed: false, reason: 'missing-target' };
+    if (targetRows.some((target) => !target || String(target.topic_id || '') !== topic)) return { allowed: false, reason: 'target-not-in-topic' };
+    if (targetRows.some((target) => target.self)) return { allowed: false, reason: 'target-is-self' };
+    const targetSet = new Set(targets);
+    const covered = new Set(strings(coveredMessageIds));
     const baselineRevision = snapshotRevision == null
-      ? Number(target?.observed_revision) || 0
+      ? Math.max(0, ...targetRows.map((target) => Number(target?.observed_revision) || 0))
       : Number(snapshotRevision);
-    if (Number.isFinite(baselineRevision)) {
-      const newerHuman = this.#db.prepare('SELECT 1 FROM social_messages WHERE account_id=? AND chat_key=? AND topic_id=? AND self=0 AND observed_revision>? LIMIT 1').get(scope.accountId, scope.chatKey, topic, baselineRevision);
-      if (newerHuman) return { allowed: false, reason: 'newer-human-message-in-topic' };
-    }
     const participants = new Set(strings(json(topicRow.participant_ids, [])));
+    const targetTimes = targetRows.map((target) => Number(target?.ts) || 0);
+    const newerRows = this.#db.prepare('SELECT * FROM social_messages WHERE account_id=? AND chat_key=? AND topic_id=? AND self=0 AND observed_revision>? ORDER BY observed_revision,rowid LIMIT 200')
+      .all(scope.accountId, scope.chatKey, topic, baselineRevision);
+    for (const row of newerRows) {
+      const messageId = String(row.message_id);
+      if (targetSet.has(messageId) || covered.has(messageId)) continue;
+      const repliesToTarget = targetRows.some((target) =>
+        row.reply_to_message_id === String(target.message_id)
+        || (target.mid && row.reply_to_mid === String(target.mid)));
+      const withdrawn = /(?:不用了|不需要了|算了|撤回|忽略刚才|ignore (?:that|my last)|never mind|cancel that)/i.test(String(row.text || ''));
+      if (repliesToTarget || withdrawn) return { allowed: false, reason: 'target-withdrawn-or-updated' };
+    }
     for (const raw of Array.isArray(currentMessages) ? currentMessages : []) {
       const current = messageData(raw, '');
-      if (!current.id || current.id === String(target?.message_id || '') || current.self) continue;
+      if (!current.id || targetSet.has(current.id) || covered.has(current.id) || current.self) continue;
       const stored = this.#message(scope, current.id);
       if (stored) {
-        if (String(stored.topic_id || '') === topic && Number(stored.observed_revision) > baselineRevision) return { allowed: false, reason: 'new-relevant-message' };
+        if (String(stored.topic_id || '') === topic && Number(stored.observed_revision) > baselineRevision) {
+          const repliesToTarget = targetRows.some((target) =>
+            stored.reply_to_message_id === String(target.message_id)
+            || (target.mid && stored.reply_to_mid === String(target.mid)));
+          const withdrawn = /(?:不用了|不需要了|算了|撤回|忽略刚才|ignore (?:that|my last)|never mind|cancel that)/i.test(String(stored.text || ''));
+          if (repliesToTarget || withdrawn) return { allowed: false, reason: 'target-withdrawn-or-updated' };
+        }
         continue;
       }
       const ref = this.#replyTarget(scope, replyParts(current.reply));
-      if (ref && String(ref.topic_id || '') === topic) return { allowed: false, reason: 'new-relevant-message' };
+      if (ref && String(ref.topic_id || '') === topic && targetSet.has(String(ref.message_id))) return { allowed: false, reason: 'new-relevant-message' };
       const at = current.ts || this.#time();
-      if (target && at < Number(target.ts)) continue;
+      if (targetTimes.length && at < Math.max(...targetTimes)) continue;
       if (current.mentionsSelf && (direct || participants.has(current.senderId))) return { allowed: false, reason: 'new-relevant-message' };
-      if (current.senderId && participants.has(current.senderId) && (direct || at - Number(target?.ts || 0) <= 3 * 60 * 1000)) return { allowed: false, reason: 'new-relevant-message' };
     }
     const initiative = id(initiativeId);
     if (initiative) {
       const intent = this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND id=?').get(scope.accountId, scope.chatKey, initiative);
       if (!intent || String(intent.topic_id) !== topic) return { allowed: false, reason: 'unknown-initiative' };
       if (String(intent.status) !== 'leased') return { allowed: false, reason: 'initiative-not-leased' };
+      if (String(intent.lease_id || '') !== String(intentLeaseId || '')) return { allowed: false, reason: 'initiative-lease-mismatch' };
       if (Number(intent.lease_until) <= this.#time()) return { allowed: false, reason: 'initiative-lease-expired' };
       if (this.#db.prepare('SELECT 1 FROM social_outcomes WHERE account_id=? AND chat_key=? AND initiative_id=? LIMIT 1').get(scope.accountId, scope.chatKey, initiative)) return { allowed: false, reason: 'initiative-already-recorded' };
     }
     const candidate = clean(text, 10000), normalized = norm(candidate);
     if (normalized && !commonAck(candidate)) {
-      const rows = this.#db.prepare("SELECT sent_json FROM social_outcomes WHERE account_id=? AND chat_key=? AND topic_id=? AND target_message_id IS ? AND outcome IN ('sent','partial','delivered','unknown','uncertain','held') ORDER BY created_at DESC LIMIT 100").all(scope.accountId, scope.chatKey, topic, targetId || null);
+      const targetId = targets[0] || null;
+      const rows = this.#db.prepare("SELECT sent_json FROM social_outcomes WHERE account_id=? AND chat_key=? AND topic_id=? AND target_message_id IS ? AND outcome IN ('sent','partial','delivered','unknown','uncertain','held') ORDER BY created_at DESC LIMIT 100").all(scope.accountId, scope.chatKey, topic, targetId);
       for (const row of rows) if (extractSentTexts(json(row.sent_json, [])).some((previous) => norm(previous) === normalized)) return { allowed: false, reason: 'duplicate-target-content' };
     }
     return { allowed: true, reason: 'ok' };

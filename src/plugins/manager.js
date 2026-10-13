@@ -15,6 +15,42 @@ function stableToolSnapshot(registrySnapshot, enabledPlugins) {
   return registrySnapshot.tools.filter((tool) => enabledIds.has(tool.ownerPluginId));
 }
 
+function safeMaterialRefs(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 8) return null;
+  const result = [];
+  for (const item of value) {
+    const id = String(item?.id || '');
+    const revision = Number(item?.revision);
+    const scope = String(item?.scope || '');
+    const visibility = String(item?.visibility || '');
+    const policyVersion = String(item?.policyVersion || '');
+    const kind = String(item?.kind || '');
+    if (!['notebook', 'learned-self'].includes(kind)
+      || !id
+      || !Number.isSafeInteger(revision)
+      || revision < 1
+      || !['global', 'chat'].includes(scope)
+      || !policyVersion
+      || (scope === 'global' && visibility !== 'global')
+      || (scope === 'chat' && !/^chat:(group|private):\d+$/.test(visibility))) {
+      return null;
+    }
+    const ref = { kind, id, revision, scope, visibility, policyVersion };
+    if (kind === 'learned-self') {
+      const traitKeys = item.traitKeys;
+      const expiresAt = Number(item.expiresAt);
+      if (!Array.isArray(traitKeys) || traitKeys.length > 12
+        || traitKeys.some((key) => typeof key !== 'string' || !key.trim())
+        || !Number.isFinite(expiresAt) || expiresAt < 0) return null;
+      ref.traitKeys = [...new Set(traitKeys.map((key) => key.slice(0, 120)))];
+      ref.expiresAt = Math.round(expiresAt);
+    }
+    result.push(ref);
+  }
+  return result;
+}
+
 export class PluginManager {
   constructor({ registry = new PluginRegistry(), configProvider = () => ({}), eventStore = null } = {}) {
     this.registry = registry;
@@ -289,11 +325,18 @@ export class PluginManager {
         for (const block of candidates) {
           const text = String(block?.text || '').trim();
           if (!text || text.length > remaining) continue;
+          const materialRefs = safeMaterialRefs(block.materialRefs);
+          const materialRequired = [
+            'self-evolution.retrieval',
+            'self-evolution.learned-self'
+          ].includes(String(provider.id || ''));
+          if (materialRefs === null || (materialRequired && materialRefs.length === 0)) continue;
           blocks.push({
             id: String(block.id || `${provider.id}:${selected + 1}`),
             title: String(block.title || provider.id).slice(0, 120),
             text: text.slice(0, remaining),
             sourceRefs: Array.isArray(block.sourceRefs) ? block.sourceRefs.slice(0, 8) : [],
+            materialRefs,
             revision: block.revision ?? null
           });
           remaining -= text.length;
@@ -316,11 +359,13 @@ export class PluginManager {
     actionSummary = {}, sourceMessageIds = [], completedAt = Date.now(),
     originKind = 'chat_run', evidenceVersion = 0, conversationEvidence = [],
     triggerKind = '', proactive, interactionId = '', topicId = '',
-    originalSourceId = '', delivered
+    originalSourceId = '', originalSourceIds = [], delivered,
+    schemaVersion = 0, deliveryState = ''
   } = {}) {
     if (!snapshot || snapshot.signal.aborted) return [];
     const rawEvidence = Array.isArray(conversationEvidence) ? conversationEvidence : [];
     const version = Math.max(2, Number(evidenceVersion || actionSummary.evidenceVersion) || 0);
+    const schema = Math.max(2, Number(schemaVersion || actionSummary.schemaVersion) || 2);
     const selectedTriggerKind = String(triggerKind || actionSummary.triggerKind || '').slice(0, 80);
     const selectedProactive = proactive === true || actionSummary.proactive === true;
     const selectedInteractionId = String(interactionId || actionSummary.interactionId || '').slice(0, 160);
@@ -328,20 +373,56 @@ export class PluginManager {
     const selectedOriginalSourceId = String(
       originalSourceId || actionSummary.originalSourceId || ''
     ).slice(0, 160);
+    const selectedOriginalSourceIds = [...new Set([
+      ...(Array.isArray(originalSourceIds) ? originalSourceIds : []),
+      ...(Array.isArray(actionSummary.originalSourceIds) ? actionSummary.originalSourceIds : []),
+      selectedOriginalSourceId
+    ].map((item) => String(item || '').trim().slice(0, 160)).filter(Boolean))].slice(0, 40);
     const selectedDelivered = delivered === true || actionSummary.delivered === true;
+    const selectedDeliveryState = String(
+      deliveryState || actionSummary.deliveryState || ''
+    ).slice(0, 40);
     const normalizedEvidence = rawEvidence.map((item) => {
       const rawText = String(item?.text || '').replace(/\s+/g, ' ').trim();
       const clipped = rawText.slice(0, 240);
       const role = String(item?.role || '').slice(0, 20);
+      const sourceRecordType = String(item?.sourceRecordType || (
+        (version >= 3 ? '' : String(item?.evidenceId || '').split(':', 1)[0] || 'message')
+      )).slice(0, 40);
       const sourceRecordId = String(
         item?.sourceRecordId || item?.messageId || (version >= 3 ? '' : item?.evidenceId || '')
       ).slice(0, 160);
+      const itemOriginalSourceIds = [...new Set([
+        ...(Array.isArray(item?.originalSourceIds) ? item.originalSourceIds : []),
+        item?.originalSourceId || selectedOriginalSourceId
+      ].map((value) => String(value || '').trim().slice(0, 160)).filter(Boolean))].slice(0, 20);
+      const sourceRef = [
+        String(accountId || ''),
+        String(chatKey || 'account'),
+        sourceRecordType || 'message',
+        sourceRecordId
+      ].join(':');
+      const rawFeedback = item?.explicitFeedback;
+      const explicitFeedback = role === 'user'
+        && rawFeedback && typeof rawFeedback === 'object' && !Array.isArray(rawFeedback)
+        && String(rawFeedback.sourceRef || '') === sourceRef
+        && String(rawFeedback.targetSourceRef || '').length <= 420
+        && String(rawFeedback.feedbackId || '').length <= 160
+        && ['confirm', 'correct', 'retract'].includes(String(rawFeedback.action || ''))
+        ? {
+            feedbackId: String(rawFeedback.feedbackId || '').slice(0, 160),
+            sourceRef,
+            targetSourceRef: String(rawFeedback.targetSourceRef || '').slice(0, 420),
+            action: String(rawFeedback.action),
+            value: typeof rawFeedback.value === 'string' ? rawFeedback.value.slice(0, 160) : ''
+          }
+        : null;
       return {
         evidenceId: String(item?.evidenceId || '').slice(0, 160),
-        sourceRecordType: String(item?.sourceRecordType || (
-          (version >= 3 ? '' : String(item?.evidenceId || '').split(':', 1)[0] || 'message')
-        )).slice(0, 40),
+        sourceRecordType,
         sourceRecordId,
+        platformMessageId: String(item?.platformMessageId || '').slice(0, 160),
+        originalSourceIds: itemOriginalSourceIds,
         messageId: String(item?.messageId || '').slice(0, 160),
         senderId: String(item?.senderId || '').slice(0, 40),
         role,
@@ -354,7 +435,8 @@ export class PluginManager {
         truncated: rawText.length > clipped.length || item?.truncated === true,
         confirmed: item?.confirmed === true,
         delivered: role === 'assistant' && item?.delivered === true,
-        userConfirmed: role === 'user' && item?.userConfirmed === true
+        userConfirmed: explicitFeedback?.action === 'confirm',
+        explicitFeedback
       };
     }).filter((item) => item.evidenceId && item.text);
     const userEvidence = normalizedEvidence.filter((item) => item.role === 'user').slice(-10);
@@ -368,6 +450,7 @@ export class PluginManager {
       .filter((observer) => snapshot.isActive(observer.ownerPluginId, snapshot.generations[observer.ownerPluginId]))
       .map((observer) => ({
         eventId: `${sessionId}:${observer.id}`,
+        schemaVersion: schema,
         originKind: String(originKind || 'chat_run'),
         evidenceVersion: version,
         triggerKind: selectedTriggerKind,
@@ -375,6 +458,8 @@ export class PluginManager {
         interactionId: selectedInteractionId,
         topicId: selectedTopicId,
         originalSourceId: selectedOriginalSourceId,
+        originalSourceIds: selectedOriginalSourceIds,
+        deliveryState: selectedDeliveryState,
         delivered: selectedDelivered,
         accountId: String(accountId || ''),
         sessionId: String(sessionId || ''),
@@ -385,12 +470,15 @@ export class PluginManager {
         resultClass: String(resultClass || ''),
         observerPluginId: observer.ownerPluginId,
         actionSummary: {
+          schemaVersion: schema,
           evidenceVersion: version,
           triggerKind: selectedTriggerKind,
           proactive: selectedProactive,
           interactionId: selectedInteractionId,
           topicId: selectedTopicId,
           originalSourceId: selectedOriginalSourceId,
+          originalSourceIds: selectedOriginalSourceIds,
+          deliveryState: selectedDeliveryState,
           delivered: selectedDelivered,
           sentCount: Number(actionSummary.sentCount) || 0,
           finishReason: String(actionSummary.finishReason || '').slice(0, 300),

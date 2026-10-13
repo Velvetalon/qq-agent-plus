@@ -5,10 +5,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../../core/config.js';
 import { SELF_EVOLUTION_PLUGIN_ID } from './notebook-store.js';
 import { classifyNotebookMemory, reflectionRoleNoteText } from './notebook-policy.js';
+import { LEARNED_SELF_POLICY_VERSION } from './learned-self-provider.js';
 
 export const REFLECTION_DATABASE_NAME = 'reflection.sqlite';
 export const REFLECTION_OBSERVER_ID = 'self-evolution.reflection';
 export const REFLECTION_MODES = Object.freeze(['review', 'bounded_auto']);
+export const REFLECTION_CANDIDATE_POLICY_VERSION = 'reflection-candidate-v1';
 export const CAPABILITY_GAP_CATEGORIES = Object.freeze([
   'missing',
   'disabled',
@@ -73,7 +75,6 @@ export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
   minTraitGlobalChats: 2,
   maxTraitEvidenceInteractions: 24,
   traitEvidenceWindowMs: 90 * 24 * 60 * 60 * 1000,
-  autoApplyBehaviorTraits: false,
   traitTtlMs: 30 * 24 * 60 * 60 * 1000,
   observationWindowMs: 0,
   leaseMs: 60000,
@@ -200,6 +201,26 @@ function hash(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
 }
 
+function traitCandidateId({
+  accountId,
+  chatKey,
+  scope,
+  subject,
+  key,
+  value,
+  cycleInteractionId = ''
+}) {
+  return `traitcand_${hash(stableJson({
+    accountId: String(accountId || ''),
+    chatKey: String(chatKey || ''),
+    scope: String(scope || ''),
+    subject: String(subject || ''),
+    key: String(key || ''),
+    value: String(value || ''),
+    cycleInteractionId: String(cycleInteractionId || '')
+  })).slice(0, 32)}`;
+}
+
 function safeJson(value, fallback = {}) {
   try {
     return JSON.stringify(value ?? fallback);
@@ -240,7 +261,6 @@ function normalizeLimits(limits = {}) {
   result.leaseMs = Math.max(1, result.leaseMs);
   result.workerLeaseMs = Math.max(1, result.workerLeaseMs);
   result.backoffMs = Math.max(0, result.backoffMs);
-  result.autoApplyBehaviorTraits = limits.autoApplyBehaviorTraits === true;
   return Object.freeze(result);
 }
 
@@ -271,6 +291,7 @@ function sourceLineage(event) {
     fail('REFLECTION_INVALID_EVENT', 'event.chatKey must be group:<QQ> or private:<QQ>');
   }
   return {
+    schemaVersion: Math.max(0, Math.round(Number(event.schemaVersion) || 0)),
     eventId: optionalText(event.eventId, 'event.eventId', 240),
     observerId,
     observerPluginId,
@@ -278,6 +299,7 @@ function sourceLineage(event) {
     accountId,
     sessionId,
     runId: optionalText(event.runId, 'event.runId', 160),
+    deliveryState: optionalText(event.deliveryState, 'event.deliveryState', 40),
     chatKey,
     pluginGeneration: Math.max(0, Math.round(Number(event.pluginGeneration) || 0)),
     observationWindowId: optionalText(
@@ -341,6 +363,7 @@ function boundedExecutionOutcome(value) {
 }
 
 function boundedConversationEvidence(value, {
+  schemaVersion = 0,
   evidenceVersion = 0,
   interactionId = '',
   topicId = '',
@@ -348,7 +371,7 @@ function boundedConversationEvidence(value, {
 } = {}) {
   if (!Array.isArray(value)) return [];
   const unique = new Map();
-  const hostV3 = Number(evidenceVersion) >= 3;
+  const hostV3 = Number(schemaVersion) >= 3 && Number(evidenceVersion) >= 3;
   for (const item of value.slice(0, 40)) {
     const evidenceId = optionalText(item?.evidenceId, 'conversationEvidence.evidenceId', 160);
     const content = optionalText(item?.text, 'conversationEvidence.text', 240);
@@ -369,6 +392,11 @@ function boundedConversationEvidence(value, {
       ),
       sourceRecordId,
       messageId,
+      platformMessageId: optionalText(
+        item?.platformMessageId,
+        'conversationEvidence.platformMessageId',
+        160
+      ),
       senderId: optionalText(item?.senderId, 'conversationEvidence.senderId', 40),
       speaker: optionalText(item?.speaker || item?.role, 'conversationEvidence.speaker', 20),
       role,
@@ -377,6 +405,10 @@ function boundedConversationEvidence(value, {
         'conversationEvidence.originalSourceId',
         160
       ),
+      originalSourceIds: [...new Set([
+        ...(Array.isArray(item?.originalSourceIds) ? item.originalSourceIds : []),
+        item?.originalSourceId || originalSourceId
+      ].map((value) => String(value || '').trim().slice(0, 160)).filter(Boolean))].slice(0, 20),
       interactionId: optionalText(
         item?.interactionId || interactionId,
         'conversationEvidence.interactionId',
@@ -389,7 +421,9 @@ function boundedConversationEvidence(value, {
       confirmed: item?.confirmed === true,
       delivered: role === 'assistant' && item?.delivered === true,
       userEvidence: hostV3 && role === 'user' && sourceRecordId.length > 0,
-      userConfirmed: role === 'user' && item?.userConfirmed === true
+      userConfirmed: role === 'user' && isExplicitTraitFeedback(item?.explicitFeedback)
+        && item.explicitFeedback.action === 'confirm',
+      explicitFeedback: role === 'user' ? normalizeExplicitTraitFeedback(item?.explicitFeedback) : null
     };
     const current = unique.get(evidenceId);
     if (!current || (normalized.confirmed && !current.confirmed)
@@ -398,6 +432,25 @@ function boundedConversationEvidence(value, {
     }
   }
   return [...unique.values()].slice(0, 20);
+}
+
+function normalizeExplicitTraitFeedback(value) {
+  if (!plainObject(value)) return null;
+  const feedbackId = String(value.feedbackId || '').trim();
+  const sourceRef = String(value.sourceRef || '').trim();
+  const targetSourceRef = String(value.targetSourceRef || '').trim();
+  const action = String(value.action || '').trim();
+  const nextValue = typeof value.value === 'string' ? value.value.trim().slice(0, 160) : '';
+  if (!feedbackId || feedbackId.length > 160 || !sourceRef || sourceRef.length > 420
+    || !/^(candidate|trait):[^\s:][^\s]*$/u.test(targetSourceRef)
+    || targetSourceRef.length > 420
+    || !['confirm', 'correct', 'retract'].includes(action)
+    || (action === 'correct' && !nextValue)) return null;
+  return { feedbackId, sourceRef, targetSourceRef, action, value: nextValue };
+}
+
+function isExplicitTraitFeedback(value) {
+  return normalizeExplicitTraitFeedback(value) !== null;
 }
 
 function evidenceRole(item) {
@@ -515,17 +568,11 @@ export function hashBasePersona(basePersona = {}) {
   }));
 }
 
-function explicitPreferenceText(value) {
-  const textValue = String(value || '');
-  return /(?:我|本人)?(?:更)?(?:喜欢|喜歡|偏好|感兴趣|感興趣|爱好|愛好|最爱|最愛|想聊|想看|想玩|愿意|願意|不喜欢|不喜歡|讨厌|討厭|不愿意|不願意)/u.test(textValue)
-    || /\b(?:i\s+(?:like|love|enjoy|prefer|am interested in|want to)|i\s+do(?:n't| not)\s+like)\b/iu.test(textValue);
-}
-
 export function normalizeCompletionObservation(event) {
   const lineage = sourceLineage(event);
   const actionSummary = plainObject(event.actionSummary) ? event.actionSummary : {};
   const rawEvidenceVersion = Number(event.evidenceVersion ?? actionSummary.evidenceVersion) || 0;
-  const structuredEvidence = rawEvidenceVersion >= 3;
+  const structuredEvidence = lineage.schemaVersion >= 3 && rawEvidenceVersion >= 3;
   const triggerKind = optionalText(
     event.triggerKind || actionSummary.triggerKind, 'event.triggerKind', 80
   );
@@ -538,30 +585,39 @@ export function normalizeCompletionObservation(event) {
   );
   const delivered = event.delivered === true || actionSummary.delivered === true;
   const conversationEvidence = boundedConversationEvidence(actionSummary.conversationEvidence, {
+    schemaVersion: lineage.schemaVersion,
     evidenceVersion: rawEvidenceVersion,
     interactionId,
     topicId,
     originalSourceId
-  })
-    .map((item) => ({
-      ...item,
-      sessionId: lineage.sessionId,
-      chatKey: lineage.chatKey,
-      accountId: lineage.accountId,
-      evidenceVersion: rawEvidenceVersion,
-      proactive: event.proactive === true || actionSummary.proactive === true,
-      userEvidence: rawEvidenceVersion >= 3
-        && item.role === 'user'
-        && item.sourceRecordType === 'message'
-        && Boolean(item.sourceRecordId && item.originalSourceId && item.interactionId),
-      assistantContext: item.delivered === true || evidenceRole(item) === 'assistant',
-      sourceRef: [
+    })
+    .map((item) => {
+      const sourceRef = [
         lineage.accountId,
         lineage.chatKey || 'account',
         item.sourceRecordType || 'message',
         item.sourceRecordId || item.evidenceId
-      ].join(':')
-    }));
+      ].join(':');
+      const explicitFeedback = normalizeExplicitTraitFeedback(item.explicitFeedback);
+      const verifiedFeedback = explicitFeedback?.sourceRef === sourceRef ? explicitFeedback : null;
+      return ({
+      ...item,
+      sessionId: lineage.sessionId,
+      chatKey: lineage.chatKey,
+      accountId: lineage.accountId,
+      schemaVersion: lineage.schemaVersion,
+      evidenceVersion: rawEvidenceVersion,
+      proactive: event.proactive === true || actionSummary.proactive === true,
+      userEvidence: lineage.schemaVersion >= 3 && rawEvidenceVersion >= 3
+        && structuredEvidence
+        && item.role === 'user'
+        && item.sourceRecordType === 'message'
+        && Boolean(item.sourceRecordId && item.originalSourceId && item.interactionId),
+      explicitFeedback: verifiedFeedback,
+      userConfirmed: item.role === 'user' && verifiedFeedback?.action === 'confirm',
+      assistantContext: item.delivered === true || evidenceRole(item) === 'assistant',
+      sourceRef
+    });});
   const resultClass = optionalText(event.resultClass, 'event.resultClass', 80);
   const finishReason = optionalText(actionSummary.finishReason, 'actionSummary.finishReason', 300);
   const outbound = boundedOutbound(actionSummary.outbound);
@@ -590,7 +646,7 @@ export function normalizeCompletionObservation(event) {
     && outbound.held === 0;
   const explicitPreference = conversationEvidence.some((item) => (
     item.userEvidence === true
-    && (item.userConfirmed === true || explicitPreferenceText(item.text))
+    && item.userConfirmed === true
   ));
   const participationMode = `${participation.mode} ${participation.decision} ${participation.reasonCode}`.toLowerCase();
   const proactive = event.proactive === true || actionSummary.proactive === true
@@ -607,6 +663,18 @@ export function normalizeCompletionObservation(event) {
     String(item.chatKey || lineage.chatKey || '').trim()
   ).filter(Boolean))];
   const currentUserSourceRefs = [...new Set(userEvidence.map((item) => item.sourceRef).filter(Boolean))];
+  const explicitFeedbacks = conversationEvidence
+    .filter((item) => item.userEvidence === true && item.explicitFeedback)
+    .map((item) => ({
+      ...item.explicitFeedback,
+      senderId: item.senderId,
+      interactionId: item.interactionId,
+      originalSourceId: item.originalSourceId
+    }));
+  const originalSourceIds = [...new Set([
+    ...(Array.isArray(event.originalSourceIds) ? event.originalSourceIds : []),
+    originalSourceId
+  ].map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 40);
   const sourceMessageIds = (Array.isArray(event.sourceMessageIds) ? event.sourceMessageIds : [])
     .map(String)
     .map((item) => item.trim())
@@ -622,6 +690,7 @@ export function normalizeCompletionObservation(event) {
   ].filter(Boolean);
   return {
     sourceKind: 'run_completion',
+    schemaVersion: lineage.schemaVersion,
     evidenceVersion: rawEvidenceVersion,
     eventId: lineage.eventId,
     observerId: lineage.observerId,
@@ -631,7 +700,9 @@ export function normalizeCompletionObservation(event) {
     interactionId,
     topicId,
     originalSourceId,
+    originalSourceIds,
     delivered,
+    deliveryState: lineage.deliveryState,
     structuredEvidence,
     accountId: lineage.accountId,
     sessionId: lineage.sessionId,
@@ -647,7 +718,9 @@ export function normalizeCompletionObservation(event) {
       interactionId,
       topicId,
       originalSourceId,
+      originalSourceIds,
       delivered,
+      deliveryState: lineage.deliveryState,
       sentCount: Math.max(0, Number(actionSummary.sentCount) || 0),
       finishReason,
       outboundAttempted: actionSummary.outboundAttempted === true,
@@ -663,6 +736,7 @@ export function normalizeCompletionObservation(event) {
           finishReason
         },
     conversationEvidence,
+    explicitFeedbacks,
     userEvidenceRefs,
     currentUserSourceRefs,
     userEvidenceCount: userEvidenceRefs.length,
@@ -772,6 +846,8 @@ function verifiedTraitSources(evidence) {
     ? evidence.traitEvidencePool
     : Array.isArray(evidence?.conversationEvidence) ? evidence.conversationEvidence : [];
   return pool.filter((entry) => (
+    Number(entry?.schemaVersion ?? evidence?.schemaVersion) >= 3
+    &&
     Number(entry?.evidenceVersion) >= 3
     && entry?.role === 'user'
     && entry?.sourceRecordType === 'message'
@@ -793,12 +869,22 @@ function traitEvidenceGate(evidence, limits = DEFAULT_REFLECTION_LIMITS, item = 
     const identity = `${interactionId}:${root}`;
     if (!uniqueByRoot.has(identity)) uniqueByRoot.set(identity, entry);
   }
-  const selectedRefs = new Set(Array.isArray(item?.evidenceRefs) ? item.evidenceRefs.map(String) : []);
+  const selectedRefs = new Set(Array.isArray(item?.supportRefs)
+    ? item.supportRefs.map(String)
+    : Array.isArray(item?.evidenceRefs) ? item.evidenceRefs.map(String) : []);
+  const counterRefs = new Set(Array.isArray(item?.counterRefs) ? item.counterRefs.map(String) : []);
   const selected = item
     ? [...uniqueByRoot.values()].filter((entry) => selectedRefs.has(String(entry.sourceRef || '')))
     : [...uniqueByRoot.values()];
+  const counters = [...uniqueByRoot.values()].filter((entry) =>
+    counterRefs.has(String(entry.sourceRef || ''))
+  );
+  const validRefs = new Set([...uniqueByRoot.values()].map((entry) => String(entry.sourceRef || '')));
   const interactions = new Set(selected.map((entry) => String(entry.interactionId || '')));
   const roots = new Set(selected.map((entry) => String(entry.originalSourceId || '')));
+  const subject = String(item?.subject || '').trim();
+  const validSubject = subject === 'bot'
+    || /^user:[^\s:][^\s]*$/u.test(subject);
   const currentInteractionId = String(evidence?.interactionId || '').trim();
   const hasCurrentHumanEvidence = Array.isArray(evidence?.currentUserSourceRefs)
     && evidence.currentUserSourceRefs.length > 0;
@@ -806,7 +892,9 @@ function traitEvidenceGate(evidence, limits = DEFAULT_REFLECTION_LIMITS, item = 
     ? selected.some((entry) => String(entry.interactionId || '') === currentInteractionId)
     : false;
   const reasons = [];
-  if (Number(evidence?.evidenceVersion) < 3 || evidence?.structuredEvidence !== true) {
+  if (Number(evidence?.schemaVersion) < 3
+    || Number(evidence?.evidenceVersion) < 3
+    || evidence?.structuredEvidence !== true) {
     reasons.push('legacy-evidence');
   }
   if (evidence?.proactive === true) reasons.push('proactive-run');
@@ -816,6 +904,16 @@ function traitEvidenceGate(evidence, limits = DEFAULT_REFLECTION_LIMITS, item = 
   }
   if (Array.isArray(evidence?.invalidEvidenceKinds) && evidence.invalidEvidenceKinds.length) {
     reasons.push('unreliable-completion');
+  }
+  if (item && !validSubject) reasons.push('invalid-subject');
+  if (item && [...selectedRefs, ...counterRefs].some((ref) => !validRefs.has(ref))) {
+    reasons.push('unverified-source-reference');
+  }
+  if (item && subject.startsWith('user:')) {
+    const senderId = subject.slice('user:'.length);
+    if (selected.some((entry) => String(entry.senderId || '') !== senderId)) {
+      reasons.push('subject-source-mismatch');
+    }
   }
   if (interactions.size < Number(limits.minTraitValidSessions)) reasons.push('insufficient-interactions');
   if (roots.size < Number(limits.minTraitUserEvidence)) reasons.push('insufficient-human-sources');
@@ -831,6 +929,13 @@ function traitEvidenceGate(evidence, limits = DEFAULT_REFLECTION_LIMITS, item = 
     userEvidenceSessionCount: interactions.size,
     userEvidenceChatCount: new Set(selected.map((entry) => String(entry.chatKey || ''))).size,
     supportingEvidence: selected.slice(0, limits.maxEvidenceRefsPerItem).map((entry) => ({
+      sourceRef: String(entry.sourceRef || ''),
+      sourceMessageId: String(entry.originalSourceId || ''),
+      interactionId: String(entry.interactionId || ''),
+      topicId: String(entry.topicId || ''),
+      text: String(entry.text || '').slice(0, 240)
+    })),
+    counterEvidence: counters.slice(0, limits.maxEvidenceRefsPerItem).map((entry) => ({
       sourceRef: String(entry.sourceRef || ''),
       sourceMessageId: String(entry.originalSourceId || ''),
       interactionId: String(entry.interactionId || ''),
@@ -956,10 +1061,14 @@ function validateTraitProposal(raw, index, evidence, limits) {
     'action',
     'key',
     'value',
+    'subject',
+    'candidateId',
     'scope',
     'chatKey',
     'confidence',
-    'evidenceRefs'
+    'evidenceRefs',
+    'supportRefs',
+    'counterRefs'
   ], pathName);
   const action = text(String(raw.action || ''), `${pathName}.action`, 20);
   if (!['set', 'remove'].includes(action)) {
@@ -973,19 +1082,81 @@ function validateTraitProposal(raw, index, evidence, limits) {
     fail('REFLECTION_PROTECTED_SCOPE', `${pathName}.key cannot modify Base Persona or permissions`);
   }
   const scope = itemScope(raw.scope, evidence, pathName);
+  if (scope !== 'chat') {
+    fail('REFLECTION_SCOPE', `${pathName}.scope must remain chat-scoped without authorized abstract evidence`);
+  }
   const chatKey = chatKeyForScope(raw.chatKey, scope, evidence, pathName);
   const confidence = Number(raw.confidence);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
     fail('REFLECTION_INVALID_OUTPUT', `${pathName}.confidence must be between 0 and 1`);
   }
-  const refs = evidenceRefs(raw.evidenceRefs, evidence, limits, `${pathName}.evidenceRefs`);
+  if (raw.evidenceRefs !== undefined && raw.supportRefs !== undefined
+    && stableJson(raw.evidenceRefs) !== stableJson(raw.supportRefs)) {
+    fail('REFLECTION_INVALID_OUTPUT', `${pathName}.supportRefs conflicts with evidenceRefs`);
+  }
+  const refs = evidenceRefs(
+    raw.supportRefs ?? raw.evidenceRefs,
+    evidence,
+    limits,
+    `${pathName}.supportRefs`
+  );
+  const counterInput = raw.counterRefs === undefined ? [] : raw.counterRefs;
+  if (!Array.isArray(counterInput)) {
+    fail('REFLECTION_INVALID_OUTPUT', `${pathName}.counterRefs must be an array`);
+  }
+  if (counterInput.length > limits.maxEvidenceRefsPerItem) {
+    fail('REFLECTION_LIMIT_EXCEEDED', `${pathName}.counterRefs has too many entries`);
+  }
+  const allowedRefs = new Set(evidence.evidenceIds || []);
+  const counterRefs = [...new Set(counterInput.map((ref, refIndex) => {
+    const normalizedRef = text(String(ref), `${pathName}.counterRefs[${refIndex}]`, 240);
+    if (!allowedRefs.has(normalizedRef)) {
+      fail('REFLECTION_SOURCE_LINEAGE',
+        `${pathName}.counterRefs[${refIndex}] is not part of the observation window`);
+    }
+    return normalizedRef;
+  }))];
+  const verifiedSourceRefs = new Set(
+    verifiedTraitSources(evidence).map((entry) => String(entry.sourceRef || '')).filter(Boolean)
+  );
+  if ([...refs, ...counterRefs].some((ref) => !verifiedSourceRefs.has(ref))) {
+    fail('REFLECTION_SOURCE_LINEAGE',
+      `${pathName} support and counter references must resolve to host-verified human sources`);
+  }
+  const subject = text(raw.subject, `${pathName}.subject`, 160);
+  if (subject !== 'bot' && !/^user:[^\s:][^\s]*$/u.test(subject)) {
+    fail('REFLECTION_INVALID_OUTPUT', `${pathName}.subject must be bot or user:<host sender id>`);
+  }
+  const candidateId = raw.candidateId === undefined
+    ? ''
+    : text(raw.candidateId, `${pathName}.candidateId`, 160);
+  const referencedCandidate = candidateId
+    ? (Array.isArray(evidence.existingCandidates) ? evidence.existingCandidates : [])
+      .find((candidate) => candidate?.candidateId === candidateId)
+    : null;
+  if (candidateId && !referencedCandidate) {
+    fail('REFLECTION_SOURCE_LINEAGE', `${pathName}.candidateId is not a visible current candidate`);
+  }
+  if (referencedCandidate && (
+    referencedCandidate.subject !== subject
+    || referencedCandidate.key !== key
+    || referencedCandidate.value !== String(raw.value ?? '')
+    || referencedCandidate.scope !== scope
+    || referencedCandidate.chatKey !== chatKey
+  )) {
+    fail('REFLECTION_SOURCE_LINEAGE', `${pathName}.candidateId claim does not match`);
+  }
   const result = {
     action,
     key,
+    subject,
+    candidateId,
     scope,
     chatKey,
     confidence,
-    evidenceRefs: refs
+    evidenceRefs: refs,
+    supportRefs: refs,
+    counterRefs
   };
   if (action === 'set') {
     result.value = noControlChars(
@@ -1083,7 +1254,10 @@ export function validateReflectionOutput(raw, {
       rejectedNoteOperations.push({
         index,
         code: String(error?.code || 'REFLECTION_INVALID_OUTPUT').slice(0, 120),
-        reason: String(error?.message || error).slice(0, 300)
+        reason: String(error?.message || error).slice(0, 300),
+        evidenceRefs: Array.isArray(item?.evidenceRefs)
+          ? item.evidenceRefs.map((ref) => String(ref).slice(0, 240)).slice(0, 8)
+          : []
       });
     }
   }
@@ -1091,7 +1265,10 @@ export function validateReflectionOutput(raw, {
     rejectedNoteOperations.push({
       index,
       code: 'REFLECTION_LIMIT_EXCEEDED',
-      reason: 'note operation limit exceeded'
+      reason: 'note operation limit exceeded',
+      evidenceRefs: Array.isArray(noteInput[index]?.evidenceRefs)
+        ? noteInput[index].evidenceRefs.map((ref) => String(ref).slice(0, 240)).slice(0, 8)
+        : []
     });
   }
   const traitProposals = [];
@@ -1103,7 +1280,10 @@ export function validateReflectionOutput(raw, {
       rejectedTraitProposals.push({
         index,
         code: String(error?.code || 'REFLECTION_INVALID_OUTPUT').slice(0, 120),
-        reason: String(error?.message || error).slice(0, 300)
+        reason: String(error?.message || error).slice(0, 300),
+        evidenceRefs: Array.isArray(item?.evidenceRefs)
+          ? item.evidenceRefs.map((ref) => String(ref).slice(0, 240)).slice(0, 8)
+          : []
       });
     }
   }
@@ -1111,7 +1291,10 @@ export function validateReflectionOutput(raw, {
     rejectedTraitProposals.push({
       index,
       code: 'REFLECTION_LIMIT_EXCEEDED',
-      reason: 'trait proposal limit exceeded'
+      reason: 'trait proposal limit exceeded',
+      evidenceRefs: Array.isArray(traitInput[index]?.evidenceRefs)
+        ? traitInput[index].evidenceRefs.map((ref) => String(ref).slice(0, 240)).slice(0, 8)
+        : []
     });
   }
   const result = {
@@ -1272,11 +1455,37 @@ function traitStoredValue(value) {
     : String(value ?? '');
 }
 
-function normalizeStoredTrait(value, { scope = 'global', chatKey = '', now = 0 } = {}) {
+function traitStorageKey(logicalKey, subject = '') {
+  const normalizedSubject = String(subject || '');
+  if (!normalizedSubject.startsWith('user:')) return String(logicalKey || '');
+  return `${String(logicalKey || '')}__user_${hash(normalizedSubject).slice(0, 16)}`;
+}
+
+function resolveTraitStorageKey(bucket, logicalKey, subject = '') {
+  const explicit = String(subject || '');
+  if (explicit) return traitStorageKey(logicalKey, explicit);
+  if (Object.hasOwn(bucket || {}, logicalKey)) return logicalKey;
+  const matches = Object.entries(bucket || {})
+    .filter(([, value]) => plainObject(value) && String(value.key || '') === logicalKey);
+  return matches.length === 1 && !String(matches[0][1].subject || '').startsWith('user:')
+    ? matches[0][0]
+    : '';
+}
+
+function normalizeStoredTrait(value, {
+  scope = 'global',
+  chatKey = '',
+  now = 0,
+  key = '',
+  storageKey = ''
+} = {}) {
   if (plainObject(value) && Object.hasOwn(value, 'value')) {
     return {
       ...structuredClone(value),
       value: traitStoredValue(value),
+      key: String(value.key || key),
+      storageKey: String(value.storageKey || storageKey || key),
+      subject: String(value.subject || ''),
       scope: String(value.scope || scope),
       chatKey: String(value.chatKey || chatKey || ''),
       evidenceRefs: Array.isArray(value.evidenceRefs)
@@ -1298,6 +1507,9 @@ function normalizeStoredTrait(value, { scope = 'global', chatKey = '', now = 0 }
   }
   return {
     value: traitStoredValue(value),
+    key: String(key),
+    storageKey: String(storageKey || key),
+    subject: '',
     scope,
     chatKey,
     evidenceRefs: [],
@@ -1316,7 +1528,13 @@ function activeProfile(profile, now) {
   let expiredCount = 0;
   const copyBucket = (source, target, scope, chatKey = '') => {
     for (const [key, value] of Object.entries(source || {})) {
-      const entry = normalizeStoredTrait(value, { scope, chatKey, now });
+      const entry = normalizeStoredTrait(value, {
+        scope,
+        chatKey,
+        now,
+        key: value?.key || key,
+        storageKey: key
+      });
       if (entry.expiresAt > 0 && entry.expiresAt <= now) {
         expiredCount += 1;
         continue;
@@ -1343,13 +1561,16 @@ function strictSafeInteger(value, field, minimum = 0) {
   return value;
 }
 
-function rawProfileEntry(profile, { scope, chatKey = '', key }) {
+function rawProfileEntry(profile, { scope, chatKey = '', key, storageKey = '' }) {
   const normalized = normalizeProfile(profile);
   const bucket = scope === 'chat'
     ? (plainObject(normalized.chats?.[chatKey]) ? normalized.chats[chatKey] : null)
     : normalized.global;
-  if (!bucket || !Object.hasOwn(bucket, key)) return { exists: false, value: undefined };
-  return { exists: true, value: structuredClone(bucket[key]) };
+  const selectedStorageKey = storageKey || key;
+  if (!bucket || !Object.hasOwn(bucket, selectedStorageKey)) {
+    return { exists: false, value: undefined };
+  }
+  return { exists: true, value: structuredClone(bucket[selectedStorageKey]) };
 }
 
 function profileEntryDescriptor(profile, {
@@ -1364,9 +1585,13 @@ function profileEntryDescriptor(profile, {
   const entry = plainObject(raw.value) && Object.hasOwn(raw.value, 'value')
     ? raw.value
     : {};
+  const logicalKey = String(entry.key || key || '');
   return {
     accountId: String(accountId || ''),
-    key: String(key || ''),
+    key: logicalKey,
+    logicalKey,
+    storageKey: String(key || ''),
+    subject: String(entry.subject || ''),
     scope: scope === 'chat' ? 'chat' : 'global',
     chatKey: scope === 'chat' ? String(chatKey || '') : '',
     value: plainObject(raw.value) && Object.hasOwn(raw.value, 'value')
@@ -1413,7 +1638,7 @@ function profileEntryDescriptors(profile, { accountId = '', revision = 0 } = {})
 }
 
 function descriptorIdentity(descriptor) {
-  return `${descriptor.scope}:${descriptor.chatKey || ''}:${descriptor.key}`;
+  return `${descriptor.scope}:${descriptor.chatKey || ''}:${descriptor.storageKey || descriptor.key}`;
 }
 
 function diffProfileEntries(before, after) {
@@ -1466,6 +1691,7 @@ function aggregateObservations(rows, observationKey, limits = DEFAULT_REFLECTION
   const observations = fullObservations.map((item) => {
     const metadata = {
       sourceKind: item.sourceKind,
+      schemaVersion: item.schemaVersion,
       evidenceVersion: item.evidenceVersion,
       structuredEvidence: item.structuredEvidence === true,
       eventId: item.eventId,
@@ -1551,6 +1777,7 @@ function aggregateObservations(rows, observationKey, limits = DEFAULT_REFLECTION
   }, limits);
   const aggregate = {
     ...first,
+    schemaVersion: Math.max(2, Number(first.schemaVersion) || 0),
     evidenceVersion: Math.max(2, Number(first.evidenceVersion) || 0),
     observationWindowKey: String(observationKey || ''),
     structuredEvidence,
@@ -1765,6 +1992,41 @@ export class ReflectionStore {
         CREATE INDEX IF NOT EXISTS reflection_proposals_status
           ON reflection_proposals(status, created_at);
 
+        CREATE TABLE IF NOT EXISTS reflection_candidates (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL,
+          chat_key TEXT NOT NULL,
+          scope TEXT NOT NULL CHECK(scope='chat'),
+          subject TEXT NOT NULL,
+          trait_key TEXT NOT NULL,
+          trait_value TEXT NOT NULL,
+          action TEXT NOT NULL CHECK(action IN ('set','remove')),
+          support_refs_json TEXT NOT NULL DEFAULT '[]',
+          counter_refs_json TEXT NOT NULL DEFAULT '[]',
+          policy_version TEXT NOT NULL DEFAULT 'reflection-candidate-v1',
+          status TEXT NOT NULL,
+          reason TEXT NOT NULL DEFAULT '',
+          latest_proposal_id TEXT NOT NULL DEFAULT '',
+          latest_batch_id TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          last_observed_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS reflection_candidates_scope
+          ON reflection_candidates(account_id,chat_key,status,expires_at,last_observed_at DESC);
+
+        CREATE TABLE IF NOT EXISTS reflection_feedback (
+          feedback_id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL,
+          chat_key TEXT NOT NULL,
+          source_ref TEXT NOT NULL,
+          target_source_ref TEXT NOT NULL,
+          action TEXT NOT NULL CHECK(action IN ('confirm','correct','retract')),
+          value TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS learned_self_versions (
           account_id TEXT NOT NULL,
           revision INTEGER NOT NULL,
@@ -1920,6 +2182,7 @@ export class ReflectionStore {
     for (const row of rows) {
       const observation = row.observation;
       if (Number(observation.evidenceVersion) < 3
+        || Number(observation.schemaVersion) < 3
         || observation.structuredEvidence !== true
         || observation.proactive === true
         || (Array.isArray(observation.invalidEvidenceKinds) && observation.invalidEvidenceKinds.length > 0)) {
@@ -1928,6 +2191,7 @@ export class ReflectionStore {
       for (const item of (Array.isArray(observation.conversationEvidence)
         ? observation.conversationEvidence : [])) {
         if (item.userEvidence !== true
+          || Number(item.schemaVersion) < 3
           || item.role !== 'user'
           || item.sourceRecordType !== 'message'
           || !item.sourceRecordId
@@ -1946,6 +2210,7 @@ export class ReflectionStore {
             ...item,
             accountId: evidence.accountId,
             chatKey: evidence.chatKey,
+            schemaVersion: Number(observation.schemaVersion),
             evidenceVersion: Number(observation.evidenceVersion),
             interactionId,
             sourceRef: String(item.sourceRef || '').slice(0, 420),
@@ -1956,15 +2221,232 @@ export class ReflectionStore {
       }
     }
     const pool = [...byRoot.values()];
-    const evidenceIds = [...new Set([
-      ...(Array.isArray(evidence.evidenceIds) ? evidence.evidenceIds : []),
-      ...pool.map((item) => String(item.sourceRef || '')).filter(Boolean)
-    ])];
-    const withPool = { ...evidence, traitEvidencePool: pool, evidenceIds };
-    return {
-      ...withPool,
-      traitGate: traitEvidenceGate(withPool, this.limits)
+    const assemble = () => {
+      const evidenceIds = [...new Set([
+        ...(Array.isArray(evidence.evidenceIds) ? evidence.evidenceIds : []),
+        ...pool.map((item) => String(item.sourceRef || '')).filter(Boolean)
+      ])];
+      const withPool = { ...evidence, traitEvidencePool: [...pool], evidenceIds };
+      return { ...withPool, traitGate: traitEvidenceGate(withPool, this.limits) };
     };
+    let result = assemble();
+    // Optional historical trait support must not block a new, otherwise bounded episode.
+    while (pool.length && safeJson(result).length > this.limits.maxEvidenceChars) {
+      pool.pop();
+      result = assemble();
+    }
+    return result;
+  }
+
+  #applyStructuredFeedback(db, evidence, feedback, ts) {
+    const reject = (reason) => {
+      this.#audit(db, {
+        accountId: evidence.accountId,
+        event: 'explicit-trait-feedback-rejected',
+        code: 'REFLECTION_FEEDBACK_INVALID',
+        message: reason,
+        details: {
+          feedbackId: feedback.feedbackId,
+          sourceRef: feedback.sourceRef,
+          targetSourceRef: feedback.targetSourceRef,
+          action: feedback.action,
+          actor: 'host-explicit-feedback'
+        },
+        ts
+      });
+      return false;
+    };
+    const source = (evidence.conversationEvidence || []).find((item) => (
+      item.role === 'user'
+      && item.userEvidence === true
+      && item.sourceRef === feedback.sourceRef
+      && item.chatKey === evidence.chatKey
+      && item.accountId === evidence.accountId
+    ));
+    if (evidence.schemaVersion < 3 || evidence.evidenceVersion < 3
+      || !source || !source.senderId) {
+      return reject('current user source is missing or unverified');
+    }
+    const inserted = db.prepare(`
+      INSERT OR IGNORE INTO reflection_feedback (
+        feedback_id,account_id,chat_key,source_ref,target_source_ref,action,value,status,created_at
+      ) VALUES (?,?,?,?,?,?,?,'pending',?)
+    `).run(
+      feedback.feedbackId,
+      evidence.accountId,
+      evidence.chatKey,
+      feedback.sourceRef,
+      feedback.targetSourceRef,
+      feedback.action,
+      feedback.value,
+      ts
+    ).changes;
+    if (!inserted) return false;
+
+    const [targetKind, targetId] = String(feedback.targetSourceRef).split(/:(.*)/s, 2);
+    let candidate = null;
+    let traitKey = '';
+    if (targetKind === 'candidate') {
+      candidate = db.prepare(`
+        SELECT * FROM reflection_candidates
+        WHERE id=? AND account_id=? AND chat_key=?
+      `).get(targetId, evidence.accountId, evidence.chatKey);
+      if (!candidate || candidate.subject !== `user:${source.senderId}` || candidate.scope !== 'chat') {
+        db.prepare("UPDATE reflection_feedback SET status='rejected' WHERE feedback_id=?")
+          .run(feedback.feedbackId);
+        return reject('candidate target is missing, out of scope, or has another subject');
+      }
+      traitKey = String(candidate.trait_key);
+    } else if (targetKind === 'trait') {
+      traitKey = String(targetId || '');
+    } else {
+      db.prepare("UPDATE reflection_feedback SET status='rejected' WHERE feedback_id=?")
+        .run(feedback.feedbackId);
+      return reject('unsupported feedback target');
+    }
+
+    const headRevision = this.#headRevision(db, evidence.accountId);
+    const head = headRevision > 0
+      ? db.prepare(`SELECT * FROM learned_self_versions WHERE account_id=? AND revision=?`)
+        .get(evidence.accountId, headRevision)
+      : null;
+    const baseHash = String(head?.base_persona_hash || hashBasePersona({}));
+    const profile = normalizeProfile(parseJson(head?.profile_json, emptyProfile()));
+    const bucket = profile.chats[evidence.chatKey] || {};
+    const userSubject = `user:${source.senderId}`;
+    const storageKey = resolveTraitStorageKey(bucket, traitKey, userSubject);
+    const existing = storageKey ? bucket[storageKey] : undefined;
+    const existingSubject = plainObject(existing) ? String(existing.subject || '') : '';
+    const adoptedForSubject = existing && existingSubject === userSubject;
+    if (feedback.action !== 'confirm' && candidate) {
+      db.prepare(`
+        UPDATE reflection_candidates SET status='rejected',reason='explicit-correction'
+        WHERE id=? AND account_id=?
+      `).run(candidate.id, evidence.accountId);
+      if (!adoptedForSubject) {
+        db.prepare("UPDATE reflection_feedback SET status='recorded' WHERE feedback_id=?")
+          .run(feedback.feedbackId);
+        this.#audit(db, {
+          accountId: evidence.accountId,
+          event: 'explicit-trait-feedback-recorded',
+          details: {
+            feedbackId: feedback.feedbackId,
+            targetSourceRef: feedback.targetSourceRef,
+            action: feedback.action,
+            actor: 'host-explicit-feedback',
+            status: 'candidate-corrected-without-adopted-trait'
+          },
+          ts
+        });
+        return true;
+      }
+    }
+    if (!adoptedForSubject && feedback.action === 'confirm') {
+      if (!candidate) return reject('trait target is not an adopted user-subject trait');
+      const refs = parseJson(candidate.support_refs_json, []);
+      const supportRefs = [...new Set([
+        ...(Array.isArray(refs) ? refs : []),
+        feedback.sourceRef
+      ])].slice(-100);
+      db.prepare(`
+        UPDATE reflection_candidates SET support_refs_json=?,last_observed_at=?,expires_at=?
+        WHERE id=? AND account_id=?
+      `).run(safeJson(supportRefs), ts, ts + this.limits.traitTtlMs, candidate.id, evidence.accountId);
+      const updated = db.prepare('SELECT * FROM reflection_candidates WHERE id=?').get(candidate.id);
+      const view = this.#candidateView(db, updated, headRevision);
+      db.prepare(`
+        UPDATE reflection_candidates SET status=?,reason=?
+        WHERE id=? AND status NOT IN ('adopted','rejected','expired','stale')
+      `).run(view.eligible ? 'ready' : 'pending_insufficient', view.reason, candidate.id);
+    } else if (adoptedForSubject) {
+      if (feedback.action === 'confirm') {
+        const next = normalizeStoredTrait(existing, {
+          scope: 'chat',
+          chatKey: evidence.chatKey,
+          key: traitKey,
+          storageKey,
+          now: ts
+        });
+        const evidenceRefs = [...new Set([...next.evidenceRefs, feedback.sourceRef])].slice(-32);
+        bucket[storageKey] = {
+          ...next,
+          key: traitKey,
+          storageKey,
+          subject: userSubject,
+          evidenceRefs,
+          evidenceCount: evidenceRefs.length,
+          lastObservedAt: ts
+        };
+      } else if (feedback.action === 'retract') {
+        delete bucket[storageKey];
+      } else {
+        bucket[storageKey] = {
+          ...normalizeStoredTrait(existing, {
+            scope: 'chat',
+            chatKey: evidence.chatKey,
+            key: traitKey,
+            storageKey,
+            now: ts
+          }),
+          key: traitKey,
+          storageKey,
+          subject: userSubject,
+          value: feedback.value,
+          evidenceRefs: [feedback.sourceRef],
+          evidenceCount: 1,
+          lastObservedAt: ts,
+          expiresAt: ts + this.limits.traitTtlMs
+        };
+      }
+      const nextRevision = headRevision + 1;
+      db.prepare(`
+        INSERT INTO learned_self_versions (
+          account_id,revision,parent_revision,profile_json,evidence_json,
+          base_persona_hash,applied_by,source_json,created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(
+        evidence.accountId,
+        nextRevision,
+        headRevision,
+        safeJson(profile),
+        safeJson([feedback]),
+        baseHash,
+        'host-explicit-feedback',
+        safeJson([{
+          kind: 'explicit-feedback',
+          feedbackId: feedback.feedbackId,
+          sourceRef: feedback.sourceRef,
+          targetSourceRef: feedback.targetSourceRef
+        }]),
+        ts
+      );
+      const changed = headRevision === 0
+        ? db.prepare(`
+            INSERT INTO learned_self_heads(account_id,revision,updated_at) VALUES (?,?,?)
+            ON CONFLICT(account_id) DO NOTHING
+          `).run(evidence.accountId, nextRevision, ts).changes
+        : db.prepare(`
+            UPDATE learned_self_heads SET revision=?,updated_at=?
+            WHERE account_id=? AND revision=?
+          `).run(nextRevision, ts, evidence.accountId, headRevision).changes;
+      if (changed !== 1) fail('REFLECTION_CAS_CONFLICT', 'profile changed during explicit feedback');
+    }
+    db.prepare("UPDATE reflection_feedback SET status='recorded' WHERE feedback_id=?")
+      .run(feedback.feedbackId);
+    this.#audit(db, {
+      accountId: evidence.accountId,
+      event: 'explicit-trait-feedback-recorded',
+      details: {
+        feedbackId: feedback.feedbackId,
+        sourceRef: feedback.sourceRef,
+        targetSourceRef: feedback.targetSourceRef,
+        action: feedback.action,
+        actor: 'host-explicit-feedback',
+        status: feedback.action === 'confirm' ? 'support-only' : 'profile-cas-revocation'
+      },
+      ts
+    });
+    return true;
   }
 
   enqueueObservation(event, {
@@ -2015,6 +2497,10 @@ export class ReflectionStore {
           'SELECT * FROM reflection_jobs WHERE observation_key=?'
         ).get(observationKey);
         return { created: false, reason: 'duplicate', job: jobView(existing) };
+      }
+      for (const feedback of (Array.isArray(evidence.explicitFeedbacks)
+        ? evidence.explicitFeedbacks : [])) {
+        this.#applyStructuredFeedback(db, evidence, feedback, ts);
       }
       const existing = db.prepare(
         'SELECT * FROM reflection_jobs WHERE observation_key=?'
@@ -2514,6 +3000,8 @@ export class ReflectionStore {
         return { accepted: false, reason: 'cas-conflict', committed: false };
       }
       const batchId = `refbatch_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
+      const rejectedItemCount = (normalized.rejectedNoteOperations || []).length
+        + (normalized.rejectedTraitProposals || []).length;
       for (const rejected of normalized.rejectedNoteOperations || []) {
         this.#audit(db, {
           accountId: current.account_id,
@@ -2521,7 +3009,12 @@ export class ReflectionStore {
           event: 'note-operation-rejected',
           code: rejected.code,
           message: rejected.reason,
-          details: { index: rejected.index },
+          details: {
+            index: rejected.index,
+            status: 'rejected',
+            actor: 'reflection-validator',
+            evidenceRefs: rejected.evidenceRefs || []
+          },
           ts
         });
       }
@@ -2532,7 +3025,12 @@ export class ReflectionStore {
           event: 'trait-proposal-rejected',
           code: rejected.code,
           message: rejected.reason,
-          details: { index: rejected.index },
+          details: {
+            index: rejected.index,
+            status: 'rejected',
+            actor: 'reflection-validator',
+            evidenceRefs: rejected.evidenceRefs || []
+          },
           ts
         });
       }
@@ -2550,7 +3048,9 @@ export class ReflectionStore {
           item
         }))
       ];
-      const batchStatus = allItems.length === 0 ? 'applied' : 'ready';
+      const batchStatus = allItems.length === 0
+        ? rejectedItemCount > 0 ? 'rejected' : 'applied'
+        : 'ready';
       db.prepare(`
         INSERT INTO reflection_batches (
           id,job_id,account_id,mode,status,summary,output_json,evidence_json,
@@ -2576,6 +3076,40 @@ export class ReflectionStore {
           status,created_at
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)
       `);
+      for (const entry of allItems) {
+        if (entry.type !== 'trait') continue;
+        const identity = {
+          accountId: current.account_id,
+          chatKey: entry.item.chatKey,
+          scope: entry.item.scope,
+          subject: entry.item.subject,
+          key: entry.item.key,
+          value: entry.item.value || ''
+        };
+        entry.item.candidateId ||= traitCandidateId(identity);
+        const priorCandidate = db.prepare(
+          'SELECT status,expires_at FROM reflection_candidates WHERE id=? AND account_id=?'
+        ).get(entry.item.candidateId, current.account_id);
+        if (priorCandidate && (
+          ['rejected', 'expired', 'stale'].includes(String(priorCandidate.status))
+          || Number(priorCandidate.expires_at) <= ts
+        )) {
+          const activeCycle = db.prepare(`
+            SELECT id FROM reflection_candidates
+            WHERE account_id=? AND chat_key=? AND scope=? AND subject=?
+              AND trait_key=? AND trait_value=? AND action=?
+              AND status IN ('ready','pending_insufficient') AND expires_at>?
+            ORDER BY last_observed_at DESC,created_at DESC,id LIMIT 1
+          `).get(
+            identity.accountId, identity.chatKey, identity.scope, identity.subject,
+            identity.key, identity.value, entry.item.action, ts
+          );
+          entry.item.candidateId = activeCycle?.id || traitCandidateId({
+            ...identity,
+            cycleInteractionId: String(job.evidence.interactionId || job.evidence.eventId || job.id)
+          });
+        }
+      }
       const proposals = allItems.map((entry) => {
         const id = `refprop_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
         insertProposal.run(
@@ -2597,18 +3131,23 @@ export class ReflectionStore {
         return {
           ...entry,
           id,
+          accountId: current.account_id,
+          batchId,
           payload: entry.item,
           evidenceRefs: entry.item.evidenceRefs || [],
           basePersonaHash: baseHash
         };
       });
+      for (const proposal of proposals.filter((entry) => entry.type === 'trait')) {
+        this.#upsertTraitCandidate(db, proposal, job.evidence, ts);
+      }
       const gapResult = this.#recordCapabilityGaps(db, current, normalized.capabilityGapProposals, ts);
       let profileRevision = headRevision;
       let appliedCount = 0;
       let invalidCount = 0;
       let appliedNoteCount = 0;
       let appliedTraitCount = 0;
-      let rejectedCount = 0;
+      let rejectedCount = rejectedItemCount;
       let noopCount = 0;
       if (normalizedMode === 'bounded_auto') {
         const policyActor = `reflection:${owner}`;
@@ -2685,12 +3224,13 @@ export class ReflectionStore {
         SELECT COUNT(*) AS n FROM reflection_proposals
         WHERE batch_id=? AND status='invalid'
       `).get(batchId).n;
-      let finalBatchStatus = 'applied';
+      let finalBatchStatus = rejectedItemCount > 0 && allItems.length === 0 ? 'rejected' : 'applied';
       if (remaining > 0) {
         finalBatchStatus = applied > 0 ? 'partially_applied' : batchStatus;
       } else if (appliedCount === 0 && noopCount > 0 && rejected === 0 && stale === 0 && invalid === 0) {
         finalBatchStatus = 'noop';
-      } else if (appliedCount === 0 && rejected > 0 && stale === 0 && invalid === 0) {
+      } else if (appliedCount === 0 && (rejected > 0 || rejectedItemCount > 0)
+        && stale === 0 && invalid === 0) {
         finalBatchStatus = 'rejected';
       } else if (appliedCount === 0 && stale > 0 && invalid === 0) {
         finalBatchStatus = 'stale';
@@ -2805,6 +3345,217 @@ export class ReflectionStore {
         .get(id, String(accountId))
       : db.prepare('SELECT * FROM reflection_proposals WHERE id=?').get(id);
     return proposalView(row);
+  }
+
+  listCandidates({
+    accountId: rawAccount,
+    chatKey: rawChatKey = '',
+    status = 'pending',
+    limit = 100
+  } = {}) {
+    const db = this.#requireDb();
+    const account = text(String(rawAccount || ''), 'accountId', 100);
+    const candidateTable = db.prepare(`
+      SELECT 1 AS present FROM sqlite_master
+      WHERE type='table' AND name='reflection_candidates'
+    `).get();
+    if (!candidateTable) return [];
+    const currentChat = rawChatKey ? text(String(rawChatKey), 'chatKey', 100) : '';
+    if (currentChat && !/^(group|private):\d+$/.test(currentChat)) {
+      fail('REFLECTION_INVALID_ARGUMENT', 'chatKey must be group:<QQ> or private:<QQ>');
+    }
+    const filters = ['account_id=?'];
+    const params = [account];
+    if (currentChat) {
+      filters.push('chat_key=?');
+      params.push(currentChat);
+    }
+    if (status) {
+      const selected = String(status);
+      if (!['pending', 'pending_insufficient', 'ready', 'adopted', 'rejected', 'expired', 'stale'].includes(selected)) {
+        fail('REFLECTION_INVALID_ARGUMENT', 'unsupported candidate status');
+      }
+      if (selected === 'pending') filters.push("status IN ('pending_insufficient','ready')");
+      else {
+        filters.push('status=?');
+        params.push(selected);
+      }
+    }
+    const rows = db.prepare(`
+      SELECT * FROM reflection_candidates
+      WHERE ${filters.join(' AND ')}
+      ORDER BY last_observed_at DESC,id LIMIT ?
+    `).all(...params, Math.min(500, Math.max(1, Number(limit) || 100)));
+    const currentProfileRevision = this.#headRevision(db, account);
+    return rows.map((row) => this.#candidateView(db, row, currentProfileRevision));
+  }
+
+  reviewCandidate({
+    proposalId,
+    decision,
+    actor = '',
+    expectedProfileRevision,
+    basePersonaHash,
+    basePersona
+  } = {}) {
+    const action = String(decision || '').toLowerCase();
+    if (!['approve', 'reject'].includes(action)) {
+      fail('REFLECTION_INVALID_ARGUMENT', 'decision must be approve or reject');
+    }
+    const reviewer = text(String(actor || ''), 'actor', 160);
+    const proposal = this.getProposal({ proposalId });
+    if (!proposal || proposal.type !== 'trait') {
+      fail('REFLECTION_NOT_FOUND', 'trait proposal not found');
+    }
+    const candidateId = String(proposal.payload?.candidateId || '');
+    const db = this.#requireWritable();
+    const row = candidateId
+      ? db.prepare('SELECT * FROM reflection_candidates WHERE id=? AND account_id=?')
+        .get(candidateId, proposal.accountId)
+      : null;
+    if (!row) fail('REFLECTION_NOT_FOUND', 'trait candidate not found');
+    const currentBaseHash = basePersonaHash || hashBasePersona(basePersona || {});
+    const expectedRevision = Number(expectedProfileRevision);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      fail('REFLECTION_INVALID_ARGUMENT', 'expectedProfileRevision must be a non-negative integer');
+    }
+    return this.#transaction((innerDb) => {
+      const ts = nowValue(this.now);
+      const currentRow = innerDb.prepare(
+        'SELECT * FROM reflection_candidates WHERE id=? AND account_id=?'
+      ).get(candidateId, proposal.accountId);
+      if (!currentRow || currentRow.status === 'adopted' || currentRow.status === 'rejected') {
+        return { reviewed: false, reason: currentRow?.status || 'not-found' };
+      }
+      if (Number(currentRow.expires_at) <= ts) {
+        innerDb.prepare("UPDATE reflection_candidates SET status='expired',reason='expired' WHERE id=?")
+          .run(candidateId);
+        innerDb.prepare(`
+          UPDATE reflection_proposals SET status='stale',reviewed_at=?,reviewer=?,
+            error_code='REFLECTION_CANDIDATE_EXPIRED',error_message='candidate TTL expired'
+          WHERE id=? AND account_id=? AND status='pending'
+        `).run(ts, reviewer, String(proposalId), proposal.accountId);
+        return { reviewed: false, reason: 'expired' };
+      }
+      const headRevision = this.#headRevision(innerDb, proposal.accountId);
+      if (headRevision !== expectedRevision) {
+        return { reviewed: false, reason: 'cas-conflict', currentProfileRevision: headRevision };
+      }
+      const batch = batchView(innerDb.prepare(
+        'SELECT * FROM reflection_batches WHERE id=? AND account_id=?'
+      ).get(proposal.batchId, proposal.accountId));
+      if (!batch || batch.basePersonaHash !== currentBaseHash) {
+        innerDb.prepare("UPDATE reflection_candidates SET status='stale',reason='base-persona-changed' WHERE id=?")
+          .run(candidateId);
+        return { reviewed: false, reason: 'base-persona-changed' };
+      }
+      if (batch.expectedProfileRevision !== headRevision) {
+        innerDb.prepare("UPDATE reflection_candidates SET status='stale',reason='profile-changed-after-proposal' WHERE id=?")
+          .run(candidateId);
+        innerDb.prepare(`
+          UPDATE reflection_proposals SET status='stale',reviewed_at=?,reviewer=?,
+            error_code='REFLECTION_CAS_CONFLICT',error_message='profile changed after proposal'
+          WHERE id=? AND account_id=? AND status='pending'
+        `).run(ts, reviewer, String(proposalId), proposal.accountId);
+        return {
+          reviewed: false,
+          reason: 'stale',
+          currentProfileRevision: headRevision
+        };
+      }
+      const view = this.#candidateView(innerDb, currentRow, headRevision);
+      if (action === 'reject') {
+        innerDb.prepare(`
+          UPDATE reflection_candidates SET status='rejected',reason='human-rejected'
+          WHERE id=?
+        `).run(candidateId);
+        innerDb.prepare(`
+          UPDATE reflection_proposals SET status='rejected',reviewed_at=?,reviewer=?,
+            error_code='',error_message='human rejected candidate'
+          WHERE id=? AND account_id=? AND status='pending'
+        `).run(ts, reviewer, String(proposalId), proposal.accountId);
+        this.#audit(innerDb, {
+          accountId: proposal.accountId,
+          jobId: proposal.jobId,
+          event: 'trait-candidate-rejected',
+          details: { candidateId, proposalId, actor: reviewer },
+          ts
+        });
+        return { reviewed: true, decision: 'reject', candidateId, status: 'rejected' };
+      }
+      if (!view.eligible) {
+        innerDb.prepare(`
+          UPDATE reflection_candidates SET status='pending_insufficient',reason=?
+          WHERE id=?
+        `).run(view.reason, candidateId);
+        return {
+          reviewed: false,
+          reason: view.reason,
+          candidateId,
+          currentProfileRevision: headRevision
+        };
+      }
+      const payload = proposal.payload;
+      const synthetic = {
+        id: String(proposalId),
+        payload: {
+          ...payload,
+          evidenceRefs: view.supportRefs,
+          supportRefs: view.supportRefs,
+          counterRefs: view.counterRefs
+        },
+        evidenceRefs: view.supportRefs,
+        basePersonaHash: currentBaseHash
+      };
+      const applied = this.#applyTraitProposals(innerDb, {
+        accountId: proposal.accountId,
+        proposals: [synthetic],
+        baseHash: currentBaseHash,
+        expectedRevision,
+        actor: reviewer,
+        source: {
+          kind: 'reflection-candidate-review',
+          candidateId,
+          sourceChatKeys: [String(currentRow.chat_key)]
+        },
+        ts
+      });
+      if (!applied.applied && !applied.nooped) {
+        innerDb.prepare("UPDATE reflection_candidates SET status='stale',reason='profile-cas-conflict' WHERE id=?")
+          .run(candidateId);
+        return {
+          reviewed: false,
+          reason: 'profile-cas-conflict',
+          candidateId,
+          currentProfileRevision: applied.profileRevision
+        };
+      }
+      innerDb.prepare(`
+        UPDATE reflection_candidates SET status='adopted',reason=''
+        WHERE id=? AND account_id=?
+      `).run(candidateId, proposal.accountId);
+      this.#audit(innerDb, {
+        accountId: proposal.accountId,
+        jobId: proposal.jobId,
+        event: 'trait-candidate-adopted',
+        details: {
+          candidateId,
+          proposalId,
+          actor: reviewer,
+          profileRevision: applied.profileRevision,
+          supportRefs: view.supportRefs,
+          counterRefs: view.counterRefs
+        },
+        ts
+      });
+      return {
+        reviewed: true,
+        decision: 'approve',
+        candidateId,
+        applied: applied.applied,
+        profileRevision: applied.profileRevision
+      };
+    });
   }
 
   listJobs({ status = '', accountId = '', limit = 100 } = {}) {
@@ -3016,6 +3767,108 @@ export class ReflectionStore {
     const db = this.#requireDb();
     const account = text(String(accountId || ''), 'accountId', 100);
     return this.#headRevision(db, account);
+  }
+
+  validateMaterialRefs({
+    accountId: rawAccount,
+    currentChatKey = '',
+    basePersonaHash = '',
+    basePersona,
+    refs = []
+  } = {}) {
+    if (!Array.isArray(refs)) {
+      return {
+        valid: false,
+        invalidRefs: [{ ref: refs, reason: 'invalid-ref-list' }],
+        validatedRefs: [],
+        policyVersion: LEARNED_SELF_POLICY_VERSION
+      };
+    }
+    if (refs.length === 0) {
+      return {
+        valid: true,
+        invalidRefs: [],
+        validatedRefs: [],
+        policyVersion: LEARNED_SELF_POLICY_VERSION
+      };
+    }
+    const db = this.#requireDb();
+    const account = text(String(rawAccount || ''), 'accountId', 100);
+    const chat = String(currentChatKey || '').trim();
+    if (!/^(group|private):\d+$/.test(chat)) {
+      return {
+        valid: false,
+        invalidRefs: refs.map((ref) => ({ ref, reason: 'missing-current-chat' })),
+        validatedRefs: [],
+        policyVersion: LEARNED_SELF_POLICY_VERSION
+      };
+    }
+    const currentRevision = this.#headRevision(db, account);
+    const current = currentRevision > 0
+      ? db.prepare(`SELECT * FROM learned_self_versions
+          WHERE account_id=? AND revision=?`).get(account, currentRevision)
+      : null;
+    const currentBasePersonaHash = basePersonaHash || (
+      basePersona && typeof basePersona === 'object' ? hashBasePersona(basePersona) : ''
+    );
+    let visibleContextExists = false;
+    let currentVisibleProfile = null;
+    if (current) {
+      const active = activeProfile(parseJson(current.profile_json, emptyProfile()), nowValue(this.now));
+      currentVisibleProfile = {
+        ...(active.profile.global || {}),
+        ...(active.profile.chats?.[chat] || {})
+      };
+      visibleContextExists = Object.keys(currentVisibleProfile).length > 0;
+    }
+    const invalidRefs = [];
+    const validatedRefs = [];
+    for (const ref of refs) {
+      let reason = '';
+      const revision = Number(ref?.revision);
+      if (ref?.kind !== 'learned-self') reason = 'unsupported-material-kind';
+      else if (ref.id !== account) reason = 'account-mismatch';
+      else if (ref.policyVersion !== LEARNED_SELF_POLICY_VERSION) reason = 'stale-policy-version';
+      else if (ref.scope !== 'chat' || ref.visibility !== `chat:${chat}`) {
+        reason = 'chat-visibility-mismatch';
+      } else if (!Number.isSafeInteger(revision) || revision < 1) reason = 'invalid-revision';
+      else if (!current || revision !== currentRevision) reason = 'stale-revision';
+      else if (!currentBasePersonaHash || current.base_persona_hash !== currentBasePersonaHash) {
+        reason = 'base-persona-changed';
+      } else if (!visibleContextExists) reason = 'empty-or-expired-context';
+      else if (!Array.isArray(ref.traitKeys) || !ref.traitKeys.length || ref.traitKeys.length > 12) {
+        reason = 'invalid-trait-keys';
+      } else if (ref.traitKeys.some((key) => typeof key !== 'string'
+        || !Object.hasOwn(currentVisibleProfile, key))) {
+        reason = 'trait-key-stale-or-invisible';
+      } else if (!Number.isFinite(Number(ref.expiresAt)) || Number(ref.expiresAt) < 0
+        || (Number(ref.expiresAt) > 0 && Number(ref.expiresAt) <= nowValue(this.now))) {
+        reason = 'trait-material-expired';
+      } else {
+        const currentExpiries = ref.traitKeys
+          .map((key) => Number(currentVisibleProfile[key]?.expiresAt) || 0)
+          .filter((expiresAt) => expiresAt > 0);
+        const currentEarliest = currentExpiries.length ? Math.min(...currentExpiries) : 0;
+        if (Number(ref.expiresAt) !== currentEarliest) reason = 'trait-expiry-changed';
+      }
+      if (reason) invalidRefs.push({ ref, reason });
+      else {
+        validatedRefs.push({
+          kind: 'learned-self',
+          id: account,
+          revision,
+          scope: 'chat',
+          visibility: `chat:${chat}`,
+          policyVersion: LEARNED_SELF_POLICY_VERSION
+        });
+      }
+    }
+    return {
+      valid: invalidRefs.length === 0,
+      invalidRefs,
+      validatedRefs,
+      policyVersion: LEARNED_SELF_POLICY_VERSION
+    };
   }
 
   listProfileVersions({ accountId, limit = 100 } = {}) {
@@ -3258,6 +4111,7 @@ export class ReflectionStore {
   correctProfileTrait({
     accountId,
     key,
+    subject = '',
     scope = 'global',
     chatKey = '',
     action = 'remove',
@@ -3285,6 +4139,13 @@ export class ReflectionStore {
     }
     if (traitScope === 'chat' && !/^(group|private):\d+$/.test(traitChatKey)) {
       fail('REFLECTION_SCOPE', 'chat correction requires a scoped chatKey');
+    }
+    const traitSubject = String(subject || '').trim();
+    if (traitSubject && traitSubject !== 'bot' && !/^user:[^\s:][^\s]*$/u.test(traitSubject)) {
+      fail('REFLECTION_INVALID_ARGUMENT', 'subject must be bot or user:<host identity>');
+    }
+    if (traitSubject.startsWith('user:') && traitScope !== 'chat') {
+      fail('REFLECTION_SCOPE', 'user-subject traits must remain chat-scoped');
     }
     const correctionAction = String(action || 'remove').toLowerCase();
     if (!['set', 'remove'].includes(correctionAction)) {
@@ -3339,8 +4200,9 @@ export class ReflectionStore {
       const bucket = traitScope === 'chat'
         ? (profile.chats[traitChatKey] ||= {})
         : profile.global;
-      const existing = bucket[traitKey];
-      if (correctionAction === 'remove' && !Object.hasOwn(bucket, traitKey)) {
+      const storageKey = resolveTraitStorageKey(bucket, traitKey, traitSubject);
+      const existing = storageKey ? bucket[storageKey] : undefined;
+      if (correctionAction === 'remove' && !storageKey) {
         this.#audit(db, {
           accountId: account,
           event: 'profile-correction',
@@ -3349,6 +4211,9 @@ export class ReflectionStore {
           details: {
             action: correctionAction,
             key: traitKey,
+            logicalKey: traitKey,
+            storageKey: '',
+            subject: traitSubject,
             scope: traitScope,
             chatKey: traitChatKey,
             revision: currentRevision,
@@ -3367,6 +4232,7 @@ export class ReflectionStore {
       }
       if (correctionAction === 'set'
         && existing
+        && (!traitSubject || String(existing.subject || '') === traitSubject)
         && traitStoredValue(existing) === correctedValue) {
         return {
           corrected: false,
@@ -3377,14 +4243,20 @@ export class ReflectionStore {
         };
       }
       if (correctionAction === 'remove') {
-        delete bucket[traitKey];
+        delete bucket[storageKey];
       } else {
         const old = normalizeStoredTrait(existing, {
           scope: traitScope,
           chatKey: traitChatKey,
+          key: traitKey,
+          storageKey: storageKey || traitStorageKey(traitKey, traitSubject),
           now: ts
         });
-        bucket[traitKey] = {
+        const nextStorageKey = storageKey || traitStorageKey(traitKey, traitSubject);
+        bucket[nextStorageKey] = {
+          key: traitKey,
+          storageKey: nextStorageKey,
+          subject: traitSubject || old.subject || '',
           value: correctedValue,
           confidence: Math.max(0, Math.min(1, Number(confidence) || 1)),
           evidenceRefs: [],
@@ -3402,6 +4274,8 @@ export class ReflectionStore {
         kind: 'profile-correction',
         action: correctionAction,
         key: traitKey,
+        storageKey: storageKey || traitStorageKey(traitKey, traitSubject),
+        subject: traitSubject,
         scope: traitScope,
         chatKey: traitChatKey,
         reason: correctionReason,
@@ -3411,6 +4285,8 @@ export class ReflectionStore {
         kind: 'profile-correction',
         action: correctionAction,
         key: traitKey,
+        storageKey: storageKey || traitStorageKey(traitKey, traitSubject),
+        subject: traitSubject,
         scope: traitScope,
         chatKey: traitChatKey,
         actor: applier
@@ -3862,6 +4738,222 @@ export class ReflectionStore {
     return { upserted: gaps.length, ids };
   }
 
+  #traitSourcePool(db, accountId, currentChatKey, ts) {
+    const cutoff = Math.max(0, ts - this.limits.traitEvidenceWindowMs);
+    const rows = db.prepare(`
+      SELECT evidence_json FROM reflection_observations
+      WHERE account_id=? AND chat_key=? AND created_at>=?
+      ORDER BY created_at DESC LIMIT ?
+    `).all(
+      accountId,
+      currentChatKey,
+      cutoff,
+      Math.max(100, this.limits.maxTraitEvidenceInteractions * 8)
+    );
+    const unique = new Map();
+    for (const row of rows) {
+      const evidence = parseJson(row.evidence_json, {});
+      if (Number(evidence.schemaVersion) < 3
+        || Number(evidence.evidenceVersion) < 3
+        || evidence.structuredEvidence !== true
+        || evidence.proactive === true
+        || (Array.isArray(evidence.invalidEvidenceKinds) && evidence.invalidEvidenceKinds.length)) {
+        continue;
+      }
+      for (const item of (Array.isArray(evidence.conversationEvidence)
+        ? evidence.conversationEvidence : [])) {
+        if (item?.userEvidence !== true
+          || Number(item.schemaVersion) < 3
+          || item.role !== 'user'
+          || item.sourceRecordType !== 'message'
+          || !item.sourceRecordId
+          || !item.originalSourceId
+          || !item.interactionId
+          || item.accountId !== accountId
+          || item.chatKey !== currentChatKey
+          || item.proactive === true) continue;
+        const identity = `${item.interactionId}:${item.originalSourceId}`;
+        if (!unique.has(identity)) unique.set(identity, item);
+      }
+    }
+    return [...unique.values()];
+  }
+
+  #candidateView(db, row, currentProfileRevision = 0) {
+    const ts = nowValue(this.now);
+    const storedSupport = parseJson(row.support_refs_json, []);
+    const storedCounters = parseJson(row.counter_refs_json, []);
+    const supportRefs = Array.isArray(storedSupport) ? [...new Set(storedSupport.map(String))] : [];
+    const counterRefs = Array.isArray(storedCounters) ? [...new Set(storedCounters.map(String))] : [];
+    const pool = this.#traitSourcePool(db, String(row.account_id), String(row.chat_key), ts);
+    const byRef = new Map(pool.map((item) => [String(item.sourceRef || ''), item]));
+    const support = supportRefs.map((ref) => byRef.get(ref)).filter(Boolean);
+    const counters = counterRefs.map((ref) => byRef.get(ref)).filter(Boolean);
+    const staleSupportRefs = supportRefs.filter((ref) => !byRef.has(ref));
+    const staleCounterRefs = counterRefs.filter((ref) => !byRef.has(ref));
+    const supportRoots = new Set(support.map((item) => String(item.originalSourceId || '')));
+    const supportInteractions = new Set(support.map((item) => String(item.interactionId || '')));
+    const reasons = [];
+    if (row.policy_version !== REFLECTION_CANDIDATE_POLICY_VERSION) reasons.push('policy-version-changed');
+    if (Number(row.expires_at) <= ts) reasons.push('expired');
+    if (row.scope !== 'chat') reasons.push('global-scope-denied');
+    if (staleSupportRefs.length) reasons.push('stale-support-sources');
+    if (staleCounterRefs.length) reasons.push('stale-counter-sources');
+    if (supportInteractions.size < this.limits.minTraitValidSessions) {
+      reasons.push('insufficient-interactions');
+    }
+    if (supportRoots.size < this.limits.minTraitUserEvidence) {
+      reasons.push('insufficient-human-sources');
+    }
+    const subject = String(row.subject || '');
+    if (subject.startsWith('user:')) {
+      const expectedSender = subject.slice('user:'.length);
+      if (support.some((item) => String(item.senderId || '') !== expectedSender)) {
+        reasons.push('subject-source-mismatch');
+      }
+    }
+    const storedStatus = String(row.status);
+    const terminalStatus = ['adopted', 'rejected', 'expired', 'stale'].includes(storedStatus);
+    const status = Number(row.expires_at) <= ts
+      ? 'expired'
+      : row.policy_version !== REFLECTION_CANDIDATE_POLICY_VERSION
+        ? 'stale'
+        : terminalStatus
+          ? storedStatus
+          : reasons.length ? 'pending_insufficient' : 'ready';
+    return {
+      candidateId: String(row.id),
+      proposalId: String(row.latest_proposal_id || ''),
+      batchId: String(row.latest_batch_id || ''),
+      accountId: String(row.account_id),
+      scope: String(row.scope),
+      chatKey: String(row.chat_key),
+      subject,
+      key: String(row.trait_key),
+      value: String(row.trait_value || ''),
+      action: String(row.action || 'set'),
+      claim: `${String(row.trait_key)}=${String(row.trait_value || '')}`,
+      supportRefs: supportRefs.filter((ref) => byRef.has(ref)),
+      counterRefs: counterRefs.filter((ref) => byRef.has(ref)),
+      supportingEvidence: support.map((item) => ({
+        sourceRef: String(item.sourceRef || ''),
+        originalSourceId: String(item.originalSourceId || ''),
+        interactionId: String(item.interactionId || ''),
+        senderId: String(item.senderId || ''),
+        text: String(item.text || '').slice(0, 240)
+      })),
+      counterEvidence: counters.map((item) => ({
+        sourceRef: String(item.sourceRef || ''),
+        originalSourceId: String(item.originalSourceId || ''),
+        interactionId: String(item.interactionId || ''),
+        senderId: String(item.senderId || ''),
+        text: String(item.text || '').slice(0, 240)
+      })),
+      independentRoots: [...supportRoots].filter(Boolean),
+      interactionIds: [...supportInteractions].filter(Boolean),
+      createdAt: Number(row.created_at) || 0,
+      lastObservedAt: Number(row.last_observed_at) || 0,
+      expiresAt: Number(row.expires_at) || 0,
+      status,
+      eligible: status === 'ready',
+      reason: reasons.join(',') || (status === 'ready' ? '' : String(row.reason || status)),
+      currentProfileRevision: Number(currentProfileRevision) || 0
+    };
+  }
+
+  #upsertTraitCandidate(db, proposal, evidence, ts) {
+    const item = proposal.item;
+    const id = item.candidateId || traitCandidateId({
+      accountId: proposal.accountId,
+      chatKey: item.chatKey,
+      scope: item.scope,
+      subject: item.subject,
+      key: item.key,
+      value: item.value || ''
+    });
+    const current = db.prepare(
+      'SELECT * FROM reflection_candidates WHERE id=? AND account_id=? AND chat_key=?'
+    ).get(id, proposal.accountId, item.chatKey);
+    if (current && (
+      String(current.subject) !== item.subject
+      || String(current.trait_key) !== item.key
+      || String(current.trait_value || '') !== String(item.value || '')
+      || String(current.scope) !== item.scope
+      || String(current.action) !== item.action
+    )) {
+      fail('REFLECTION_CANDIDATE_CONFLICT', 'candidate id claim mismatch');
+    }
+    const previousSupport = current ? parseJson(current.support_refs_json, []) : [];
+    const previousCounters = current ? parseJson(current.counter_refs_json, []) : [];
+    const supportRefs = [...new Set([
+      ...(Array.isArray(previousSupport) ? previousSupport : []),
+      ...item.supportRefs
+    ].map(String))].slice(-100);
+    const counterRefs = [...new Set([
+      ...(Array.isArray(previousCounters) ? previousCounters : []),
+      ...item.counterRefs
+    ].map(String))].filter((ref) => !supportRefs.includes(ref)).slice(-100);
+    const candidateEvidence = {
+      ...evidence,
+      traitEvidencePool: this.#traitSourcePool(db, proposal.accountId, item.chatKey, ts),
+      evidenceVersion: 3,
+      structuredEvidence: true,
+      currentUserSourceRefs: Array.isArray(evidence.currentUserSourceRefs)
+        ? evidence.currentUserSourceRefs
+        : [],
+      proactive: false,
+      invalidEvidenceKinds: [],
+      explicitSilence: false
+    };
+    const gate = traitEvidenceGate(candidateEvidence, this.limits, {
+      ...item,
+      supportRefs,
+      evidenceRefs: supportRefs,
+      counterRefs
+    });
+    const status = gate.eligible ? 'ready' : 'pending_insufficient';
+    const reason = gate.reasons.join(',');
+    db.prepare(`
+      INSERT INTO reflection_candidates (
+        id,account_id,chat_key,scope,subject,trait_key,trait_value,action,
+        support_refs_json,counter_refs_json,policy_version,status,reason,latest_proposal_id,
+        latest_batch_id,created_at,last_observed_at,expires_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        support_refs_json=excluded.support_refs_json,
+        counter_refs_json=excluded.counter_refs_json,
+        status=CASE WHEN reflection_candidates.status IN ('adopted','rejected','expired','stale')
+          THEN reflection_candidates.status ELSE excluded.status END,
+        reason=CASE WHEN reflection_candidates.status IN ('adopted','rejected','expired','stale')
+          THEN reflection_candidates.reason ELSE excluded.reason END,
+        latest_proposal_id=excluded.latest_proposal_id,
+        latest_batch_id=excluded.latest_batch_id,
+        last_observed_at=excluded.last_observed_at,
+        expires_at=excluded.expires_at
+    `).run(
+      id,
+      proposal.accountId,
+      item.chatKey,
+      item.scope,
+      item.subject,
+      item.key,
+      String(item.value || ''),
+      item.action,
+      safeJson(supportRefs),
+      safeJson(counterRefs),
+      REFLECTION_CANDIDATE_POLICY_VERSION,
+      status,
+      reason,
+      proposal.id,
+      proposal.batchId,
+      Number(current?.created_at) || ts,
+      ts,
+      ts + this.limits.traitTtlMs
+    );
+    item.candidateId = id;
+    return id;
+  }
+
   #applyTraitProposals(db, {
     accountId,
     proposals,
@@ -3906,14 +4998,17 @@ export class ReflectionStore {
       const bucket = item.scope === 'chat'
         ? (profile.chats[item.chatKey] ||= {})
         : profile.global;
-      const currentValue = bucket[item.key];
+      const storageKey = traitStorageKey(item.key, item.subject);
+      const currentValue = bucket[storageKey];
       const currentEntry = normalizeStoredTrait(currentValue, {
         scope: item.scope,
         chatKey: item.chatKey,
-        now: ts
+        now: ts,
+        key: item.key,
+        storageKey
       });
       if (item.action === 'remove') {
-        if (!Object.hasOwn(bucket, item.key)) {
+        if (!Object.hasOwn(bucket, storageKey)) {
           nooped += 1;
           db.prepare(`
             UPDATE reflection_proposals SET status='applied',reviewed_at=?,applied_at=?,
@@ -3922,7 +5017,7 @@ export class ReflectionStore {
           `).run(ts, ts, actor, proposal.id);
           continue;
         }
-        delete bucket[item.key];
+        delete bucket[storageKey];
       } else {
         if (currentValue && traitStoredValue(currentValue) === item.value) {
           nooped += 1;
@@ -3937,8 +5032,11 @@ export class ReflectionStore {
           ...(Array.isArray(source?.sourceChatKeys) ? source.sourceChatKeys : []),
           ...(item.chatKey ? [item.chatKey] : [])
         ];
-        bucket[item.key] = {
+        bucket[storageKey] = {
+          key: item.key,
+          storageKey,
           value: item.value,
+          subject: String(item.subject || ''),
           confidence: item.confidence,
           evidenceRefs: item.evidenceRefs,
           sourceChats: [...new Set(sourceChatKeys.map(String).filter(Boolean))].slice(0, 16),
@@ -3954,6 +5052,12 @@ export class ReflectionStore {
         UPDATE reflection_proposals SET status='applied',reviewed_at=?,applied_at=?,applier=?
         WHERE id=? AND status='pending'
       `).run(ts, ts, actor, proposal.id);
+      if (item.candidateId) {
+        db.prepare(`
+          UPDATE reflection_candidates SET status='adopted',reason=''
+          WHERE id=? AND account_id=?
+        `).run(item.candidateId, accountId);
+      }
       applied += 1;
       if (item.scope === 'global') {
         this.#audit(db, {
@@ -4206,8 +5310,47 @@ export function createReflectionObserver({
 
 export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflectionInput = {}) {
   const normalizedLimits = normalizeLimits(limits);
-  const observation = plainObject(job?.evidence) ? { ...job.evidence } : {};
-  delete observation.conversationEvidence;
+  const sourceObservation = plainObject(job?.evidence) ? job.evidence : {};
+  const observation = {
+    schemaVersion: Number(sourceObservation.schemaVersion) || 0,
+    evidenceVersion: Number(sourceObservation.evidenceVersion) || 0,
+    eventId: String(sourceObservation.eventId || '').slice(0, 160),
+    sessionId: String(sourceObservation.sessionId || '').slice(0, 160),
+    runId: String(sourceObservation.runId || '').slice(0, 160),
+    accountId: String(sourceObservation.accountId || '').slice(0, 100),
+    chatKey: String(sourceObservation.chatKey || '').slice(0, 100),
+    triggerKind: String(sourceObservation.triggerKind || '').slice(0, 80),
+    interactionId: String(sourceObservation.interactionId || '').slice(0, 160),
+    topicId: String(sourceObservation.topicId || '').slice(0, 160),
+    originalSourceIds: Array.isArray(sourceObservation.originalSourceIds)
+      ? sourceObservation.originalSourceIds.slice(0, 12)
+      : [],
+    deliveryState: String(sourceObservation.deliveryState || '').slice(0, 40),
+    delivered: sourceObservation.delivered === true,
+    resultClass: String(sourceObservation.resultClass || '').slice(0, 80),
+    reliability: String(sourceObservation.reliability || '').slice(0, 40),
+    failureKinds: Array.isArray(sourceObservation.failureKinds)
+      ? sourceObservation.failureKinds.slice(0, 8)
+      : [],
+    invalidEvidenceKinds: Array.isArray(sourceObservation.invalidEvidenceKinds)
+      ? sourceObservation.invalidEvidenceKinds.slice(0, 8)
+      : [],
+    explicitSilence: sourceObservation.explicitSilence === true,
+    explicitPreference: sourceObservation.explicitPreference === true,
+    proactive: sourceObservation.proactive === true,
+    validSessionCount: Number(sourceObservation.validSessionCount) || 0,
+    userEvidenceCount: Number(sourceObservation.userEvidenceCount) || 0,
+    traitGate: sourceObservation.traitGate
+      ? {
+          eligible: sourceObservation.traitGate.eligible === true,
+          reasons: Array.isArray(sourceObservation.traitGate.reasons)
+            ? sourceObservation.traitGate.reasons.slice(0, 8)
+            : [],
+          interactionCount: Number(sourceObservation.traitGate.validSessionCount) || 0,
+          humanRootCount: Number(sourceObservation.traitGate.userEvidenceCount) || 0
+        }
+      : null
+  };
   const instructions = [
     'You are the current character leaving a note for your future self.',
     'Return JSON with exactly: noteOperations, traitProposals, capabilityGapProposals, summary.',
@@ -4217,13 +5360,13 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
     'Do not create notes that only contain run telemetry, token/budget usage, sent/replied counts, transient execution state, or ordinary bookkeeping. If there is no useful future-facing note, return noteOperations: [].',
     'Treat executionState, delivery status, retry/queue/schedule/wake information, system reminders, timestamps, and message IDs as diagnostics only; never turn them into Learned Self traits.',
     'A meaningful single human interaction, silence, or delivered assistant experience may support a specific episodic note; the note must describe what happened, not prescribe future behavior.',
-    'Stable trait proposals are tentative candidates only. Select real sourceRef values from traitEvidencePool; each selected source must independently support this same candidate, and sources must come from at least three distinct host interactionIds and original human roots. Do not count assistant output, Notebook notes, currentProfile, summaries, IDs, or diagnostics as independent sources.',
-    'The host checks source provenance and independence, then a human reviews meaning. If fewer than three independent sources support a plausible candidate, you may return it with only the real references available; it stays gated and cannot be auto-applied. Do not invent references or use global scope.',
+    'Stable trait proposals are tentative candidates only. Select real supportRefs and counterRefs from traitEvidencePool; each source must be a host-verified human message. Reuse a visible candidateId only when subject, key, value, scope, and chatKey are exactly the same. Candidate text is not evidence. Do not count assistant output, Notebook notes, currentProfile, summaries, IDs, or diagnostics as independent sources.',
+    'The host verifies source provenance and distinct interaction/root counts. Human review decides meaning. Candidates with fewer than three independent interactions and roots remain visible but cannot be adopted. Do not invent references or use global scope.',
     'Your own genuine likes or experience may be recorded as an episodic note, but assistant output alone cannot establish a stable trait. No new human input means no new trait support.',
     'CurrentProfile and Notebook are historical context only, not evidenceRefs. Keep notes chat-scoped to the observed chat; never merge private chats or create global notes from a chat observation.',
     'noteOperations item schema: operation (append|update|archive), scope (global|chat), chatKey, content, tags, noteId, expectedRevision, evidenceRefs.',
     'For noteOperations: append requires operation, scope, content, tags, evidenceRefs and omits noteId/expectedRevision; update requires noteId and expectedRevision plus content or tags; archive requires noteId and expectedRevision and omits content/tags.',
-    'traitProposals item schema: action (set|remove), key, value (only for set), scope (global|chat), chatKey, confidence, evidenceRefs.',
+    'traitProposals item schema: action (set|remove), key, value (only for set), subject (user:<senderId>|bot), candidateId (only an exact matching visible candidate), scope (global|chat), chatKey, confidence, supportRefs, counterRefs.',
     'Allowed preference keys: communication_style, language_preference, working_habit, topic_interests, interaction_preferences, expression_preferences. working_habit is never bounded-auto and requires human review.',
     'capabilityGapProposals item schema: category, capability, requestKey, scope (global|chat), chatKey, detail, evidenceRefs.',
     'For note and trait proposals use scope="chat" and the observed chatKey exactly. Use [] when a collection has no proposal.',
@@ -4239,6 +5382,10 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
   const shrink = () => {
     if (Array.isArray(input.traitEvidencePool) && input.traitEvidencePool.length > 12) {
       input.traitEvidencePool = input.traitEvidencePool.slice(-12);
+      return true;
+    }
+    if (Array.isArray(input.existingCandidates) && input.existingCandidates.length > 12) {
+      input.existingCandidates = input.existingCandidates.slice(0, 12);
       return true;
     }
     if (Array.isArray(input.preferenceEvidence) && input.preferenceEvidence.length > 8) {
@@ -4288,6 +5435,9 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
     input.traitEvidencePool = Array.isArray(input.traitEvidencePool)
       ? input.traitEvidencePool.slice(-4)
       : [];
+    input.existingCandidates = Array.isArray(input.existingCandidates)
+      ? input.existingCandidates.slice(0, 4)
+      : [];
     input.notebook = Array.isArray(input.notebook)
       ? input.notebook.slice(0, 2)
       : [];
@@ -4301,6 +5451,31 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
         ? input.basePersona.tools.slice(0, 6)
         : []
     };
+    serialized = safeJson(input);
+  }
+  if (serialized.length > available) {
+    input.conversationEvidence = (Array.isArray(input.conversationEvidence)
+      ? input.conversationEvidence : []).map((item) => ({
+      evidenceId: item.evidenceId,
+      sourceRef: item.sourceRef,
+      role: item.role,
+      senderId: item.senderId,
+      interactionId: item.interactionId,
+      originalSourceId: item.originalSourceId,
+      text: String(item.text || '').slice(0, 120)
+    }));
+    input.traitEvidencePool = (Array.isArray(input.traitEvidencePool)
+      ? input.traitEvidencePool : []).map((item) => ({
+      sourceRef: item.sourceRef,
+      sourceMessageId: item.sourceMessageId,
+      interactionId: item.interactionId,
+      senderId: item.senderId,
+      role: 'user',
+      text: String(item.text || '').slice(0, 120)
+    }));
+    input.preferenceEvidence = [];
+    input.notebook = [];
+    input.currentProfile = null;
     serialized = safeJson(input);
   }
   if (serialized.length > available) {

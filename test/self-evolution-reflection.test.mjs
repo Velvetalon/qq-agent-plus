@@ -41,7 +41,6 @@ function fixture(options = {}) {
       maxAttempts: 2,
       maxCallsPerDay: 20,
       backoffMs: 0,
-      autoApplyBehaviorTraits: true,
       ...options.limits
     }
   });
@@ -66,41 +65,75 @@ function persona(overrides = {}) {
 
 function completionEvent(sessionId, overrides = {}) {
   const eventId = overrides.eventId || `${sessionId}:${OBSERVER_ID}`;
+  const interactionId = overrides.interactionId || `interaction-${sessionId}`;
+  const originalSourceId = overrides.originalSourceId || `root-${sessionId}`;
+  const sourceRecordId = `local-${sessionId}`;
+  const schemaVersion = Number(overrides.schemaVersion ?? 3);
+  const evidenceVersion = Number(overrides.evidenceVersion ?? 3);
+  const actionSummary = {
+    schemaVersion,
+    evidenceVersion,
+    interactionId,
+    topicId: overrides.topicId || 'reflection-topic',
+    originalSourceId,
+    originalSourceIds: [originalSourceId],
+    sentCount: 1,
+    finishReason: 'finish',
+    outboundAttempted: true,
+    participation: {
+      mode: 'auto',
+      decision: 'reply',
+      reasonCode: 'normal',
+      reason: 'normal turn'
+    },
+    termination: {
+      kind: 'finish',
+      reasonCode: '',
+      reason: '',
+      threadDisposition: 'active',
+      blocked: false
+    },
+    outbound: {
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      unknown: 0,
+      held: 0
+    },
+    conversationEvidence: [{
+      evidenceId: `message:${sessionId}`,
+      sourceRecordType: schemaVersion >= 3 ? 'message' : '',
+      sourceRecordId: schemaVersion >= 3 ? sourceRecordId : '',
+      messageId: sourceRecordId,
+      platformMessageId: `platform-${sessionId}`,
+      originalSourceId,
+      originalSourceIds: [originalSourceId],
+      interactionId,
+      topicId: overrides.topicId || 'reflection-topic',
+      senderId: 'user-7',
+      role: 'user',
+      text: `Human source for ${sessionId}.`,
+      userConfirmed: false
+    }],
+    ...(overrides.actionSummary || {})
+  };
   return {
+    schemaVersion,
+    evidenceVersion,
     eventId,
     observerId: OBSERVER_ID,
     observerPluginId: 'self-evolution',
     accountId: ACCOUNT_ID,
     sessionId,
     runId: `run-${sessionId}`,
-    chatKey: 'group:100',
+    chatKey: overrides.chatKey || 'group:100',
+    interactionId,
+    topicId: overrides.topicId || 'reflection-topic',
+    originalSourceId,
+    originalSourceIds: [originalSourceId],
     pluginGeneration: 1,
     resultClass: 'done',
-    actionSummary: {
-      sentCount: 1,
-      finishReason: 'finish',
-      outboundAttempted: true,
-      participation: {
-        mode: 'auto',
-        decision: 'reply',
-        reasonCode: 'normal',
-        reason: 'normal turn'
-      },
-      termination: {
-        kind: 'finish',
-        reasonCode: '',
-        reason: '',
-        threadDisposition: 'active',
-        blocked: false
-      },
-      outbound: {
-        attempted: 1,
-        succeeded: 1,
-        failed: 0,
-        unknown: 0,
-        held: 0
-      }
-    },
+    actionSummary,
     sourceMessageIds: ['m1', 'm2'],
     completedAt: 1000,
     ...overrides
@@ -108,16 +141,28 @@ function completionEvent(sessionId, overrides = {}) {
 }
 
 function evidenceRef(sessionId) {
-  return `session:${sessionId}`;
+  return `${ACCOUNT_ID}:group:100:message:local-${sessionId}`;
 }
 
 function reflectionOutput(sessionId, overrides = {}) {
+  const traitProposals = (Array.isArray(overrides.traitProposals) ? overrides.traitProposals : [])
+    .map((proposal) => ({
+      subject: 'user:user-7',
+      scope: proposal?.scope === 'global' ? 'chat' : (proposal?.scope || 'chat'),
+      chatKey: proposal?.scope === 'global' ? 'group:100' : (proposal?.chatKey || 'group:100'),
+      supportRefs: proposal?.supportRefs
+        ?? proposal?.evidenceRefs
+        ?? [evidenceRef(sessionId)],
+      counterRefs: [],
+      ...proposal
+    }));
   return {
     noteOperations: [],
-    traitProposals: [],
+    traitProposals,
     capabilityGapProposals: [],
     summary: `reflection for ${sessionId}`,
-    ...overrides
+    ...overrides,
+    traitProposals
   };
 }
 
@@ -149,6 +194,12 @@ function currentProfileRevision(store, basePersona = persona()) {
     accountId: ACCOUNT_ID,
     basePersonaHash: hashBasePersona(basePersona)
   }).revision;
+}
+
+function currentTrait(context, key, subject = 'user:user-7') {
+  return Object.values(context || {}).find((entry) => (
+    entry?.key === key && entry.subject === subject
+  ));
 }
 
 async function runQueued(worker, store, {
@@ -315,57 +366,68 @@ test('empty reflection is a noop, duplicate evidence is not called again, and in
   }
 });
 
-test('review mode can approve or reject a proposal without mutating Base Persona', async () => {
+test('review mode approves a three-root candidate and rejects another without mutating Base Persona', async () => {
   const { store } = fixture();
   const base = persona();
   const reflector = async ({ job }) => reflectionOutput(job.sessionId, {
     traitProposals: [{
       action: 'set',
       key: 'communication_style',
-      value: 'concise',
-      scope: 'global',
+      value: job.sessionId.startsWith('reject-') ? 'warm' : 'concise',
+      scope: 'chat',
+      chatKey: 'group:100',
       confidence: 0.92,
       evidenceRefs: [evidenceRef(job.sessionId)]
     }]
   });
   const worker = startWorker(store, reflector, {}, { basePersona: base });
   try {
-    store.enqueueObservation(completionEvent('session-review'));
-    const reflected = await runQueued(worker, store, { basePersona: base });
-    assert.equal(reflected.jobStatus, 'ready');
-    const pending = store.listProposals({ status: 'pending' });
-    assert.equal(pending.length, 1);
-    const approved = store.reviewBatch({
-      batchId: pending[0].batchId,
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`approve-${index}`));
+      assert.equal((await runQueued(worker, store, { basePersona: base })).status, 'completed');
+    }
+    const [candidate] = store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'ready'
+    });
+    assert.ok(candidate);
+    const approved = store.reviewCandidate({
+      proposalId: candidate.proposalId,
       decision: 'approve',
       actor: 'admin-1',
       expectedProfileRevision: 0,
-      basePersona: base
+      basePersonaHash: hashBasePersona(base)
     });
     assert.equal(approved.reviewed, true);
     assert.equal(approved.profileRevision, 1);
     const context = store.getLearnedSelfContext({
       accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
       basePersona: base
     });
     assert.equal(context.stale, false);
-    assert.equal(context.context.communication_style.value, 'concise');
+    assert.equal(currentTrait(context.context, 'communication_style').value, 'concise');
     assert.equal(base.roleText, 'base persona body');
 
-    store.enqueueObservation(completionEvent('session-reject'));
-    const reflectedAgain = await runQueued(worker, store, { basePersona: base });
-    assert.equal(reflectedAgain.jobStatus, 'ready');
-    const secondBatch = store.listProposals({ status: 'pending' })[0].batchId;
-    const rejected = store.reviewBatch({
-      batchId: secondBatch,
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`reject-${index}`));
+      assert.equal((await runQueued(worker, store, { basePersona: base })).status, 'completed');
+    }
+    const rejectCandidate = store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'ready'
+    }).find((item) => item.value === 'warm');
+    assert.ok(rejectCandidate);
+    const rejected = store.reviewCandidate({
+      proposalId: rejectCandidate.proposalId,
       decision: 'reject',
       actor: 'admin-1',
       expectedProfileRevision: 1,
-      basePersona: base
+      basePersonaHash: hashBasePersona(base)
     });
     assert.equal(rejected.reviewed, true);
-    assert.equal(rejected.decision, 'reject');
-    assert.equal(store.listProposals({ batchId: secondBatch })[0].status, 'rejected');
     assert.equal(currentProfileRevision(store, base), 1);
   } finally {
     await worker.stop();
@@ -373,7 +435,7 @@ test('review mode can approve or reject a proposal without mutating Base Persona
   }
 });
 
-test('bounded_auto applies low-risk traits and rejects high-risk traits into history', async () => {
+test('bounded_auto never adopts behavior traits and leaves valid candidates for explicit review', async () => {
   const { store } = fixture();
   const base = persona();
   const worker = startWorker(store, async () => reflectionOutput('session-auto', {
@@ -382,7 +444,8 @@ test('bounded_auto applies low-risk traits and rejects high-risk traits into his
         action: 'set',
         key: 'communication_style',
         value: 'brief and concrete',
-        scope: 'global',
+        scope: 'chat',
+        chatKey: 'group:100',
         confidence: 0.95,
         evidenceRefs: [evidenceRef('session-auto')]
       },
@@ -390,7 +453,8 @@ test('bounded_auto applies low-risk traits and rejects high-risk traits into his
         action: 'set',
         key: 'social_strategy',
         value: 'lead every conversation',
-        scope: 'global',
+        scope: 'chat',
+        chatKey: 'group:100',
         confidence: 0.99,
         evidenceRefs: [evidenceRef('session-auto')]
       }
@@ -399,26 +463,30 @@ test('bounded_auto applies low-risk traits and rejects high-risk traits into his
   try {
     store.enqueueObservation(completionEvent('session-auto'));
     const result = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
-    assert.equal(result.jobStatus, 'applied');
+    assert.equal(result.jobStatus, 'ready');
+    assert.equal(result.appliedTraitCount, 0);
     const proposals = store.listProposals({ batchId: result.batchId });
     assert.deepEqual(
       proposals.map((proposal) => [proposal.payload.key, proposal.risk, proposal.status]),
       [
-        ['communication_style', 'low', 'applied'],
-        ['social_strategy', 'high', 'rejected']
+        ['communication_style', 'low', 'pending'],
+        ['social_strategy', 'high', 'pending']
       ]
     );
     const context = store.getLearnedSelfContext({
       accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
       basePersona: base
     });
-    assert.equal(context.context.communication_style.value, 'brief and concrete');
-    assert.equal(context.context.social_strategy, undefined);
-    assert.equal(store.getBatch(result.batchId).expectedProfileRevision, 1);
-    assert.equal(
-      proposals.find((proposal) => proposal.payload.key === 'social_strategy').errorCode,
-      'REFLECTION_HIGH_RISK_REJECTED'
-    );
+    assert.equal(currentTrait(context.context, 'communication_style'), undefined);
+    assert.equal(currentTrait(context.context, 'social_strategy'), undefined);
+    assert.equal(store.getBatch(result.batchId).expectedProfileRevision, 0);
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 0);
+    assert.equal(store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'pending'
+    }).length, 2);
   } finally {
     await worker.stop();
     store.close();
@@ -432,7 +500,8 @@ test('bounded_auto applies Notebook operations without approval and keeps histor
   const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
     noteOperations: [{
       operation: 'append',
-      scope: 'global',
+      scope: 'chat',
+      chatKey: 'group:100',
       content: 'automatically approved note',
       tags: ['reflection'],
       evidenceRefs: [evidenceRef(job.sessionId)]
@@ -462,7 +531,8 @@ test('reflection rejects transient run summaries instead of writing them as Note
   const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
     noteOperations: [{
       operation: 'append',
-      scope: 'global',
+      scope: 'chat',
+      chatKey: 'group:100',
       content: 'Run ended safely because the token budget was reached; sent 3 messages.',
       tags: [],
       evidenceRefs: [evidenceRef(job.sessionId)]
@@ -472,9 +542,10 @@ test('reflection rejects transient run summaries instead of writing them as Note
     store.enqueueObservation(completionEvent('session-transient-note'));
     const result = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
     assert.equal(result.jobStatus, 'rejected');
-    const proposal = store.listProposals({ batchId: result.batchId })[0];
+    const [proposal] = store.listProposals({ batchId: result.batchId });
     assert.equal(proposal.status, 'rejected');
     assert.equal(proposal.errorCode, 'REFLECTION_NOTE_NOT_DURABLE');
+    assert.deepEqual(proposal.evidenceRefs, [evidenceRef('session-transient-note')]);
     assert.equal(notebook.search({
       accountId: ACCOUNT_ID,
       currentChatKey: 'group:100',
@@ -495,19 +566,23 @@ test('review approval respects Notebook CAS and does not create a profile on a s
     const note = notebook.append({
       accountId: ACCOUNT_ID,
       content: 'original',
-      scope: 'global',
+      scope: 'chat',
+      chatKey: 'group:100',
       source: {
-        kind: 'system',
+        kind: 'chat',
         accountId: ACCOUNT_ID,
+        chatKey: 'group:100',
         sessionId: 'setup',
         runId: 'setup'
       },
+      currentChatKey: 'group:100',
       idempotencyKey: 'setup-note'
     });
     const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
       noteOperations: [{
         operation: 'update',
-        scope: 'global',
+        scope: 'chat',
+        chatKey: 'group:100',
         noteId: note.note.id,
         expectedRevision: 1,
         content: 'reflection edit',
@@ -591,6 +666,7 @@ test('review approval cannot widen a chat note into global scope', async () => {
     try {
       store.enqueueObservation(completionEvent('session-note-scope'));
       const reflected = await runQueued(worker, store, { basePersona: base });
+      assert.equal(reflected.jobStatus, 'rejected');
       const reviewed = store.reviewBatch({
         batchId: reflected.batchId,
         decision: 'approve',
@@ -600,7 +676,7 @@ test('review approval cannot widen a chat note into global scope', async () => {
         notebook
       });
       assert.equal(reviewed.reviewed, false);
-      assert.equal(reviewed.reason, 'invalid');
+      assert.equal(reviewed.reason, 'rejected');
       assert.equal(notebook.get({
         accountId: ACCOUNT_ID,
         noteId: note.note.id,
@@ -615,51 +691,60 @@ test('review approval cannot widen a chat note into global scope', async () => {
   }
 });
 
-test('stale profile CAS and Base Persona changes invalidate old proposals without applying them', async () => {
+test('candidate review rejects a changed Base Persona before adoption', async () => {
   const { store } = fixture();
   const base = persona();
   const otherBase = persona({ roleText: 'manually edited persona' });
-  const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
-    traitProposals: [{
-      action: 'set',
-      key: 'communication_style',
-      value: 'stale proposal',
-      scope: 'global',
-      confidence: 0.9,
-      evidenceRefs: [evidenceRef(job.sessionId)]
-    }]
-  }), {}, { basePersona: base });
-  try {
-    store.enqueueObservation(completionEvent('session-stale'));
-    const staleBatch = await runQueued(worker, store, { basePersona: base });
-    store.enqueueObservation(completionEvent('session-apply'));
-    const applied = await runQueued(worker, store, {
-      mode: 'bounded_auto',
-      basePersona: base
+  const worker = startWorker(store, async ({ job }) => {
+    const selected = job.sessionId.startsWith('session-stale')
+      ? ['communication_style', 'concise']
+      : ['language_preference', 'English'];
+    return reflectionOutput(job.sessionId, {
+      traitProposals: [{
+        action: 'set',
+        key: selected[0],
+        value: selected[1],
+        scope: 'chat',
+        chatKey: 'group:100',
+        confidence: 0.9,
+        evidenceRefs: [evidenceRef(job.sessionId)]
+      }]
     });
-    assert.equal(applied.profileRevision, 1);
-
-    const cas = store.reviewBatch({
-      batchId: staleBatch.batchId,
+  }, {}, { basePersona: base });
+  try {
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`session-stale-${index}`));
+      assert.equal((await runQueued(worker, store, { basePersona: base })).status, 'completed');
+    }
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`session-apply-${index}`));
+      assert.equal((await runQueued(worker, store, { basePersona: base })).status, 'completed');
+    }
+    const candidates = store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'ready'
+    });
+    const first = candidates.find((item) => item.key === 'communication_style');
+    const second = candidates.find((item) => item.key === 'language_preference');
+    assert.ok(first && second);
+    assert.equal(store.reviewCandidate({
+      proposalId: first.proposalId,
+      decision: 'approve',
+      actor: 'admin-1',
+      expectedProfileRevision: 0,
+      basePersonaHash: hashBasePersona(base)
+    }).profileRevision, 1);
+    const baseChanged = store.reviewCandidate({
+      proposalId: second.proposalId,
       decision: 'approve',
       actor: 'admin-1',
       expectedProfileRevision: 1,
-      basePersona: base
-    });
-    assert.equal(cas.reviewed, false);
-    assert.equal(cas.reason, 'stale');
-    assert.equal(cas.batch.errorCode, 'REFLECTION_CAS_CONFLICT');
-    assert.equal(currentProfileRevision(store, base), 1);
-
-    store.enqueueObservation(completionEvent('session-base-change'));
-    const baseBatch = await runQueued(worker, store, { basePersona: base });
-    const invalidated = store.invalidateStaleProposals({
-      accountId: ACCOUNT_ID,
       basePersonaHash: hashBasePersona(otherBase)
     });
-    assert.equal(invalidated.invalidated, 1);
-    assert.equal(store.getBatch(baseBatch.batchId).status, 'stale');
-    assert.equal(store.listProposals({ batchId: baseBatch.batchId })[0].status, 'stale');
+    assert.equal(baseChanged.reviewed, false);
+    assert.equal(baseChanged.reason, 'base-persona-changed');
+    assert.equal(currentProfileRevision(store, base), 1);
     assert.equal(store.getLearnedSelfContext({
       accountId: ACCOUNT_ID,
       basePersona: otherBase
@@ -673,27 +758,81 @@ test('stale profile CAS and Base Persona changes invalidate old proposals withou
 test('profile rollback creates a new traceable version and changes the learned context', async () => {
   const { store } = fixture();
   const base = persona();
-  let session = 0;
-  const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
-    traitProposals: [{
-      action: 'set',
-      key: session++ === 0 ? 'communication_style' : 'language_preference',
-      value: session === 1 ? 'concise' : 'Chinese',
-      scope: 'global',
-      confidence: 0.95,
-      evidenceRefs: [evidenceRef(job.sessionId)]
-    }]
-  }), {}, { basePersona: base });
+  const worker = startWorker(store, async ({ job }) => {
+    const communication = job.sessionId.startsWith('rollback-style');
+    return reflectionOutput(job.sessionId, {
+      traitProposals: [{
+        action: 'set',
+        key: communication ? 'communication_style' : 'language_preference',
+        value: communication ? 'concise' : 'Chinese',
+        scope: 'chat',
+        chatKey: 'group:100',
+        confidence: 0.95,
+        evidenceRefs: [evidenceRef(job.sessionId)]
+      }]
+    });
+  }, {}, { basePersona: base });
   try {
-    store.enqueueObservation(completionEvent('session-profile-1'));
-    const first = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
-    assert.equal(first.profileRevision, 1);
-    store.enqueueObservation(completionEvent('session-profile-2'));
-    const second = await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
-    assert.equal(second.profileRevision, 2);
-    let context = store.getLearnedSelfContext({ accountId: ACCOUNT_ID, basePersona: base });
-    assert.equal(context.context.communication_style.value, 'concise');
-    assert.equal(context.context.language_preference.value, 'Chinese');
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`rollback-style-${index}`));
+      assert.equal((await runQueued(worker, store, { basePersona: base })).status, 'completed');
+    }
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`rollback-language-${index}`));
+      assert.equal((await runQueued(worker, store, { basePersona: base })).status, 'completed');
+    }
+    const candidates = store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'ready'
+    });
+    const style = candidates.find((item) => item.key === 'communication_style');
+    const language = candidates.find((item) => item.key === 'language_preference');
+    assert.ok(style && language);
+    assert.equal(store.reviewCandidate({
+      proposalId: style.proposalId,
+      decision: 'approve',
+      actor: 'admin-1',
+      expectedProfileRevision: 0,
+      basePersonaHash: hashBasePersona(base)
+    }).profileRevision, 1);
+    const staleLanguage = store.reviewCandidate({
+      proposalId: language.proposalId,
+      decision: 'approve',
+      actor: 'admin-1',
+      expectedProfileRevision: 1,
+      basePersonaHash: hashBasePersona(base)
+    });
+    assert.equal(staleLanguage.reviewed, false);
+    assert.equal(staleLanguage.reason, 'stale');
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 1);
+    for (let index = 4; index <= 6; index += 1) {
+      store.enqueueObservation(completionEvent(`rollback-language-${index}`));
+      assert.equal((await runQueued(worker, store, { basePersona: base })).status, 'completed');
+    }
+    const refreshedLanguage = store.listCandidates({
+      accountId: ACCOUNT_ID, chatKey: 'group:100', status: 'ready'
+    }).find((item) => item.key === 'language_preference');
+    assert.ok(refreshedLanguage, JSON.stringify({
+      candidates: store.listCandidates({ accountId: ACCOUNT_ID, chatKey: 'group:100' }),
+      proposals: store.listProposals({ accountId: ACCOUNT_ID, limit: 3 })
+        .map(({ type, status, errorCode, errorMessage }) => ({ type, status, errorCode, errorMessage }))
+    }));
+    assert.equal(refreshedLanguage.independentRoots.length, 3);
+    assert.equal(store.reviewCandidate({
+      proposalId: refreshedLanguage.proposalId,
+      decision: 'approve',
+      actor: 'admin-1',
+      expectedProfileRevision: 1,
+      basePersonaHash: hashBasePersona(base)
+    }).profileRevision, 2);
+    let context = store.getLearnedSelfContext({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      basePersona: base
+    });
+    assert.equal(currentTrait(context.context, 'communication_style').value, 'concise');
+    assert.equal(currentTrait(context.context, 'language_preference').value, 'Chinese');
 
     const rolledBack = store.rollbackProfile({
       accountId: ACCOUNT_ID,
@@ -704,10 +843,14 @@ test('profile rollback creates a new traceable version and changes the learned c
     });
     assert.equal(rolledBack.revision, 3);
     assert.equal(rolledBack.parentRevision, 2);
-    context = store.getLearnedSelfContext({ accountId: ACCOUNT_ID, basePersona: base });
+    context = store.getLearnedSelfContext({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      basePersona: base
+    });
     assert.equal(context.revision, 3);
-    assert.equal(context.context.communication_style.value, 'concise');
-    assert.equal(context.context.language_preference, undefined);
+    assert.equal(currentTrait(context.context, 'communication_style').value, 'concise');
+    assert.equal(currentTrait(context.context, 'language_preference'), undefined);
     const versions = store.listProfileVersions({ accountId: ACCOUNT_ID });
     assert.deepEqual(versions.map((version) => version.revision), [3, 2, 1]);
     assert.equal(versions[0].parentRevision, 2);
@@ -814,16 +957,12 @@ test('capability gaps dedupe by real request and keep failure categories separat
     }), {}, { basePersona: base });
     try {
       const result = await runQueued(invalidWorker, store, { basePersona: base });
-      assert.equal(result.status, 'invalid', JSON.stringify({
-        result,
-        jobs: store.listJobs().map((job) => ({
-          sessionId: job.sessionId,
-          status: job.status,
-          reliability: job.evidence.reliability,
-          failureKinds: job.evidence.failureKinds
-        }))
-      }));
-      assert.equal(result.errorCode, 'REFLECTION_PROHIBITED_INFERENCE');
+      assert.equal(result.status, 'completed');
+      assert.equal(result.jobStatus, 'rejected');
+      assert.equal(result.rejectedCount, 1);
+      const rejected = store.listJobs().find((job) => job.sessionId === 'session-failure-interest');
+      assert.equal(rejected.evidence.reliability, 'unreliable');
+      assert.ok(rejected.evidence.failureKinds.includes('unknown_external_write'));
       assert.equal(store.counts().profileVersions, 0);
     } finally {
       await invalidWorker.stop();
@@ -871,33 +1010,25 @@ test('stop releases the lease and a late model result cannot commit', async () =
   }
 });
 
-test('plugin reads the live account head without basePersonaHash and preserves stale CAS rollback semantics', async () => {
+test('plugin worker leaves candidates pending and review rejects a stale profile CAS', async () => {
   const dataDir = path.join(root, `plugin-revision-${++sequence}`);
   const base = persona();
   const baseSnapshot = structuredClone(base);
-  let staleStarted;
-  let releaseStale;
-  const staleStartedPromise = new Promise((resolve) => { staleStarted = resolve; });
-  const staleResultPromise = new Promise((resolve) => { releaseStale = resolve; });
   const plugin = createReflectionPlugin({
     dataDir,
     reflector: async ({ job }) => {
-      if (job.sessionId === 'plugin-revision-stale') {
-        staleStarted();
-        return staleResultPromise;
-      }
-      const value = job.sessionId === 'plugin-revision-1' ? 'concise' : 'Chinese';
-      const key = job.sessionId === 'plugin-revision-1'
-        ? 'communication_style'
-        : 'language_preference';
+      const styleCandidate = job.sessionId.startsWith('plugin-style');
       return reflectionOutput(job.sessionId, {
         traitProposals: [{
           action: 'set',
-          key,
-          value,
-          scope: 'global',
+          key: styleCandidate ? 'communication_style' : 'language_preference',
+          value: styleCandidate ? 'concise' : 'Chinese',
+          subject: 'user:user-7',
+          scope: 'chat',
+          chatKey: 'group:100',
           confidence: 0.95,
-          evidenceRefs: [evidenceRef(job.sessionId)]
+          supportRefs: job.evidence.traitEvidencePool.map((item) => item.sourceRef),
+          counterRefs: []
         }]
       });
     },
@@ -908,8 +1039,7 @@ test('plugin reads the live account head without basePersonaHash and preserves s
       leaseMs: 10,
       workerLeaseMs: 10,
       maxCallsPerDay: 20,
-      backoffMs: 0,
-      autoApplyBehaviorTraits: true
+      backoffMs: 0
     }
   });
   const started = plugin.start({}, {
@@ -925,53 +1055,54 @@ test('plugin reads the live account head without basePersonaHash and preserves s
   assert.ok(started);
   const { store, worker } = started;
   try {
-    store.enqueueObservation(completionEvent('plugin-revision-1'));
-    const first = await worker.runOnce();
-    assert.equal(first.status, 'completed');
-    assert.equal(first.profileRevision, 1);
-
-    store.enqueueObservation(completionEvent('plugin-revision-2'));
-    const second = await worker.runOnce();
-    assert.equal(second.status, 'completed');
-    assert.equal(second.profileRevision, 2);
-    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 2);
-
-    store.enqueueObservation(completionEvent('plugin-revision-stale'));
-    const pending = worker.runOnce();
-    await staleStartedPromise;
-    const rolledBack = store.rollbackProfile({
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`plugin-style-${index}`));
+      assert.equal((await worker.runOnce()).status, 'completed');
+    }
+    const [style] = store.listCandidates({
       accountId: ACCOUNT_ID,
-      targetRevision: 1,
-      expectedCurrentRevision: 2,
-      basePersona: base,
-      actor: 'revision-test',
-      reason: 'stale CAS fixture'
+      chatKey: 'group:100',
+      status: 'ready'
     });
-    assert.equal(rolledBack.revision, 3);
-    releaseStale(reflectionOutput('plugin-revision-stale', {
-      traitProposals: [{
-        action: 'set',
-        key: 'topic_interests',
-        value: 'stale result',
-        scope: 'global',
-        confidence: 0.95,
-        evidenceRefs: [evidenceRef('plugin-revision-stale')]
-      }]
-    }));
-    const stale = await pending;
-    assert.equal(stale.status, 'cas-conflict');
-    assert.equal(stale.committed, false);
-    assert.equal(store.listJobs().find((job) => job.sessionId === 'plugin-revision-stale').status, 'stale');
-    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 3);
+    assert.equal(style.key, 'communication_style');
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 0);
+    assert.equal(store.reviewCandidate({
+      proposalId: style.proposalId,
+      decision: 'approve',
+      actor: 'revision-test',
+      expectedProfileRevision: 0,
+      basePersonaHash: hashBasePersona(base)
+    }).profileRevision, 1);
+
+    for (let index = 1; index <= 3; index += 1) {
+      store.enqueueObservation(completionEvent(`plugin-language-${index}`));
+      assert.equal((await worker.runOnce()).status, 'completed');
+    }
+    const [language] = store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'ready'
+    });
+    assert.equal(language.key, 'language_preference');
+    const stale = store.reviewCandidate({
+      proposalId: language.proposalId,
+      decision: 'approve',
+      actor: 'revision-test',
+      expectedProfileRevision: 0,
+      basePersonaHash: hashBasePersona(base)
+    });
+    assert.equal(stale.reviewed, false);
+    assert.equal(stale.reason, 'cas-conflict');
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 1);
 
     const context = store.getLearnedSelfContext({
       accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
       basePersona: base
     });
-    assert.equal(context.revision, 3);
-    assert.equal(context.context.communication_style.value, 'concise');
-    assert.equal(context.context.language_preference, undefined);
-    assert.equal(context.context.topic_interests, undefined);
+    assert.equal(context.revision, 1);
+    assert.equal(currentTrait(context.context, 'communication_style').value, 'concise');
+    assert.equal(currentTrait(context.context, 'language_preference'), undefined);
     assert.deepEqual(base, baseSnapshot);
 
     const changedBase = persona({ roleText: 'changed only for stale read' });
@@ -979,7 +1110,7 @@ test('plugin reads the live account head without basePersonaHash and preserves s
       accountId: ACCOUNT_ID,
       basePersona: changedBase
     });
-    assert.equal(staleContext.revision, 3);
+    assert.equal(staleContext.revision, 1);
     assert.equal(staleContext.stale, true);
     assert.deepEqual(staleContext.context, {});
     assert.equal(store.getLearnedSelfRevision({ accountId: 'other-bot' }), 0);
@@ -1073,58 +1204,35 @@ test('budget blocking persists until the next UTC period and then recovers', asy
   }
 });
 
-test('multi-session observation windows aggregate once at the valid-session threshold', async () => {
-  const { store } = fixture({
-    limits: {
-      minValidSessions: 2,
-      observationWindowMs: 10000
-    }
-  });
+test('separate host interaction IDs accumulate bounded v3 sources without shared fake windows', async () => {
+  const { store } = fixture();
   let calls = 0;
+  const poolSizes = [];
   const worker = startWorker(store, async ({ job }) => {
     calls += 1;
-    assert.deepEqual(job.evidence.sessionIds, [
-      'session-window-1',
-      'session-window-2',
-      'session-window-3'
-    ]);
+    poolSizes.push(job.evidence.traitEvidencePool.length);
     return reflectionOutput(job.sessionId);
   });
   try {
-    const first = store.enqueueObservation(completionEvent('session-window-1', {
-      completedAt: 1000
-    }));
-    assert.equal(first.created, false);
-    assert.equal(first.reason, 'threshold');
-    assert.equal(store.listJobs().length, 0);
-
-    const second = store.enqueueObservation(completionEvent('session-window-2', {
-      completedAt: 2000
-    }));
+    const first = store.enqueueObservation(completionEvent('session-window-1'));
+    assert.equal(first.created, true);
+    const second = store.enqueueObservation(completionEvent('session-window-2'));
     assert.equal(second.created, true);
-    assert.equal(second.job.validSessionCount, 2);
-    assert.deepEqual(second.job.evidence.sessionIds, [
-      'session-window-1',
-      'session-window-2'
-    ]);
-    const duplicate = store.enqueueObservation(completionEvent('session-window-2', {
-      eventId: 'different-window-event',
-      completedAt: 3000
-    }));
+    const duplicate = store.enqueueObservation(completionEvent('session-window-2'));
     assert.equal(duplicate.created, false);
     assert.equal(duplicate.reason, 'duplicate');
-    const third = store.enqueueObservation(completionEvent('session-window-3', {
-      completedAt: 4000
-    }));
-    assert.equal(third.created, false);
-    assert.equal(third.reason, 'aggregated');
-    assert.deepEqual(third.job.evidence.sessionIds, [
-      'session-window-1',
-      'session-window-2',
-      'session-window-3'
-    ]);
-    assert.equal((await runQueued(worker, store)).status, 'noop');
-    assert.equal(calls, 1);
+    const third = store.enqueueObservation(completionEvent('session-window-3'));
+    assert.equal(third.created, true);
+    assert.deepEqual(
+      third.job.evidence.traitEvidencePool.map((item) => item.interactionId).sort(),
+      ['interaction-session-window-1', 'interaction-session-window-2', 'interaction-session-window-3']
+    );
+    assert.deepEqual(
+      (await worker.runDrain({ maxJobs: 3 })).map((item) => item.status),
+      ['noop', 'noop', 'noop']
+    );
+    assert.deepEqual([...poolSizes].sort(), [1, 2, 3]);
+    assert.equal(calls, 3);
   } finally {
     await worker.stop();
     store.close();
@@ -1154,7 +1262,7 @@ test('behavior-change evidence bypasses the valid-session threshold', () => {
   }
 });
 
-test('invalid evidence matrix rejects every trait proposal category', () => {
+test('invalid completion evidence keeps otherwise valid candidates ineligible', () => {
   const cases = [
     ['timeout', { resultClass: 'timeout' }],
     ['api_failure', { resultClass: 'api_error' }],
@@ -1185,22 +1293,25 @@ test('invalid evidence matrix rejects every trait proposal category', () => {
       }
     }));
     assert.ok(evidence.invalidEvidenceKinds.includes(kind), `${kind} was not classified`);
-    assert.throws(
-      () => validateReflectionOutput({
+    const output = validateReflectionOutput({
         noteOperations: [],
         traitProposals: [{
           action: 'set',
           key: 'communication_style',
           value: 'concise',
-          scope: 'global',
+          subject: 'user:user-7',
+          scope: 'chat',
+          chatKey: 'group:100',
           confidence: 0.95,
-          evidenceRefs: [`session:session-invalid-${kind}`]
+          supportRefs: [evidenceRef(`session-invalid-${kind}`)],
+          counterRefs: []
         }],
         capabilityGapProposals: [],
         summary: 'invalid evidence'
-      }, { evidence }),
-      (error) => error.code === 'REFLECTION_PROHIBITED_INFERENCE'
-    );
+      }, { evidence });
+    assert.equal(output.traitProposals.length, 1);
+    assert.equal(output.traitProposals[0].evidenceGate.eligible, false);
+    assert.ok(output.traitProposals[0].evidenceGate.reasons.includes('unreliable-completion'));
   }
 });
 
@@ -1223,7 +1334,7 @@ test('completion provenance defaults to chat_run and rejects reflection origins'
   );
 });
 
-test('completion evidence preserves bounded conversation and explicit silence is trait-eligible', () => {
+test('completion evidence preserves structured human sources without inferring preference from silence', () => {
   const event = completionEvent('session-evidence', {
     resultClass: 'explicit_silence',
     actionSummary: {
@@ -1240,8 +1351,14 @@ test('completion evidence preserves bounded conversation and explicit silence is
       outbound: { attempted: 0, succeeded: 0, failed: 0, unknown: 0, held: 0 },
       conversationEvidence: [{
         evidenceId: 'message:m1',
+        sourceRecordType: 'message',
+        sourceRecordId: 'local-m1',
         messageId: 'm1',
+        platformMessageId: 'platform-m1',
         senderId: 'user-1',
+        originalSourceId: 'root-m1',
+        interactionId: 'interaction-m1',
+        topicId: 'topic-m1',
         role: 'user',
         at: 1000,
         text: '我今天想聊摄影',
@@ -1251,6 +1368,8 @@ test('completion evidence preserves bounded conversation and explicit silence is
   });
   const normalized = normalizeCompletionObservation(event);
   assert.equal(normalized.traitEligible, true);
+  assert.equal(normalized.explicitPreference, false);
+  assert.equal(normalized.conversationEvidence[0].userEvidence, true);
   assert.equal(normalized.conversationEvidence[0].text, '我今天想聊摄影');
   assert.ok(normalized.evidenceIds.includes('message:m1'));
 });
@@ -1316,7 +1435,7 @@ test('reflection worker sends bounded conversation, current profile, and Noteboo
   }
 });
 
-test('bounded_auto accepts extended preference keys and repeats are a noop', async () => {
+test('bounded_auto accumulates extended preference keys without bypassing review', async () => {
   const { store } = fixture();
   const base = persona();
   const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {
@@ -1336,14 +1455,23 @@ test('bounded_auto accepts extended preference keys and repeats are a noop', asy
       mode: 'bounded_auto',
       basePersona: base
     });
-    assert.equal(first.profileRevision, 1);
+    assert.equal(first.profileRevision, 0);
+    assert.equal(first.jobStatus, 'ready');
     store.enqueueObservation(completionEvent('topic-2'));
     const second = await runQueued(worker, store, {
       mode: 'bounded_auto',
       basePersona: base
     });
-    assert.equal(second.profileRevision, 1);
-    assert.equal(second.jobStatus, 'noop');
+    assert.equal(second.profileRevision, 0);
+    assert.equal(second.jobStatus, 'ready');
+    const [candidate] = store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'pending'
+    });
+    assert.equal(candidate.key, 'topic_interests');
+    assert.equal(candidate.independentRoots.length, 2);
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 0);
   } finally {
     await worker.stop('test');
     store.close();

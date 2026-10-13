@@ -180,6 +180,13 @@ test('disabled self-evolution serves historical reads without creating a new dat
     source: { kind: 'console', accountId: 'default', actor: 'seed' },
     idempotencyKey: 'p7-seed-1'
   });
+  seed.append({
+    accountId: 'default',
+    scope: 'global',
+    content: '我以后遇到发送通道失败就30分钟后重试发送。',
+    source: { kind: 'console', accountId: 'default', actor: 'seed' },
+    idempotencyKey: 'p7-seed-operational'
+  });
   seed.close();
   const notebookMtime = fs.statSync(NOTEBOOK_FILE).mtimeMs;
   assert.equal(fs.existsSync(REFLECTION_FILE), false, '前置条件：不应存在反思库');
@@ -203,6 +210,16 @@ test('disabled self-evolution serves historical reads without creating a new dat
     assert.equal(listed.json.disabled, true);
     assert.equal(listed.json.count, 1);
     assert.equal(listed.json.notes[0].content, '历史笔记：停用后仍应可读');
+    const quarantine = await request(port, 'GET', '/api/self-evolution/notebook/quarantine');
+    assert.equal(quarantine.status, 200);
+    assert.equal(quarantine.json.disabled, true);
+    assert.equal(quarantine.json.entries.length, 1);
+    assert.equal(quarantine.json.entries[0].recallable, false);
+    assert.equal(quarantine.json.entries[0].type, 'operational');
+    assert.equal('body' in quarantine.json.entries[0], false);
+    assert.equal('content' in quarantine.json.entries[0], false);
+    assert.equal(fs.statSync(NOTEBOOK_FILE).mtimeMs, notebookMtime,
+      'disabled quarantine read must not change Notebook data');
 
     const jobs = await request(port, 'GET', '/api/self-evolution/reflection/jobs');
     assert.equal(jobs.status, 200);
@@ -248,6 +265,11 @@ test('write routes require a header/cookie credential and reject query-token aut
       { body: { enabled: true } });
     assert.equal(queryOnly.status, 401, '写路由不接受 URL token');
     assert.equal(queryOnly.text.includes(token), false);
+    const candidateQueryOnly = await request(port, 'POST',
+      `/api/self-evolution/reflection/candidates/refprop_${'1'.repeat(24)}/review?token=${encodeURIComponent(token)}`,
+      { body: { decision: 'approve', chatKey: 'group:5005', expectedRevision: 0, confirm: true } });
+    assert.equal(candidateQueryOnly.status, 401, 'candidate review must reject query-only credentials');
+    assert.equal(candidateQueryOnly.text.includes(token), false);
 
     // 读路由保持既有兼容：query token 仍然可以
     const readWithQuery = await request(port, 'GET',
@@ -513,20 +535,21 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
   const accountId = '50005';
   // 先用与 app 相同的配置落地，再按 app 的口径算 Base Persona hash 造种子批次。
   const cfg = await buildConfig({ selfId: accountId, selfEvolution: true, reflection: true });
+  cfg.allow.groups = ['5005', '5006'];
   updateConfig(cfg);
   const basePersona = normalizedBasePersona(getConfig().persona);
   const baseHash = hashBasePersona(basePersona);
   const seed = new ReflectionStore({
     dataDir,
     filename: REFLECTION_FILE,
-    now: (() => { let t = 5000; return () => ++t; })(),
+    now: (() => { let t = Date.now(); return () => ++t; })(),
     limits: {
       leaseMs: 60000,
       workerLeaseMs: 60000,
-      backoffMs: 0,
-      autoApplyBehaviorTraits: true
+      backoffMs: 0
     }
   });
+  const notebook = new NotebookStore({ dataDir, filename: NOTEBOOK_FILE });
   const generation = seed.beginWorkerGeneration({ owner: 'p7-seed' });
   for (const suffix of ['a', 'b', 'c']) {
     seed.enqueueObservation({
@@ -539,9 +562,23 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
       chatKey: 'group:5005',
       pluginGeneration: 1,
       resultClass: 'done',
-      actionSummary: { sentCount: 1, finishReason: 'finish', outboundAttempted: true },
+      schemaVersion: 3,
+      evidenceVersion: 3,
+      triggerKind: 'human_message',
+      topicId: 'p7-topic',
+      interactionId: `p7-interaction-${suffix}`,
+      actionSummary: {
+        sentCount: 0, finishReason: 'finish', outboundAttempted: false,
+        evidenceVersion: 3,
+        conversationEvidence: [{
+          evidenceId: `message:m-${suffix}`, role: 'user', senderId: 'p7-user',
+          messageId: `m-${suffix}`, sourceRecordType: 'message', sourceRecordId: `m-${suffix}`,
+          originalSourceId: `m-${suffix}`, interactionId: `p7-interaction-${suffix}`,
+          topicId: 'p7-topic', text: 'Prefer concise explanations in this chat.', at: Date.now()
+        }]
+      },
       sourceMessageIds: [`m-${suffix}`],
-      completedAt: 5000
+      completedAt: Date.now()
     });
     const claimed = seed.claimNextJob({
       owner: 'p7-seed',
@@ -556,26 +593,28 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
       generation,
       mode: 'bounded_auto',
       basePersonaHash: baseHash,
-      expectedProfileRevision: suffix === 'c' ? 1 : 0,
+      expectedProfileRevision: 0,
+      notebook,
       output: {
         noteOperations: [{
           operation: 'append',
-          scope: 'global',
+          scope: 'chat',
+          chatKey: 'group:5005',
           content: `P7 审批写入的笔记 ${suffix}`,
           tags: ['p7'],
           evidenceRefs: [`session:p7-session-${suffix}`]
         }],
-        // 只有 b 批次带 trait：审批后应生成新的 Learned Self 版本（head 0 → 1）。
-        traitProposals: suffix === 'b'
-          ? [{
+        traitProposals: [{
             action: 'set',
             key: 'communication_style',
             value: 'concise',
-            scope: 'global',
+            subject: 'user:p7-user',
+            scope: 'chat',
+            chatKey: 'group:5005',
             confidence: 0.8,
-            evidenceRefs: ['session:p7-session-b']
-          }]
-          : [],
+            supportRefs: claimed.job.evidence.traitEvidencePool.map((item) => item.sourceRef),
+            counterRefs: []
+          }],
         capabilityGapProposals: [],
         summary: `p7 seed batch ${suffix}`
       }
@@ -583,12 +622,15 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
     assert.equal(committed.accepted, true);
   }
   const proposals = seed.listProposals({ accountId, limit: 10 });
-  assert.equal(proposals.length, 4, 'a/b/c 三个批次：3 条 note + 1 条 trait');
+  assert.equal(proposals.length, 6, 'a/b/c 三个批次：3 条 note + 3 条同一候选提案');
   const batchIds = [...new Set(proposals.map((proposal) => proposal.batchId))];
   assert.equal(batchIds.length, 3);
+  const candidate = seed.listCandidates({ accountId, chatKey: 'group:5005' })[0];
+  assert.equal(candidate.eligible, true);
+  notebook.close();
   seed.close();
 
-  const { port, stop } = await launchApp(cfg);
+  const { app, port, stop } = await launchApp(cfg);
   try {
     const jobs = await request(port, 'GET', '/api/self-evolution/reflection/jobs');
     assert.equal(jobs.status, 200);
@@ -596,10 +638,60 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
 
     const proposalsRead = await request(port, 'GET', '/api/self-evolution/reflection/proposals');
     assert.equal(proposalsRead.status, 200);
-    assert.equal(proposalsRead.json.count, 4);
+    assert.equal(proposalsRead.json.count, 6);
 
     const gaps = await request(port, 'GET', '/api/self-evolution/reflection/gaps');
     assert.equal(gaps.status, 200);
+
+    const candidates = await request(port, 'GET',
+      '/api/self-evolution/reflection/candidates?chatKey=group:5005');
+    assert.equal(candidates.status, 200);
+    assert.equal(candidates.json.entries.length, 1);
+    assert.equal(candidates.json.entries[0].eligible, true);
+    const candidatePath = `/api/self-evolution/reflection/candidates/${candidate.proposalId}/review`;
+    const missingConfirm = await request(port, 'POST', candidatePath, {
+      body: { decision: 'approve', chatKey: 'group:5005', expectedRevision: 0 }
+    });
+    assert.equal(missingConfirm.status, 409);
+    const crossChat = await request(port, 'POST', candidatePath, {
+      body: { decision: 'approve', chatKey: 'group:5006', expectedRevision: 0, confirm: true }
+    });
+    assert.equal(crossChat.status, 403);
+    const missingSourceScope = await request(port, 'POST', candidatePath, {
+      body: { decision: 'approve', expectedRevision: 0, confirm: true }
+    });
+    assert.equal(missingSourceScope.status, 400);
+    const invalidRevision = await request(port, 'POST', candidatePath, {
+      body: { decision: 'approve', chatKey: 'group:5005', expectedRevision: '0', confirm: true }
+    });
+    assert.equal(invalidRevision.status, 400);
+    const staleCandidate = await request(port, 'POST', candidatePath, {
+      body: { decision: 'approve', chatKey: 'group:5005', expectedRevision: 99, confirm: true }
+    });
+    assert.equal(staleCandidate.status, 409);
+    assert.equal(staleCandidate.json.code, 'REFLECTION_CAS_CONFLICT');
+    const beforeApproval = await request(port, 'GET', '/api/self-evolution/reflection/profiles');
+    assert.equal(beforeApproval.json.headRevision, 0, 'stale candidate review cannot create a profile');
+    const selfInfo = app.onebot.selfInfo;
+    app.onebot.selfInfo = null;
+    await request(port, 'POST', '/api/config', { body: { onebot: { selfId: '' } } });
+    const missingHostAccount = await request(port, 'POST', candidatePath, {
+      body: { decision: 'approve', chatKey: 'group:5005', expectedRevision: 0, confirm: true }
+    });
+    assert.equal(missingHostAccount.status, 409);
+    assert.equal(missingHostAccount.json.code, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED');
+    await request(port, 'POST', '/api/config', { body: { onebot: { selfId: accountId } } });
+    app.onebot.selfInfo = selfInfo;
+    const candidateAfterDeniedWrites = await request(port, 'GET',
+      '/api/self-evolution/reflection/candidates?chatKey=group:5005');
+    assert.equal(candidateAfterDeniedWrites.json.entries[0].eligible, true);
+    assert.equal(candidateAfterDeniedWrites.json.entries[0].currentProfileRevision, 0);
+    const adopted = await request(port, 'POST', candidatePath, {
+      body: { decision: 'approve', chatKey: 'group:5005', expectedRevision: 0, confirm: true }
+    });
+    assert.equal(adopted.status, 200);
+    assert.equal(adopted.json.reviewed, true);
+    assert.equal(adopted.json.profileRevision, 1);
 
     const profiles = await request(port, 'GET', '/api/self-evolution/reflection/profiles');
     assert.equal(profiles.status, 200);
@@ -641,6 +733,9 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
           action: 'set',
           key: 'communication_style',
           value: '简短',
+          subject: 'user:p7-user',
+          scope: 'chat',
+          chatKey: 'group:5005',
           reason: 'P7 correction',
           actor: 'p7-admin',
           confirm: true
@@ -659,7 +754,7 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
       '/api/self-evolution/reflection/metrics');
     assert.equal(metrics.status, 200);
     assert.equal(metrics.json.injectedCount, 1);
-    assert.equal(metrics.json.globalPromotionCount >= 1, true);
+    assert.equal(metrics.json.globalPromotionCount, 0, 'chat-scoped adoption never widens into global');
   } finally {
     await stop();
   }

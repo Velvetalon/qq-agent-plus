@@ -87,7 +87,6 @@ it('also blocks a chat after an uncertain proactive send with no input lease', a
 
 it('incident pilot quarantines an unknown write without blocking later messages', async (t) => {
   const caseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-delivery-pilot-'));
-  t.after(() => fs.rmSync(caseDir, { recursive: true, force: true }));
   const cfg = structuredClone(DEFAULT_CONFIG);
   cfg.runtime.mode = 'active';
   cfg.allow.groups = ['1'];
@@ -134,6 +133,7 @@ it('incident pilot quarantines an unknown write without blocking later messages'
     globalThis.fetch = oldFetch;
     await runner.abortAll();
     store.close();
+    fs.rmSync(caseDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   globalThis.fetch = async () => {
     calls++;
@@ -164,7 +164,6 @@ it('incident pilot quarantines an unknown write without blocking later messages'
 
 it('manual incident control blocks model work while preserving unread input', async (t) => {
   const caseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-delivery-blocked-'));
-  t.after(() => fs.rmSync(caseDir, { recursive: true, force: true }));
   const cfg = structuredClone(DEFAULT_CONFIG);
   cfg.runtime.mode = 'active';
   cfg.allow.groups = ['1'];
@@ -201,6 +200,7 @@ it('manual incident control blocks model work while preserving unread input', as
     globalThis.fetch = oldFetch;
     await runner.abortAll();
     store.close();
+    fs.rmSync(caseDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   globalThis.fetch = async () => {
     modelCalls++;
@@ -215,7 +215,6 @@ it('manual incident control blocks model work while preserving unread input', as
 
 it('keeps explicit OneBot business rejection retryable without holding the chat', async (t) => {
   const caseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-delivery-definite-'));
-  t.after(() => fs.rmSync(caseDir, { recursive: true, force: true }));
   const cfg = structuredClone(DEFAULT_CONFIG);
   cfg.runtime.mode = 'active';
   cfg.allow.groups = ['1'];
@@ -252,6 +251,7 @@ it('keeps explicit OneBot business rejection retryable without holding the chat'
     globalThis.fetch = oldFetch;
     await runner.abortAll();
     store.close();
+    fs.rmSync(caseDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   globalThis.fetch = async () => {
     calls++;

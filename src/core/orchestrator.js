@@ -116,6 +116,7 @@ import {
   SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID,
   parseSourceRef
 } from '../plugins/self-evolution/retrieval-provider.js';
+import { LEARNED_SELF_CONTEXT_PROVIDER_ID } from '../plugins/self-evolution/learned-self-provider.js';
 import {
   preflightToolCalls,
   commitStaySilent,
@@ -137,6 +138,11 @@ import {
   buildSocialPlannerPrompts,
   buildSocialReplyerPrompts
 } from '../conversation/prompts.js';
+import {
+  buildSocialMaterialRefs,
+  validateSocialMaterialRefs
+} from '../conversation/context.js';
+import { buildSocialCompletionEvent } from '../conversation/events.js';
 
 function handoffParticipantIds(triggerEntries) {
   return [...new Set((triggerEntries || [])
@@ -387,7 +393,8 @@ export class Orchestrator {
     random = Math.random,
     getIdentityPilot = null,
     getIncidentPilot = null,
-    pluginManager = null
+    pluginManager = null,
+    validateSocialMaterials = null
   }) {
     this.store = store;
     this.memory = memory;
@@ -402,6 +409,9 @@ export class Orchestrator {
       : (() => null);
     this.emit = typeof emit === 'function' ? emit : ((b) => b.emit.bind(b))(createEventBus());
     this.pluginManager = pluginManager || new PluginManager({ configProvider: getConfig, eventStore: store });
+    this.validateSocialMaterials = typeof validateSocialMaterials === 'function'
+      ? validateSocialMaterials
+      : null;
     if (!pluginManager) {
       this.pluginManager.registerAll([
         runtimeControlPlugin,
@@ -509,7 +519,7 @@ export class Orchestrator {
     return {
       enabled,
       chatKey: scope.chatKey,
-      snapshot: enabled && state ? state.snapshot(scope) : null,
+      snapshot: state ? state.snapshot(scope) : null,
       intents: state ? state.listIntents(scope) : []
     };
   }
@@ -1011,7 +1021,7 @@ export class Orchestrator {
     return task;
   }
 
-  async #wake(chatKey, { proactive = false, manual = false, waitingSessionId = null, wakeNote = '', paced = false, socialIntentId = null } = {}) {
+  async #wake(chatKey, { proactive = false, manual = false, waitingSessionId = null, wakeNote = '', paced = false, socialIntentId = null, socialLeaseId = null } = {}) {
     if (!canRun(chatKey)) { if (waitingSessionId) this.#discardWaiting(waitingSessionId); return; }
     if (!this.#chatRuntimeDecision(chatKey).allowed) {
       if (waitingSessionId) this.#discardWaiting(waitingSessionId);
@@ -1037,6 +1047,19 @@ export class Orchestrator {
     // 未命中时只确认本次判定的快照；运行批次在模型处理成功后确认。
     const cfgNow = getConfig();
     const conversation = conversationConfigForChat(chatKey);
+    if (socialIntentId && conversation.mode !== 'social') {
+      const scope = this.#socialScope(chatKey);
+      if (SocialStateStore.isInitialized?.(this.store.db)) {
+        this.getSocialState(chatKey, { create: false })?.finishIntent({
+          ...scope,
+          id: String(socialIntentId),
+          leaseId: socialLeaseId,
+          status: 'cancelled',
+          reason: 'social mode disabled before execution'
+        });
+      }
+      return;
+    }
     let pendingEntries = [];
     let tierResult = null;
     if (!proactive) {
@@ -1187,6 +1210,7 @@ export class Orchestrator {
       session.triggerReason = socialIntentId ? '到期的主持端社交意图' : '社交参与规划';
       session.contextTier = null;
       session.socialIntentId = socialIntentId ? String(socialIntentId) : null;
+      session.socialIntentLeaseId = socialIntentId ? String(socialLeaseId || '') : null;
     }
     this.sessions.update(session.id);
     if (createdSession) {
@@ -1213,7 +1237,7 @@ export class Orchestrator {
 
     try {
       const runResult = await this.#runAgent(session, { kind, chatId, chatKey, triggerEntries, proactive, wakeNote, paced, seq,
-        manual, socialIntentId, contextLimit: tierResult.count, tierInfo: tierResult, conversation, signal: controller.signal });
+        manual, socialIntentId, socialLeaseId, contextLimit: tierResult.count, tierInfo: tierResult, conversation, signal: controller.signal });
       controller.signal.throwIfAborted();
       session.outbound = summarizeOutbound(session, this.store);
       const explicitSilence = session.termination?.kind === 'explicit_silence'
@@ -1221,7 +1245,23 @@ export class Orchestrator {
       const status = explicitSilence ? 'noreply' : (session.sent.length > 0 ? 'done' : 'noreply');
       const resultClass = explicitSilence ? 'explicit_silence' : status;
       const runSnapshot = this.pluginRunSnapshots.get(session.id);
-      const conversationEvidence = [
+      const isSocialRun = conversation.mode === 'social' && session.socialAudit;
+      const uncertainDelivery = this.store.hasUncertainEffects(session.leaseId);
+      const socialDeliveryState = !isSocialRun || session.outbound.attempted === 0
+        ? 'not_attempted'
+        : uncertainDelivery ? (session.socialDelivered.length ? 'partial' : 'unknown')
+          : session.outbound.failed > 0
+            ? (session.outbound.succeeded > 0 ? 'partial' : 'failed')
+            : 'sent';
+      const socialEvent = isSocialRun ? buildSocialCompletionEvent({
+        session,
+        triggerEntries,
+        state: this.getSocialState(chatKey),
+        scope: this.#socialScope(chatKey),
+        selfId: this.onebot.selfId,
+        deliveryState: socialDeliveryState
+      }) : null;
+      const conversationEvidence = socialEvent?.conversationEvidence || [
         ...triggerEntries.slice(-20).map((entry) => ({
           evidenceId: `message:${entry.id}`,
           messageId: entry.id,
@@ -1250,7 +1290,7 @@ export class Orchestrator {
         chatKey,
         resultClass,
         actionSummary: {
-          evidenceVersion: 2,
+          ...(socialEvent || { evidenceVersion: 2 }),
           sentCount: session.sent.length,
           finishReason: session.finishReason,
           outboundAttempted: session.outbound.attempted > 0,
@@ -1258,7 +1298,7 @@ export class Orchestrator {
           termination: session.termination,
           outbound: session.outbound
         },
-        evidenceVersion: 2,
+        ...(socialEvent || { schemaVersion: 2, evidenceVersion: 2 }),
         conversationEvidence,
         sourceMessageIds: triggerEntries.map((entry) => entry.id)
       });
@@ -1309,12 +1349,52 @@ export class Orchestrator {
           details: { rounds: session.rounds, sentCount: session.sent.length }
         });
       }
-      if (lease) {
+      {
         const runSnapshot = this.pluginRunSnapshots.get(session.id);
         const failureClass = ['TIMEOUT', 'ABORT_ERR', 'UND_ERR_CONNECT_TIMEOUT']
           .includes(String(error?.code || '').toUpperCase())
           ? (String(error?.code || '').toUpperCase() === 'TIMEOUT' ? 'timeout' : 'aborted')
           : 'error';
+        const isSocialFailure = conversation.mode === 'social' && session.socialAudit;
+        const uncertain = this.store.hasUncertainEffects(session.leaseId || session.id);
+        const failureDeliveryState = !isSocialFailure || session.outbound.attempted === 0
+          ? 'not_attempted'
+          : uncertain ? (session.socialDelivered?.length ? 'partial' : 'unknown')
+            : session.outbound.failed > 0
+              ? (session.outbound.succeeded > 0 ? 'partial' : 'failed')
+              : 'sent';
+        const socialEvent = isSocialFailure ? buildSocialCompletionEvent({
+          session,
+          triggerEntries,
+          state: this.getSocialState(chatKey),
+          scope: this.#socialScope(chatKey),
+          selfId: this.onebot.selfId,
+          deliveryState: failureDeliveryState
+        }) : null;
+        const conversationEvidence = socialEvent?.conversationEvidence || [
+          ...triggerEntries.slice(-20).map((entry) => ({
+            evidenceId: `message:${entry.id}`,
+            sourceRecordType: 'message',
+            sourceRecordId: String(entry.id),
+            messageId: entry.id,
+            senderId: entry.senderId,
+            role: entry.self ? 'assistant' : 'user',
+            at: Number(entry.ts) || 0,
+            text: entry.text,
+            confirmed: true
+          })),
+          ...session.sent.slice(-8).map((entry, index) => ({
+            evidenceId: `outbound:${session.id}:${index}`,
+            sourceRecordType: 'outbound',
+            sourceRecordId: String(entry.messageId || `${session.id}:${index}`),
+            messageId: entry.messageId,
+            senderId: this.onebot.selfId,
+            role: 'assistant',
+            at: Number(entry.at) || 0,
+            text: entry.text,
+            confirmed: true
+          }))
+        ];
         const completionEvents = this.pluginManager.buildCompletionEvents(runSnapshot, {
           accountId: this.onebot.selfId,
           sessionId: session.id,
@@ -1322,7 +1402,7 @@ export class Orchestrator {
           chatKey,
           resultClass: failureClass,
           actionSummary: {
-            evidenceVersion: 2,
+            ...(socialEvent || { evidenceVersion: 2 }),
             sentCount: session.sent.length,
             finishReason: session.finishReason,
             outboundAttempted: session.outbound.attempted > 0,
@@ -1337,30 +1417,8 @@ export class Orchestrator {
               failed: true
             }
           },
-          conversationEvidence: [
-            ...triggerEntries.slice(-20).map((entry) => ({
-              evidenceId: `message:${entry.id}`,
-              sourceRecordType: 'message',
-              sourceRecordId: String(entry.id),
-              messageId: entry.id,
-              senderId: entry.senderId,
-              role: entry.self ? 'assistant' : 'user',
-              at: Number(entry.ts) || 0,
-              text: entry.text,
-              confirmed: true
-            })),
-            ...session.sent.slice(-8).map((entry, index) => ({
-              evidenceId: `outbound:${session.id}:${index}`,
-              sourceRecordType: 'outbound',
-              sourceRecordId: String(entry.messageId || `${session.id}:${index}`),
-              messageId: entry.messageId,
-              senderId: this.onebot.selfId,
-              role: 'assistant',
-              at: Number(entry.at) || 0,
-              text: entry.text,
-              confirmed: true
-            }))
-          ],
+          ...(socialEvent || { schemaVersion: 2, evidenceVersion: 2 }),
+          conversationEvidence,
           sourceMessageIds: triggerEntries.map((entry) => entry.id)
         });
         // 时间窗口关闭打断在途批次：无效果（模型没说话、无发送）时直接归档（ack）——
@@ -1368,11 +1426,13 @@ export class Orchestrator {
         // test/time-control-integration.test.mjs "prevents retry" 钉住了该语义），
         // 管理员可见性由上面的 info 级 incident 记录兜底。有发送效果时走 failLease
         // 进 held/failed 人工核对，不自动重试。
-        if (timeClosed && !this.store.hasEffects(lease.id)) this.store.ackLease(lease.id);
-        else this.store.failLease(lease.id, session.error, {
-          retryable: !timeClosed && (isRetryableError(error) || controller.signal.aborted),
-          completionEvents
-        });
+        if (lease) {
+          if (timeClosed && !this.store.hasEffects(lease.id)) this.store.ackLease(lease.id, { completionEvents });
+          else this.store.failLease(lease.id, session.error, {
+            retryable: !timeClosed && (isRetryableError(error) || controller.signal.aborted),
+            completionEvents
+          });
+        } else this.store.completeRun(session.leaseId || session.id, { completionEvents });
       }
       const status = timeClosed ? 'aborted' : 'error';
       this.sessions.finish(session.id, status);
@@ -1586,7 +1646,7 @@ export class Orchestrator {
   }
 
   async #runSocialAgent({
-    session, kind, chatId, chatKey, triggerEntries, proactive, manual, socialIntentId,
+    session, kind, chatId, chatKey, triggerEntries, proactive, manual, socialIntentId, socialLeaseId,
     accountId, cfg, conversationCfg, runSnapshot, toolDefs, signal, chatName, selfNickname
   }) {
     const scope = this.#socialScope(chatKey);
@@ -1612,8 +1672,13 @@ export class Orchestrator {
     state.observe({ ...scope, messages: orderedMessages, selfId: scope.accountId });
     let scene = state.snapshot(scope);
     const intent = socialIntentId
-      ? state.listIntents(scope).find((item) => String(item.id) === String(socialIntentId)) || null
+      ? state.getIntent({ ...scope, id: socialIntentId })
       : null;
+    if (socialIntentId && (!intent || intent.status !== 'leased' || intent.leaseId !== String(socialLeaseId || ''))) {
+      session.finishReason = '社交意图租约已失效';
+      session.socialAudit = { decision: 'invalid', dispatchBlocked: 'intent_lease_invalid' };
+      return { social: true, silent: true };
+    }
     session.socialIntentId = socialIntentId ? String(socialIntentId) : null;
     session.socialDelivered = [];
     session.socialUsage = {
@@ -1626,7 +1691,7 @@ export class Orchestrator {
     };
     session.socialAudit = {
       version: 1,
-      interactionId: String(session.id),
+      interactionId: '',
       decision: 'invalid',
       topicId: null,
       targetMessageId: null,
@@ -1635,7 +1700,12 @@ export class Orchestrator {
       sourceMessageIds: triggerMessageIds.slice(0, 8),
       proactive: Boolean(socialIntentId),
       triggerKind: manual ? 'manual' : (socialIntentId ? 'social_intent' : 'human_message'),
-      intentId: socialIntentId ? String(socialIntentId) : null
+      intentId: socialIntentId ? String(socialIntentId) : null,
+      targetMessageIds: [],
+      sourceRefs: [],
+      materialRefs: [],
+      deliveryState: 'not_attempted',
+      delivered: false
     };
     session.conversationMode = 'social';
     session.model = cfg.api.model;
@@ -1686,7 +1756,7 @@ export class Orchestrator {
       if (socialIntentId && !intent) {
         session.socialAudit.decision = 'invalid';
         session.socialAudit.dispatchBlocked = 'intent_missing';
-        state.finishIntent({ ...scope, id: String(socialIntentId), status: 'cancelled', reason: 'intent missing at execution' });
+        state.finishIntent({ ...scope, id: String(socialIntentId), leaseId: socialLeaseId, status: 'cancelled', reason: 'intent missing at execution' });
       }
       session.finishReason = socialIntentId ? '社交意图不存在，已安全结束' : '没有新人类消息或到期意图';
       return { social: true, silent: true };
@@ -1700,7 +1770,7 @@ export class Orchestrator {
         ? (intent.sourceMessageIds || []).map((id) => this.store.findByLocalId(chatKey, id)).filter(visible)
         : [];
       if (intent && dueSourceMessages.length !== (intent.sourceMessageIds || []).length) {
-        state.finishIntent({ ...scope, id: String(intent.id), status: 'cancelled', reason: 'source message unavailable' });
+        state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'cancelled', reason: 'source message unavailable' });
         session.socialAudit.dispatchBlocked = 'source_unavailable';
         session.finishReason = '社交意图的原始消息已不在会话存档中';
         return { social: true, silent: true };
@@ -1708,6 +1778,12 @@ export class Orchestrator {
       const plannerMessages = [...new Map([...orderedMessages, ...dueSourceMessages]
         .map((entry) => [String(entry.id), entry])).values()]
         .sort((left, right) => Number(left.id) - Number(right.id));
+      let knownSourceRefs = [
+        ...plannerMessages.filter((entry) => !entry.self)
+          .map((entry) => state.sourceRefForMessage({ ...scope, messageId: entry.id }))
+          .filter(Boolean),
+        ...state.knownExternalSourceRefs(scope)
+      ];
       const plannerPrompt = buildSocialPlannerPrompts({
         persona: cfg.persona,
         selfNickname,
@@ -1717,6 +1793,7 @@ export class Orchestrator {
         scene,
         messages: plannerMessages,
         triggerMessageIds,
+        sourceRefs: knownSourceRefs,
         dueIntent: intent,
         now: Date.now()
       });
@@ -1738,6 +1815,36 @@ export class Orchestrator {
       session.promptChars = plannerPrompt.system.length + plannerPrompt.user.length;
       session.sessionsPhase = 'planner';
       this.sessions.update(session.id);
+      const recordedExternalIds = new Set();
+      const recordSocialReadResult = ({ toolName, toolCallId, text }) => {
+        const definition = plannerTools.find((tool) => tool.name === toolName);
+        if (!['web_search', 'web_fetch'].includes(toolName) && definition?.socialSource !== true) return null;
+        const safeText = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 2400);
+        if (!safeText || recordedExternalIds.size >= 4) return null;
+        const sourceId = 'social-read:' + crypto.createHash('sha256')
+          .update(scope.accountId).update('\0').update(scope.chatKey).update('\0')
+          .update(String(session.leaseId || session.id)).update('\0').update(String(toolCallId || toolName))
+          .update('\0').update(crypto.createHash('sha256').update(safeText).digest('hex'))
+          .update('\0').update(String(toolName))
+          .digest('hex').slice(0, 32);
+        const ref = state.recordExternalObservation({
+          ...scope,
+          sourceId,
+          sourceRefs: [{ kind: 'read-tool', id: String(toolCallId || toolName).slice(0, 120), revision: 1 }],
+          contentText: safeText,
+          expiresAt: Date.now() + Math.max(60000, Number(socialConfig.intentTtlMs) || 21600000)
+        });
+        recordedExternalIds.add(sourceId);
+        return ref;
+      };
+      const resolveSocialImageSources = ({ toolName, args }) => {
+        if (toolName !== 'get_message_images') return [];
+        const source = this.store.findByMid(chatKey, args?.messageId);
+        if (!source || source.self
+          || !plannerMessages.some((item) => String(item.id) === String(source.id))) return [];
+        const ref = state.sourceRefForMessage({ ...scope, messageId: source.id });
+        return ref ? [ref] : [];
+      };
       const plannerResult = await this.#runSocialPhase({
         phase: 'planner',
         session,
@@ -1749,21 +1856,91 @@ export class Orchestrator {
         signal: runSignal,
         chatKey,
         maxRounds: Math.max(1, Math.min(5, Number(socialConfig.maxPlannerRounds) || 3)),
+        onReadResult: recordSocialReadResult,
+        onImageResult: resolveSocialImageSources,
         temperature: 0.2
       });
-      const validated = validateSocialDecision(plannerResult.content, {
+      const externalRefsAfterPlanning = state.knownExternalSourceRefs(scope);
+      knownSourceRefs = [
+        ...knownSourceRefs.filter((ref) => ref.kind !== 'external_observation'),
+        ...externalRefsAfterPlanning
+      ].slice(0, 24);
+      let validated = validateSocialDecision(plannerResult.content, {
         snapshot: scene,
-        knownMessages: plannerMessages
+        knownMessages: plannerMessages,
+        knownSourceRefs
       });
+      if (!validated.ok) {
+        const repairMessages = [
+          {
+            role: 'system',
+            content: '仅修复结构，不重新规划。根据同一 scene 与 source ID，输出一个符合指定 JSON schema 的有效决定；不要调用工具，不要解释。'
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              invalidReason: validated.reason,
+              rawDecision: String(plannerResult.content || '').slice(0, 4000),
+              allowedActions: ['reply', 'share', 'react', 'listen', 'wait', 'close'],
+              sourceRefs: knownSourceRefs.slice(0, 16)
+            })
+          }
+        ];
+        const repaired = await this.#runSocialPhase({
+          phase: 'planner',
+          session,
+          messages: repairMessages,
+          toolDefs: [],
+          ctx: makeToolContext(plannerContext),
+          cfg,
+          runSnapshot,
+          signal: runSignal,
+          chatKey,
+          maxRounds: 1,
+          maxRunTokens: effectiveRunLimits(cfg).maxRunTokens,
+          temperature: 0.1
+        });
+        session.socialAudit.validationRepairCount = 1;
+        validated = validateSocialDecision(repaired.content, {
+          snapshot: scene,
+          knownMessages: plannerMessages,
+          knownSourceRefs
+        });
+      }
       if (!validated.ok) {
         session.socialAudit.decision = 'invalid';
         session.socialAudit.validation = validated.reason;
         session.socialPhases.planner.decision = { action: 'invalid', reason: validated.reason };
-        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'planner produced no valid decision' });
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'completed', reason: 'planner produced no valid decision' });
         session.finishReason = '参与规划未能给出有效决定';
         return { social: true, silent: true, invalidDecision: true };
       }
       finalDecision = validated.value;
+      for (const messageId of finalDecision.sourceMessageIds) {
+        const ref = state.sourceRefForMessage({ ...scope, messageId });
+        if (ref && !finalDecision.sourceRefs.some((existing) => JSON.stringify(existing) === JSON.stringify(ref))) {
+          finalDecision.sourceRefs.push(ref);
+        }
+      }
+      if (finalDecision.sourceRefs.length) {
+        const checked = state.validateSourceRefs({ ...scope, refs: finalDecision.sourceRefs });
+        if (checked.invalidRefs.length) {
+          session.socialAudit.decision = 'invalid';
+          session.socialAudit.validation = 'unverified_source_ref';
+          if (intent) state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'completed', reason: 'planner cited an unavailable source' });
+          return { social: true, silent: true, invalidDecision: true };
+        }
+        finalDecision.sourceRefs = checked.valid;
+        for (const ref of checked.valid) {
+          if (ref.kind === 'message' && !finalDecision.sourceMessageIds.includes(ref.id)) finalDecision.sourceMessageIds.push(ref.id);
+        }
+      }
+      const plannerImages = (plannerResult.sourcedMaterials || [])
+        .filter((item) => item.kind === 'image'
+          && item.sourceRefs?.length
+          && item.sourceRefs.every((ref) => finalDecision.sourceRefs.some((selected) =>
+            JSON.stringify(selected) === JSON.stringify(ref))))
+        .slice(0, 4);
       if (!finalDecision.topicId && intent?.topicId
         && scene.topics.some((topic) => String(topic.id) === String(intent.topicId))) {
         finalDecision.topicId = String(intent.topicId);
@@ -1788,10 +1965,10 @@ export class Orchestrator {
           const owner = existingOwner.get(String(id));
           return !owner || owner === String(finalDecision.topicId) || triggerSet.has(String(id));
         });
-        if (!canAssign && finalDecision.action === 'reply') {
+        if (!canAssign && ['reply', 'share', 'react'].includes(finalDecision.action)) {
           session.socialAudit.decision = 'invalid';
           session.socialAudit.validation = 'cross_topic_source';
-          if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'planner source did not match selected topic' });
+          if (intent) state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'completed', reason: 'planner source did not match selected topic' });
           session.finishReason = '规划来源与话题不一致';
           return { social: true, silent: true, invalidDecision: true };
         }
@@ -1814,6 +1991,7 @@ export class Orchestrator {
       const rawInitiative = !socialIntentId && triggerMessageIds.length
         ? validateSocialInitiative(finalDecision.initiative, {
             humanMessageIds: triggerMessageIds,
+            knownSourceRefs,
             now: Date.now(),
             minDueAt: Date.now() + Math.max(60000, Number(socialConfig.minInitiativeGapMs) || 1800000),
             maxExpiresAt: Date.now() + Math.max(60000, Number(socialConfig.intentTtlMs) || 21600000)
@@ -1830,6 +2008,7 @@ export class Orchestrator {
             ...scope,
             topicId: String(finalDecision.topicId),
             sourceMessageIds: rawInitiative.sourceMessageIds,
+            sourceRefs: rawInitiative.sourceRefs,
             goal: rawInitiative.goal,
             dueAt: rawInitiative.dueAt,
             expiresAt: rawInitiative.expiresAt
@@ -1845,16 +2024,25 @@ export class Orchestrator {
       session.socialAudit.decision = finalDecision.action;
       session.socialAudit.topicId = finalDecision.topicId || null;
       session.socialAudit.targetMessageId = finalDecision.targetMessageId || null;
+      session.socialAudit.targetMessageIds = finalDecision.targetMessageIds.slice(0, 8);
       session.socialAudit.goal = finalDecision.goal;
       session.socialAudit.novelty = finalDecision.novelty;
       session.socialAudit.sourceMessageIds = finalDecision.sourceMessageIds.slice(0, 8);
+      session.socialAudit.sourceRefs = finalDecision.sourceRefs.slice(0, 8);
+      const identityMessageId = finalDecision.targetMessageIds[0] || finalDecision.sourceMessageIds[0];
+      const interaction = identityMessageId
+        ? state.interactionForMessage({ ...scope, messageId: identityMessageId })
+        : null;
+      session.socialAudit.interactionId = interaction?.id || '';
       session.socialPhases.planner.decision = {
         action: finalDecision.action,
         topicId: finalDecision.topicId || null,
         targetMessageId: finalDecision.targetMessageId || null,
+        targetMessageIds: finalDecision.targetMessageIds.slice(0, 8),
         goal: finalDecision.goal,
         novelty: finalDecision.novelty,
-        sourceMessageIds: finalDecision.sourceMessageIds.slice(0, 8)
+        sourceMessageIds: finalDecision.sourceMessageIds.slice(0, 8),
+        sourceRefs: finalDecision.sourceRefs.slice(0, 8)
       };
       session.participation = {
         mode: 'social',
@@ -1862,7 +2050,7 @@ export class Orchestrator {
         reasonCode: finalDecision.novelty || finalDecision.action,
         reason: finalDecision.goal || ''
       };
-      if (finalDecision.action !== 'reply') {
+      if (['listen', 'wait', 'close'].includes(finalDecision.action)) {
         session.termination = {
           kind: 'social_' + finalDecision.action,
           reasonCode: finalDecision.action,
@@ -1877,28 +2065,34 @@ export class Orchestrator {
             ...scope,
             topicId: String(selectedTopic.id),
             targetMessageId: finalDecision.targetMessageId,
+            targetMessageIds: finalDecision.targetMessageIds,
             action: finalDecision.action,
             sent: [],
             runId: session.leaseId || session.id,
             initiativeId: socialIntentId || undefined,
+            intentLeaseId: socialLeaseId,
             outcome: 'sent'
           });
         }
-        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'planner re-evaluated without reply' });
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'completed', reason: 'planner re-evaluated without reply' });
         return { social: true, silent: true };
       }
-      if (!selectedTopic || !finalDecision.targetMessageId) {
+      if (!selectedTopic || (['reply', 'react'].includes(finalDecision.action) && !finalDecision.targetMessageIds.length)
+        || (finalDecision.action === 'share' && !finalDecision.sourceMessageIds.length && !finalDecision.sourceRefs.length)) {
         session.socialAudit.decision = 'invalid';
         session.socialAudit.validation = 'topic_unavailable';
-        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'selected topic unavailable' });
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'completed', reason: 'selected topic unavailable' });
         session.finishReason = '规划话题不可用';
         return { social: true, silent: true, invalidDecision: true };
       }
-      const targetMessage = plannerMessages.find((entry) => String(entry.id) === String(finalDecision.targetMessageId));
-      if (!targetMessage || targetMessage.self) {
+      const targetMessages = finalDecision.targetMessageIds
+        .map((id) => plannerMessages.find((entry) => String(entry.id) === String(id)))
+        .filter(Boolean);
+      if (['reply', 'react'].includes(finalDecision.action)
+        && (targetMessages.length !== finalDecision.targetMessageIds.length || targetMessages.some((entry) => entry.self))) {
         session.socialAudit.decision = 'invalid';
         session.socialAudit.validation = 'target_unavailable';
-        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'selected target unavailable' });
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'completed', reason: 'selected target unavailable' });
         session.finishReason = '规划回复目标不可用';
         return { social: true, silent: true, invalidDecision: true };
       }
@@ -1912,10 +2106,11 @@ export class Orchestrator {
         .map((entry) => this.store.findByLocalId(chatKey, entry.id) || entry)
         .filter(visible)
         .slice(-contextLimit);
-      if (!selectedMessages.some((entry) => String(entry.id) === String(finalDecision.targetMessageId))) {
+      if (finalDecision.targetMessageIds.some((targetId) =>
+        !selectedMessages.some((entry) => String(entry.id) === String(targetId)))) {
         session.socialAudit.decision = 'invalid';
         session.socialAudit.validation = 'target_not_in_topic';
-        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'target was not in selected topic' });
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId, status: 'completed', reason: 'target was not in selected topic' });
         session.finishReason = '回复目标不属于所选话题';
         return { social: true, silent: true, invalidDecision: true };
       }
@@ -1938,26 +2133,54 @@ export class Orchestrator {
         currentMessageIds: selectedMessages.map((entry) => String(entry.id))
       });
       const selectedProviders = (runSnapshot.contextProviders || []).filter((provider) =>
-        provider.id === SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID);
+        [SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID, LEARNED_SELF_CONTEXT_PROVIDER_ID].includes(provider.id));
+      const retrievalProviders = selectedProviders.filter((provider) => provider.id === SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID);
       const selectedContextSnapshot = Object.freeze({
         ...runSnapshot,
         contextProviders: Object.freeze(selectedProviders)
       });
       const extensionContext = await this.pluginManager.collectContext(
         selectedContextSnapshot,
-        Object.freeze({ ...topicRunContext, retrievalQuery })
+        Object.freeze({ ...topicRunContext, retrievalQuery, conversationMode: 'social', visibleParticipants: participantIds })
       );
-      const extensionText = extensionContext.blocks
+      const materialRefs = buildSocialMaterialRefs(extensionContext.blocks, scope);
+      session.socialAudit.materialRefs = materialRefs;
+      const validatedMaterialKeys = new Set(materialRefs.map((ref) => `${ref.id}@${ref.revision}`));
+      const eligibleContextBlocks = extensionContext.blocks.filter((block) => {
+        const source = parseSourceRef(block?.sourceRefs);
+        const blockRefs = [
+          ...(Array.isArray(block?.materialRefs) ? block.materialRefs : []),
+          ...(source?.materialRef ? [source.materialRef] : [])
+        ];
+        if (blockRefs.some((ref) => !materialRefs.some((validRef) =>
+          validRef.kind === ref?.kind
+          && validRef.id === String(ref.id || '')
+          && validRef.revision === Number(ref.revision)
+          && validRef.scope === ref.scope
+          && validRef.visibility === ref.visibility
+          && validRef.policyVersion === ref.policyVersion))) return false;
+        if (source?.noteId) return validatedMaterialKeys.has(`${String(source.noteId)}@${Number(source.revision)}`);
+        return true;
+      });
+      session.socialAudit.unvalidatedMaterialCount = extensionContext.blocks.length - eligibleContextBlocks.length;
+      const materialContextText = eligibleContextBlocks
         .map((block) => String(block.title || block.id) + ': ' + String(block.text || ''))
         .join('\n\n');
-      const retrievalProvider = selectedProviders.find((provider) => provider.id === SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID);
+      const externalContextText = finalDecision.sourceRefs
+        .filter((ref) => ref.kind === 'external_observation')
+        .map((ref) => state.externalObservationText({ ...scope, sourceId: ref.id }))
+        .filter(Boolean)
+        .map((text) => '已验证的公开观察：' + text)
+        .join('\n\n');
+      const extensionText = [materialContextText, externalContextText].filter(Boolean).join('\n\n');
+      const retrievalProvider = retrievalProviders[0];
       const retrievalAudit = retrievalProvider?.consumeAudit?.(session.id) || retrievalAuditFallback({
         enabled: cfg.selfEvolution?.enabled === true && cfg.selfEvolution?.retrieval?.enabled === true,
         query: retrievalQuery,
         currentMessageIds: selectedMessages.map((entry) => String(entry.id)),
-        reason: selectedProviders.length ? 'no-matches' : 'disabled'
+        reason: retrievalProviders.length ? 'no-matches' : 'disabled'
       });
-      retrievalAudit.integrated = selectedProviders.length > 0;
+      retrievalAudit.integrated = retrievalProviders.length > 0;
       retrievalAudit.currentMessageIds = selectedMessages.map((entry) => String(entry.id));
       session.retrieval = retrievalAudit;
       session.pluginContext = {
@@ -1987,15 +2210,31 @@ export class Orchestrator {
       session.systemPrompt = replyPrompt.system;
       session.userPrompt = replyPrompt.user;
       session.promptChars += replyPrompt.system.length + replyPrompt.user.length;
+      const replyerUserContent = plannerImages.length
+        ? [
+            {
+              type: 'text',
+              text: replyPrompt.user + '\n\n【有来源的图片材料】\n'
+                + plannerImages.map((item) => JSON.stringify(item.sourceRefs)).join('\n')
+            },
+            ...plannerImages.flatMap((item) => item.content || []).slice(0, 4)
+          ]
+        : replyPrompt.user;
       const replyerMessages = [
         { role: 'system', content: replyPrompt.system },
-        { role: 'user', content: replyPrompt.user }
+        { role: 'user', content: replyerUserContent }
       ];
       const visibleLimit = Math.max(1, Math.min(6, Number(socialConfig.maxMessagesPerTurn) || 3));
       const sentThisTurn = new Set();
-      const deliveryGuard = async ({ payload = {} } = {}) => {
+      const deliveryGuard = async ({ payload = {}, options = {} } = {}) => {
         runSignal.throwIfAborted();
         if (session.socialGuardInvalidated) throw Object.assign(new Error('Social send guard stopped this turn'), { code: 'SOCIAL_STALE_ACTION', outcome: 'failed' });
+        const currentMode = conversationConfigForChat(chatKey).mode;
+        if (currentMode !== 'social' || !canRun(chatKey) || !this.#chatRuntimeDecision(chatKey).allowed || !isTimeActive(chatKey)) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = 'runtime_permission_changed';
+          throw Object.assign(new Error('Social permission changed before delivery'), { code: 'SOCIAL_PERMISSION_CHANGED', outcome: 'failed' });
+        }
         if (Number(session.socialSendActions) >= visibleLimit) {
           session.socialGuardInvalidated = true;
           session.socialAudit.dispatchBlocked = 'message_limit';
@@ -2003,6 +2242,43 @@ export class Orchestrator {
         }
         const currentMessages = this.store.peekUnread(chatKey, 200) || [];
         state.observe({ ...scope, messages: currentMessages, selfId: scope.accountId });
+        const sourceCheck = state.validateSourceRefs({ ...scope, refs: finalDecision.sourceRefs });
+        if (sourceCheck.invalidRefs.length) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = 'source_ref_invalid';
+          throw Object.assign(new Error('Social draft references expired or unavailable source'), { code: 'SOCIAL_SOURCE_INVALID', outcome: 'failed' });
+        }
+        const materialCheck = await validateSocialMaterialRefs(this.validateSocialMaterials, {
+          ...scope,
+          refs: materialRefs
+        });
+        if (!materialCheck.valid) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = materialCheck.reason || 'material_revision_invalid';
+          throw Object.assign(new Error('Social draft references unavailable material'), { code: 'SOCIAL_MATERIAL_INVALID', outcome: 'failed' });
+        }
+        const replyTo = String(options.replyToMessageId ?? '').trim();
+        const selectedUsers = new Set(targetMessages.map((entry) => String(entry.senderId || '')).filter(Boolean));
+        const atUserId = String(options.atUserId ?? '').trim();
+        if (atUserId && (finalDecision.action === 'share' || !selectedUsers.has(atUserId))) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = 'mention_target_mismatch';
+          throw Object.assign(new Error('Visible action mentions an unselected participant'), { code: 'SOCIAL_TARGET_MISMATCH', outcome: 'failed' });
+        }
+        if (replyTo) {
+          const selectedMids = new Set(targetMessages.map((entry) => String(entry.mid ?? '')).filter(Boolean));
+          if (finalDecision.action === 'share' || !selectedMids.has(replyTo)) {
+            session.socialGuardInvalidated = true;
+            session.socialAudit.dispatchBlocked = 'reply_target_mismatch';
+            throw Object.assign(new Error('Visible action references an unselected target'), { code: 'SOCIAL_TARGET_MISMATCH', outcome: 'failed' });
+          }
+        }
+        if (payload.type === 'poke'
+          && (finalDecision.action !== 'react' || !selectedUsers.has(String(payload.targetUserId || '')))) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = 'poke_target_mismatch';
+          throw Object.assign(new Error('Poke target is not part of the selected reaction'), { code: 'SOCIAL_TARGET_MISMATCH', outcome: 'failed' });
+        }
         const text = String(payload.text || '');
         const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
         if (normalized && sentThisTurn.has(normalized)) {
@@ -2013,18 +2289,21 @@ export class Orchestrator {
         const eligible = state.eligibleToSend({
           ...scope,
           topicId: String(selectedTopic.id),
-          targetMessageId: String(finalDecision.targetMessageId),
+          targetMessageIds: finalDecision.targetMessageIds,
           snapshotRevision: plannedSnapshot.revision,
+          coveredMessageIds: plannerMessages.map((entry) => String(entry.id)),
           currentMessages,
           text,
           initiativeId: socialIntentId || undefined,
-          direct: false
+          intentLeaseId: socialLeaseId,
+          direct: finalDecision.action === 'share'
         });
         if (!eligible?.allowed) {
           session.socialGuardInvalidated = true;
           session.socialAudit.dispatchBlocked = String(eligible?.reason || 'stale_target').slice(0, 80);
           throw Object.assign(new Error('Social reply no longer matches the selected topic'), { code: 'SOCIAL_STALE_ACTION', outcome: 'failed' });
         }
+        session.socialAudit.deliveryState = 'not_attempted';
         if (normalized) sentThisTurn.add(normalized);
         session.socialSendActions = (Number(session.socialSendActions) || 0) + 1;
       };
@@ -2066,28 +2345,31 @@ export class Orchestrator {
       });
       session.socialAudit.replyerFinished = replyResult.completed === true;
       session.socialAudit.delivered = session.socialDelivered.length > 0;
+      session.outbound = summarizeOutbound(session, this.store);
+      const uncertain = this.store.hasUncertainEffects(session.leaseId || session.id);
+      session.socialAudit.deliveryState = uncertain ? (session.socialDelivered.length ? 'partial' : 'unknown')
+        : session.outbound.failed > 0 ? (session.outbound.succeeded > 0 ? 'partial' : 'failed')
+          : session.socialDelivered.length ? 'sent' : 'not_attempted';
+      session.socialAudit.delivered = session.socialDelivered.length > 0 && session.socialAudit.deliveryState !== 'unknown';
       session.finishReason = session.socialAudit.delivered
         ? '社交回应已完成'
         : (session.socialGuardInvalidated ? '社交回应因话题变化而停止' : '回应阶段未发送消息');
-      session.outbound = summarizeOutbound(session, this.store);
-      const finalAction = session.socialGuardInvalidated && !session.socialDelivered.length
-        ? 'wait'
-        : (session.socialDelivered.length ? 'reply' : 'listen');
       state.recordOutcome({
         ...scope,
         topicId: String(selectedTopic.id),
-        targetMessageId: String(finalDecision.targetMessageId),
-        action: finalAction,
+        targetMessageIds: finalDecision.targetMessageIds,
+        action: finalDecision.action,
         sent: session.socialDelivered,
         runId: session.leaseId || session.id,
         initiativeId: socialIntentId || undefined,
-        outcome: this.store.hasUncertainEffects(session.leaseId) ? 'unknown' : 'sent'
+        intentLeaseId: socialLeaseId,
+        outcome: session.socialAudit.deliveryState === 'not_attempted' ? 'no_output' : session.socialAudit.deliveryState
       });
       if (intent) {
-        const uncertain = this.store.hasUncertainEffects(session.leaseId);
         state.finishIntent({
           ...scope,
           id: String(intent.id),
+          leaseId: socialLeaseId,
           status: uncertain ? 'held' : 'completed',
           reason: uncertain ? 'delivery outcome unknown' : (session.socialDelivered.length ? 'reply delivered' : 'opportunity re-evaluated')
         });
@@ -2097,11 +2379,19 @@ export class Orchestrator {
       return { social: true, replyer: true };
     } catch (error) {
       const uncertain = this.store.hasUncertainEffects(session.leaseId);
+      session.outbound = summarizeOutbound(session, this.store);
+      session.socialAudit.deliveryState = uncertain
+        ? (session.socialDelivered.length ? 'partial' : 'unknown')
+        : session.outbound.failed > 0
+          ? (session.socialDelivered.length ? 'partial' : 'failed')
+          : session.socialDelivered.length ? 'sent' : 'not_attempted';
+      session.socialAudit.delivered = session.socialDelivered.length > 0;
       if (intent) {
         try {
           state.finishIntent({
             ...scope,
             id: String(intent.id),
+            leaseId: socialLeaseId,
             status: uncertain ? 'held' : 'cancelled',
             reason: uncertain ? 'delivery outcome unknown' : 'run stopped before a confirmed response'
           });
@@ -2113,10 +2403,12 @@ export class Orchestrator {
             ...scope,
             topicId: String(finalDecision.topicId),
             targetMessageId: finalDecision.targetMessageId || null,
+            targetMessageIds: finalDecision.targetMessageIds || [],
             action: 'reply',
             sent: session.socialDelivered,
             runId: session.leaseId || session.id,
             initiativeId: socialIntentId || undefined,
+            intentLeaseId: socialLeaseId,
             outcome: 'unknown'
           });
         } catch { /* preserve the original execution error */ }
@@ -2127,13 +2419,15 @@ export class Orchestrator {
 
   async #runSocialPhase({
     phase, session, messages, toolDefs, ctx, cfg, runSnapshot, signal,
-    chatKey, maxRounds, maxRunTokens = Number.MAX_SAFE_INTEGER, temperature = 0.8
+    chatKey, maxRounds, maxRunTokens = Number.MAX_SAFE_INTEGER, temperature = 0.8,
+    onReadResult = null, onImageResult = null
   }) {
     const openAiTools = toOpenAiTools(toolDefs, cfg);
     const allowedNames = new Set(toolDefs.map((tool) => String(tool.name)));
     const phaseAudit = session.socialPhases[phase];
     let content = '';
     let completed = false;
+    const sourcedMaterials = [];
     for (let round = 0; round < maxRounds; round += 1) {
       signal.throwIfAborted();
       runSnapshot.signal.throwIfAborted();
@@ -2302,6 +2596,24 @@ export class Orchestrator {
         } else {
           resultText = String(result?.content ?? '');
         }
+        if (phase === 'planner'
+          && toolDefs.find((tool) => tool.name === name)?.effect === 'read'
+          && result?.isError !== true
+          && typeof onReadResult === 'function') {
+          const sourceRef = onReadResult({ toolName: name, toolCallId: call?.id || '', text: resultText });
+          if (sourceRef) resultText += '\n【宿主验证的 sourceRef】' + JSON.stringify(sourceRef);
+        }
+        if (phase === 'planner' && images.length && typeof onImageResult === 'function') {
+          const args = result?.parsedArgs ?? safeParse(argsRaw);
+          const sourceRefs = onImageResult({ toolName: name, toolCallId: call?.id || '', args }) || [];
+          if (sourceRefs.length) {
+            sourcedMaterials.push({
+              kind: 'image',
+              sourceRefs: structuredClone(sourceRefs).slice(0, 4),
+              content: images.slice(0, 4)
+            });
+          }
+        }
         toolResults.push({ role: 'tool', tool_call_id: call?.id || '', name, content: resultText, isError: result?.isError === true });
         session.messages.push({
           toolCall: {
@@ -2331,6 +2643,16 @@ export class Orchestrator {
           uncertainEffects = true;
           uncertainTool = name || '工具';
         }
+        if (phase === 'replyer') {
+          const outboundNow = summarizeOutbound(session, this.store);
+          if (outboundNow.unknown > 0 || outboundNow.held > 0
+            || (outboundNow.failed > 0 && outboundNow.succeeded > 0)) {
+            session.socialGuardInvalidated = true;
+            session.socialAudit.dispatchBlocked = outboundNow.unknown > 0 || outboundNow.held > 0
+              ? 'delivery_unknown'
+              : 'partial_delivery';
+          }
+        }
         priorToolFailure ||= result?.isError === true;
         if (session.socialGuardInvalidated) break;
       }
@@ -2342,7 +2664,7 @@ export class Orchestrator {
       if (session.socialGuardInvalidated) break;
       if (round === maxRounds - 1) session.roundBudgetStopped = true;
     }
-    return { content, completed };
+    return { content, completed, sourcedMaterials };
   }
 
   async #runAgent(session, {
@@ -2359,6 +2681,7 @@ export class Orchestrator {
     tierInfo = null,
     conversation = null,
     socialIntentId = null,
+    socialLeaseId = null,
     signal
   }) {
     const liveConfig = getConfig();
@@ -2413,7 +2736,7 @@ export class Orchestrator {
     const openAiTools = toOpenAiTools(toolDefs, cfg);
     if (conversationCfg.mode === 'social') {
       return this.#runSocialAgent({
-        session, kind, chatId, chatKey, triggerEntries, proactive, manual, socialIntentId,
+        session, kind, chatId, chatKey, triggerEntries, proactive, manual, socialIntentId, socialLeaseId,
         seq, accountId, cfg, conversationCfg, runSnapshot, toolDefs, signal,
         chatName, selfNickname
       });
@@ -3045,8 +3368,43 @@ export class Orchestrator {
     if (this.scheduledWakeTicker) return;
     this.scheduledWakeTicker = setInterval(() => {
       try { this.#fireDueScheduledWakes(); } catch { /* 调度失败不影响主流程 */ }
+      this.runSocialIntentTick().catch((error) => {
+        console.warn('[orchestrator] social intent tick failed:', error?.message ?? error);
+      });
     }, 30000);
     if (this.scheduledWakeTicker.unref) this.scheduledWakeTicker.unref();
+  }
+
+  async runSocialIntentTick({ now = Date.now(), maxChats = 20 } = {}) {
+    if (this.aborted || this.paused || !String(getConfig().api.model || '').trim()) return { claimed: 0, skipped: 'runtime-unavailable' };
+    const limit = Math.max(1, Math.min(100, Math.floor(Number(maxChats) || 20)));
+    const chats = (this.store.listChats?.() || []).slice(0, limit);
+    let claimed = 0;
+    const tasks = [];
+    for (const chatKey of chats) {
+      if (this.runningChats.size >= Math.max(1, Number(getConfig().maxConcurrentRuns) || 2)) break;
+      if (conversationConfigForChat(chatKey).mode !== 'social') continue;
+      if (this.runningChats.has(chatKey) || !canRun(chatKey) || !this.#chatRuntimeDecision(chatKey).allowed || !isTimeActive(chatKey)) continue;
+      if (this.store.unreadCount(chatKey) > 0) continue;
+      if (!SocialStateStore.isInitialized?.(this.store.db)) continue;
+      const scope = this.#socialScope(chatKey);
+      const state = this.getSocialState(chatKey);
+      const due = state.listIntents(scope).some((item) => item.status === 'pending'
+        && item.dueAt <= Number(now) && item.expiresAt > Number(now));
+      if (!due) continue;
+      const intent = state.claimDue({ ...scope, now });
+      if (!intent) continue;
+      claimed += 1;
+      tasks.push(this.wake(chatKey, {
+        proactive: true,
+        socialIntentId: intent.id,
+        socialLeaseId: intent.leaseId
+      }).catch((error) => {
+        console.warn(`[orchestrator] social intent ${intent.id} failed:`, error?.message ?? error);
+      }));
+    }
+    await Promise.allSettled(tasks);
+    return { claimed };
   }
 
   #fireDueScheduledWakes() {

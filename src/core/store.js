@@ -371,12 +371,22 @@ export class ChatStore {
     for (const event of list) {
       const sourceIds = (Array.isArray(event.sourceMessageIds) ? event.sourceMessageIds : [])
         .map(String).slice(0, 32);
+      const actionSummary = event.actionSummary && typeof event.actionSummary === 'object'
+        ? structuredClone(event.actionSummary)
+        : {};
+      for (const key of [
+        'schemaVersion', 'evidenceVersion', 'triggerKind', 'proactive',
+        'interactionId', 'topicId', 'originalSourceIds', 'deliveryState', 'delivered'
+      ]) {
+        if (Object.hasOwn(actionSummary, key) || !Object.hasOwn(event, key)) continue;
+        actionSummary[key] = structuredClone(event[key]);
+      }
       const result = insert.run(
         String(event.eventId || ''), String(event.observerId || ''), String(event.observerPluginId || ''),
         String(event.accountId || ''), String(event.sessionId || ''), String(event.runId || ''),
         String(event.chatKey || ''), String(event.originKind || 'chat_run'),
         Math.max(0, Number(event.pluginGeneration) || 0),
-        String(event.resultClass || '').slice(0, 80), JSON.stringify(event.actionSummary || {}),
+        String(event.resultClass || '').slice(0, 80), JSON.stringify(actionSummary),
         JSON.stringify(sourceIds), Math.max(0, Number(event.completedAt) || Date.now())
       );
       added += result.changes;
@@ -398,7 +408,9 @@ export class ChatStore {
         let sourceMessageIds = [];
         try { actionSummary = JSON.parse(row.action_summary || '{}'); } catch { /* keep empty */ }
         try { sourceMessageIds = JSON.parse(row.source_message_ids || '[]'); } catch { /* keep empty */ }
-        return {
+        const hasV3 = Number(actionSummary.schemaVersion) >= 3
+          && Number(actionSummary.evidenceVersion) >= 3;
+        const event = {
           eventId: row.event_id,
           observerId: row.observer_id,
           observerPluginId: row.observer_plugin_id,
@@ -410,10 +422,16 @@ export class ChatStore {
           pluginGeneration: Number(row.plugin_generation) || 0,
           resultClass: row.result_class,
           actionSummary,
+          schemaVersion: hasV3 ? 3 : 2,
+          evidenceVersion: hasV3 ? 3 : 2,
           sourceMessageIds,
           completedAt: Number(row.completed_at) || 0,
           attempts: Number(row.attempts) + 1
         };
+        for (const key of ['triggerKind', 'proactive', 'interactionId', 'topicId', 'originalSourceIds', 'deliveryState', 'delivered']) {
+          if (Object.hasOwn(actionSummary, key)) event[key] = structuredClone(actionSummary[key]);
+        }
+        return event;
       });
     });
   }

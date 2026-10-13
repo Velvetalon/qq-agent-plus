@@ -9,6 +9,8 @@ export const ROLE_NOTE_POLICY = Object.freeze([
   '无需每轮记录，也不要把运行统计、预算、工具状态或外发结果当作笔记。'
 ].join('\n'));
 
+export const NOTEBOOK_POLICY_VERSION = 'notebook-memory-v2';
+
 const PREFERENCE_PATTERNS = Object.freeze([
   /(?:我|本人)?(?:更)?(?:喜欢|偏好|感兴趣|爱好|最爱|想聊|想看|想玩|愿意)/u,
   /\b(?:i\s+(?:like|love|enjoy|prefer|am interested in|want to))\b/iu,
@@ -28,7 +30,6 @@ const PROCEDURAL_SELF_INSTRUCTION_PATTERNS = Object.freeze([
 const OPERATIONAL_BOOKKEEPING_PATTERNS = Object.freeze([
   /(?:本轮|本次运行|本次会话|token预算|外发统计|工具调用统计|排队状态|发送状态|延迟统计)/iu,
   /\b(?:this run|run telemetry|token budget|outbound count|tool-call count|queue status)\b/iu,
-  /\b(?:result|status)\s*=\s*\d{2,}\b/iu,
   /(?:发送通道|外发通道|积压队列|发送队列)[^。！？\n]{0,48}(?:失败|未恢复|积压|再试|重试|恢复)/u,
   /(?:系统提醒|定时提醒)[^。！？\n]{0,48}(?:\d+\s*(?:分钟|分|秒|小时)|\d{1,2}:\d{2})[^。！？\n]{0,32}(?:补发|补一句|跟进|追加|继续发送)/u,
   /\d+\s*(?:分钟|分|秒|小时)[^。！？\n]{0,48}(?:系统提醒|定时提醒)[^。！？\n]{0,32}(?:后补|补发|补一句|跟进|追加)/u
@@ -64,7 +65,7 @@ export function classifyNotebookMemory(content, {
   const procedural = PROCEDURAL_SELF_INSTRUCTION_PATTERNS.some((pattern) => pattern.test(value));
   const bookkeepingMatches = OPERATIONAL_BOOKKEEPING_PATTERNS.filter((pattern) => pattern.test(value));
   const bookkeeping = bookkeepingMatches.length > 0
-    && (bookkeepingMatches.length > 1 || /(?:result|status)\s*=|(?:分钟|小时|:\d{2})/iu.test(value));
+    && (bookkeepingMatches.length > 1 || /(?:分钟|小时|:\d{2})/iu.test(value));
   const operationalSource = declaredChannel === 'operational'
     || declaredType === 'operational'
     || /(?:diagnostic|telemetry|scheduler|runtime-maintenance)/iu.test(text(sourceValue.actor));

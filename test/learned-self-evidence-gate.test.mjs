@@ -11,217 +11,222 @@ import {
   validateReflectionOutput
 } from '../src/plugins/self-evolution/index.js';
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-lsr2-evidence-'));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-memory-v1-evidence-'));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
+let seq = 0;
 function completionEvent({
   sessionId,
+  interactionId = `interaction-${sessionId}`,
   chatKey = 'group:100',
-  windowId = 'lsr2-window',
+  rootId = `root-${sessionId}`,
   role = 'user',
-  userEvidence = role === 'user',
-  userConfirmed = false,
-  delivered = role === 'assistant',
+  evidenceVersion = 3,
+  schemaVersion = 3,
   proactive = false,
   explicitSilence = false,
-  evidenceIds = [`message:${sessionId}`]
+  delivered = role === 'assistant',
+  originalSourceType = role === 'user' ? 'message' : 'outbound'
 } = {}) {
+  const sourceId = `local-${sessionId}`;
   return {
+    schemaVersion,
+    evidenceVersion,
     eventId: `event-${sessionId}`,
     observerId: 'self-evolution.reflection',
     observerPluginId: 'self-evolution',
-    accountId: 'lsr2-account',
+    accountId: 'memory-v1-account',
     sessionId,
     runId: `run-${sessionId}`,
     chatKey,
-    observationWindowId: windowId,
-    pluginGeneration: 1,
-    resultClass: explicitSilence ? 'explicit_silence' : 'done',
-    evidenceVersion: 3,
+    interactionId,
+    topicId: 'topic-memory-v1',
+    originalSourceIds: role === 'user' ? [rootId] : [],
+    triggerKind: 'human_message',
+    deliveryState: delivered ? 'sent' : 'not_attempted',
+    delivered,
+    proactive,
+    resultClass: explicitSilence ? 'done' : 'done',
+    completedAt: 1000 + seq++,
     actionSummary: {
-      evidenceVersion: 3,
-      sentCount: explicitSilence ? 0 : 1,
-      finishReason: explicitSilence ? 'not_needed' : 'finish',
-      outboundAttempted: !explicitSilence,
+      schemaVersion,
+      evidenceVersion,
+      interactionId,
+      topicId: 'topic-memory-v1',
+      originalSourceIds: role === 'user' ? [rootId] : [],
       proactive,
-      participation: {
-        mode: proactive ? 'proactive' : 'auto',
-        decision: explicitSilence ? 'noreply' : 'reply',
-        reasonCode: explicitSilence ? 'not_needed' : 'normal'
-      },
-      termination: {
-        kind: explicitSilence ? 'explicit_silence' : 'finish'
-      },
-      outbound: explicitSilence
-        ? { attempted: 0, succeeded: 0, failed: 0, unknown: 0, held: 0 }
-        : { attempted: 1, succeeded: 1, failed: 0, unknown: 0, held: 0 },
-      conversationEvidence: evidenceIds.map((evidenceId, index) => ({
-        evidenceId,
-        sourceRecordId: evidenceId.replace(/^message:/, ''),
+      delivered,
+      deliveryState: delivered ? 'sent' : 'not_attempted',
+      termination: { kind: explicitSilence ? 'explicit_silence' : 'finish' },
+      outbound: delivered
+        ? { attempted: 1, succeeded: 1, failed: 0, unknown: 0, held: 0 }
+        : { attempted: 0, succeeded: 0, failed: 0, unknown: 0, held: 0 },
+      conversationEvidence: [{
+        evidenceId: `message:${sessionId}`,
+        sourceRecordType: originalSourceType,
+        sourceRecordId: sourceId,
+        messageId: sourceId,
+        platformMessageId: `platform-${sessionId}`,
         role,
-        userEvidence,
-        userConfirmed,
-        delivered,
-        at: 1000 + index,
-        text: role === 'user' ? `用户偏好 ${evidenceId}` : 'assistant outbound context'
-      }))
-    },
-    sourceMessageIds: evidenceIds.map((item) => item.replace(/^message:/, '')),
-    completedAt: 1000
+        senderId: role === 'user' ? 'member-7' : 'bot-1',
+        interactionId,
+        topicId: 'topic-memory-v1',
+        originalSourceId: role === 'user' ? rootId : '',
+        originalSourceIds: role === 'user' ? [rootId] : [],
+        delivered: role === 'assistant' && delivered,
+        text: role === 'user' ? 'I enjoy astronomy.' : 'Assistant delivery context.',
+        userConfirmed: false
+      }]
+    }
   };
 }
 
-function storeFor(name) {
+function storeFor(label, limits = {}) {
   return new ReflectionStore({
-    filename: reflectionDatabasePath(path.join(root, name)),
+    filename: reflectionDatabasePath(path.join(root, `${label}-${seq++}`)),
     now: () => 1000,
-    limits: { leaseMs: 60000, workerLeaseMs: 60000, backoffMs: 0 }
+    limits: { leaseMs: 60000, workerLeaseMs: 60000, backoffMs: 0, ...limits }
   });
 }
 
-test('LSR2 normalizes user evidence, assistant context, delivery, and confirmation separately', () => {
+function proposal(evidence, overrides = {}) {
+  const source = evidence.traitEvidencePool?.[0];
+  return {
+    action: 'set',
+    key: 'topic_interests',
+    value: 'enjoys astronomy',
+    subject: 'user:member-7',
+    scope: 'chat',
+    chatKey: evidence.chatKey,
+    confidence: 0.9,
+    supportRefs: source ? [source.sourceRef] : [],
+    counterRefs: [],
+    ...overrides
+  };
+}
+
+test('only schemaVersion 3 plus evidenceVersion 3 qualifies as structured preference provenance', () => {
   const normalized = normalizeCompletionObservation(completionEvent({
-    sessionId: 'roles',
-    evidenceIds: ['message:user-1', 'message:assistant-1']
+    sessionId: 'v3-source'
   }));
+  assert.equal(normalized.schemaVersion, 3);
   assert.equal(normalized.structuredEvidence, true);
   assert.equal(normalized.conversationEvidence[0].userEvidence, true);
-  assert.equal(normalized.conversationEvidence[0].assistantContext, false);
-  assert.equal(normalized.conversationEvidence[0].delivered, false);
   assert.equal(normalized.conversationEvidence[0].userConfirmed, false);
+  assert.equal(normalized.explicitPreference, false);
 
-  const assistant = normalizeCompletionObservation(completionEvent({
-    sessionId: 'assistant-only',
-    role: 'assistant',
-    userEvidence: false,
-    delivered: true,
-    proactive: true
+  const legacy = normalizeCompletionObservation(completionEvent({
+    sessionId: 'v2-source',
+    schemaVersion: 2,
+    evidenceVersion: 3
   }));
-  assert.equal(assistant.userEvidenceCount, 0);
-  assert.equal(assistant.conversationEvidence[0].assistantContext, true);
-  assert.equal(assistant.proactive, true);
+  assert.equal(legacy.structuredEvidence, false);
+  assert.equal(legacy.conversationEvidence[0].userEvidence, false);
+  const rejectedLegacyTrait = validateReflectionOutput({
+    noteOperations: [],
+    traitProposals: [proposal(legacy, {
+      supportRefs: [legacy.conversationEvidence[0].sourceRef]
+    })],
+    capabilityGapProposals: [],
+    summary: 'legacy evidence remains history only'
+  }, { evidence: legacy });
+  assert.equal(rejectedLegacyTrait.traitProposals.length, 0);
+  assert.equal(rejectedLegacyTrait.rejectedTraitProposals[0].code, 'REFLECTION_SOURCE_LINEAGE');
 });
 
-test('LSR2 rejects assistant-only proactive and pure explicit-silence windows before creating jobs', () => {
-  const store = storeFor('hard-gate');
+test('assistant-only proactive evidence cannot support traits, while human silence remains reflectable', () => {
+  const store = storeFor('silence');
   try {
-    const proactive = store.enqueueObservation(completionEvent({
-      sessionId: 'proactive',
+    const assistant = store.enqueueObservation(completionEvent({
+      sessionId: 'assistant-only',
       role: 'assistant',
-      userEvidence: false,
-      delivered: true,
-      proactive: true
+      proactive: true,
+      delivered: true
     }));
-    assert.equal(proactive.created, false);
-    assert.equal(proactive.reason, 'trait-evidence-gate');
+    assert.equal(assistant.created, true);
+    assert.equal(assistant.job.evidence.traitEvidencePool.length, 0);
+    assert.equal(assistant.job.evidence.traitGate.eligible, false);
 
     const silence = store.enqueueObservation(completionEvent({
-      sessionId: 'silence',
-      explicitSilence: true,
-      evidenceIds: ['message:silence-user']
+      sessionId: 'human-silence',
+      explicitSilence: true
     }));
-    assert.equal(silence.created, false);
-    assert.equal(silence.reason, 'trait-evidence-gate');
-
-    const emptySilence = store.enqueueObservation(completionEvent({
-      sessionId: 'empty-silence',
-      explicitSilence: true,
-      evidenceIds: []
-    }));
-    assert.equal(emptySilence.created, false);
-    assert.equal(emptySilence.reason, 'trait-evidence-gate');
-    assert.equal(store.listJobs().length, 0);
-    assert.equal(store.listAudit({ limit: 20 })
-      .filter((row) => row.code === 'REFLECTION_EVIDENCE_GATE').length, 3);
+    assert.equal(silence.created, true);
+    assert.equal(silence.job.evidence.explicitSilence, true);
+    assert.equal(silence.job.evidence.traitGate.eligible, false);
   } finally {
     store.close();
   }
 });
 
-test('LSR2 requires three independent sessions and two user evidence refs', () => {
-  const store = storeFor('threshold');
+test('three independent current human roots accumulate by interaction identity in one chat', () => {
+  const store = storeFor('accumulate');
   try {
-    const oneSession = store.enqueueObservation(completionEvent({
-      sessionId: 'one-session',
-      evidenceIds: ['message:one-a', 'message:one-b']
-    }));
-    assert.equal(oneSession.created, false);
-    assert.equal(oneSession.reason, 'trait-evidence-threshold');
-    assert.equal(oneSession.traitGate.validSessionCount, 1);
-    assert.equal(oneSession.traitGate.userEvidenceCount, 2);
-    assert.equal(store.listJobs().length, 0);
-  } finally {
-    store.close();
-  }
-});
-
-test('LSR2 keeps global traits chat-scoped until evidence spans two chats', () => {
-  const sameChat = storeFor('same-chat');
-  try {
-    let result;
-    for (const sessionId of ['same-1', 'same-2', 'same-3']) {
-      result = sameChat.enqueueObservation(completionEvent({
-        sessionId,
-        chatKey: 'group:100',
-        evidenceIds: [`message:${sessionId}`]
-      }));
+    let third;
+    for (let index = 1; index <= 3; index += 1) {
+      const event = completionEvent({
+        sessionId: `independent-${index}`,
+        interactionId: `causal-interaction-${index}`,
+        rootId: `human-root-${index}`
+      });
+      const result = store.enqueueObservation(event);
+      assert.equal(result.created, true);
+      third = result;
     }
-    assert.equal(result.created, true);
-    const evidence = result.job.evidence;
-    assert.throws(
-      () => validateReflectionOutput({
-        noteOperations: [],
-        traitProposals: [{
-          action: 'set',
-          key: 'communication_style',
-          value: 'concise',
-          scope: 'global',
-          confidence: 0.9,
-          evidenceRefs: [evidence.userEvidenceRefs[0]]
-        }],
-        capabilityGapProposals: [],
-        summary: 'global without cross-chat evidence'
-      }, { evidence }),
-      (error) => error.code === 'REFLECTION_EVIDENCE_GATE'
-        && error.details.gate.reasons.includes('insufficient-global-chats')
-    );
-  } finally {
-    sameChat.close();
-  }
+    const pool = third.job.evidence.traitEvidencePool;
+    assert.equal(new Set(pool.map((item) => item.interactionId)).size, 3);
+    assert.equal(new Set(pool.map((item) => item.originalSourceId)).size, 3);
+    assert.equal(third.job.evidence.traitGate.eligible, true);
 
-  const crossChat = storeFor('cross-chat');
-  try {
-    let result;
-    for (const [sessionId, chatKey] of [
-      ['cross-1', 'group:100'],
-      ['cross-2', 'group:200'],
-      ['cross-3', 'group:100']
-    ]) {
-      result = crossChat.enqueueObservation(completionEvent({
-        sessionId,
-        chatKey,
-        evidenceIds: [`message:${sessionId}`]
-      }));
-    }
-    assert.equal(result.created, true);
-    assert.equal(result.job.evidence.validSessionCount, 3);
-    assert.equal(result.job.evidence.userEvidenceCount, 3);
-    assert.equal(result.job.evidence.userEvidenceChatCount, 2);
-    const output = validateReflectionOutput({
+    const normalized = validateReflectionOutput({
       noteOperations: [],
-      traitProposals: [{
-        action: 'set',
-        key: 'communication_style',
-        value: 'concise',
-        scope: 'global',
-        confidence: 0.9,
-        evidenceRefs: [result.job.evidence.userEvidenceRefs[0]]
-      }],
+      traitProposals: [proposal(third.job.evidence, {
+        supportRefs: pool.map((item) => item.sourceRef)
+      })],
       capabilityGapProposals: [],
-      summary: 'cross-chat global evidence'
-    }, { evidence: result.job.evidence });
-    assert.equal(output.traitProposals[0].scope, 'global');
+      summary: 'three roots for one scoped candidate'
+    }, { evidence: third.job.evidence });
+    assert.equal(normalized.traitProposals[0].evidenceGate.eligible, true);
   } finally {
-    crossChat.close();
+    store.close();
+  }
+});
+
+test('one source, a forged reference, and global scope cannot become an adoptable candidate', () => {
+  const store = storeFor('reject-invalid');
+  try {
+    const one = store.enqueueObservation(completionEvent({
+      sessionId: 'single-source',
+      interactionId: 'single-interaction',
+      rootId: 'single-root'
+    }));
+    const oneProposal = validateReflectionOutput({
+      noteOperations: [],
+      traitProposals: [proposal(one.job.evidence)],
+      capabilityGapProposals: [],
+      summary: 'candidate remains below threshold'
+    }, { evidence: one.job.evidence });
+    assert.equal(oneProposal.traitProposals[0].evidenceGate.eligible, false);
+    assert.ok(oneProposal.traitProposals[0].evidenceGate.reasons.includes('insufficient-interactions'));
+
+    const forged = validateReflectionOutput({
+      noteOperations: [],
+      traitProposals: [proposal(one.job.evidence, { supportRefs: ['message:someone-else'] })],
+      capabilityGapProposals: [],
+      summary: 'forged source is rejected independently'
+    }, { evidence: one.job.evidence });
+    assert.equal(forged.traitProposals.length, 0);
+    assert.equal(forged.rejectedTraitProposals[0].code, 'REFLECTION_SOURCE_LINEAGE');
+
+    const global = validateReflectionOutput({
+      noteOperations: [],
+      traitProposals: [proposal(one.job.evidence, { scope: 'global', chatKey: '' })],
+      capabilityGapProposals: [],
+      summary: 'cross-chat promotion requires authorized abstract evidence'
+    }, { evidence: one.job.evidence });
+    assert.equal(global.traitProposals.length, 0);
+    assert.equal(global.rejectedTraitProposals[0].code, 'REFLECTION_SCOPE');
+  } finally {
+    store.close();
   }
 });

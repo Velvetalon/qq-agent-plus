@@ -18,8 +18,10 @@ import {
 import {
   DEFAULT_RETRIEVAL_MAX_CHARS,
   DEFAULT_RETRIEVAL_MAX_NOTES,
-  createSelfEvolutionRetrievalProvider
+  createSelfEvolutionRetrievalProvider,
+  parseSourceRef
 } from '../src/plugins/self-evolution/retrieval-provider.js';
+import { NOTEBOOK_POLICY_VERSION } from '../src/plugins/self-evolution/notebook-policy.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-p2-retrieval-'));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -190,6 +192,15 @@ test('irrelevant notes, account namespaces, and chat scopes do not leak into rec
     query: 'durable preference'
   });
   assert.deepEqual(new Set(one.audit.hitNoteIds), new Set([chatOne.note.id, global.note.id]));
+  const materialRefs = one.blocks.flatMap((block) => block.materialRefs || []);
+  assert.equal(materialRefs.length, 2);
+  assert.ok(materialRefs.every((ref) => ref.policyVersion === NOTEBOOK_POLICY_VERSION));
+  assert.ok(materialRefs.some((ref) => ref.visibility === 'global'));
+  assert.ok(materialRefs.some((ref) => ref.visibility === 'chat:group:1'));
+  const encoded = one.blocks.flatMap((block) => block.sourceRefs)
+    .map((ref) => parseSourceRef([ref]))
+    .find((meta) => meta?.materialRef);
+  assert.equal(encoded.materialRef.policyVersion, NOTEBOOK_POLICY_VERSION);
   const two = await provide(provider, {
     accountId: 'bot-a',
     chatKey: 'group:2',

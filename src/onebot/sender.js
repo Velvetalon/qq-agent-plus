@@ -76,7 +76,7 @@ export class SendQueue {
 
   async #deliver(chatKey, options, payload, send) {
     assertCanSend(chatKey, options.signal);
-    await options.beforeSend?.({ chatKey, payload });
+    await options.beforeSend?.({ chatKey, payload, options });
     assertCanSend(chatKey, options.signal);
     const id = this.store.beginSend(chatKey, options.runId, payload);
     try {

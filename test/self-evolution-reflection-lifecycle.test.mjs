@@ -43,8 +43,18 @@ function persona() {
   };
 }
 
-function completionEvent(sessionId) {
+function currentTrait(context, key, subject = 'user:user-1') {
+  return Object.values(context || {}).find((entry) => (
+    entry?.key === key && entry.subject === subject
+  ));
+}
+
+function completionEvent(sessionId, text = 'The user prefers concise answers.') {
+  const interactionId = `interaction-${sessionId}`;
+  const rootId = `root-${sessionId}`;
+  const sourceId = `local-${sessionId}`;
   return {
+    schemaVersion: 3,
     eventId: `${sessionId}:${OBSERVER_ID}`,
     observerId: OBSERVER_ID,
     observerPluginId: 'self-evolution-reflection',
@@ -52,10 +62,18 @@ function completionEvent(sessionId) {
     sessionId,
     runId: `run-${sessionId}`,
     chatKey: 'group:100',
+    interactionId,
+    topicId: 'shared-preferences',
+    originalSourceIds: [rootId],
     pluginGeneration: 1,
     resultClass: 'done',
     actionSummary: {
+      schemaVersion: 3,
       sentCount: 1,
+      evidenceVersion: 3,
+      interactionId,
+      topicId: 'shared-preferences',
+      originalSourceIds: [rootId],
       finishReason: 'finish',
       outboundAttempted: true,
       participation: {
@@ -77,23 +95,44 @@ function completionEvent(sessionId) {
         failed: 0,
         unknown: 0,
         held: 0
-      }
+      },
+      conversationEvidence: [{
+        evidenceId: `message:${sessionId}`,
+        sourceRecordType: 'message',
+        sourceRecordId: sourceId,
+        messageId: sourceId,
+        platformMessageId: `platform-${sessionId}`,
+        role: 'user',
+        senderId: 'user-1',
+        interactionId,
+        topicId: 'shared-preferences',
+        originalSourceId: rootId,
+        originalSourceIds: [rootId],
+        text
+      }]
     },
     sourceMessageIds: ['message-1'],
     completedAt: 1000
   };
 }
 
-function reflectionOutput(job, key, value) {
+function reflectionOutput(job, reflectionInput, key, value) {
   return {
     noteOperations: [],
     traitProposals: [{
       action: 'set',
       key,
       value,
-      scope: 'global',
+      subject: 'user:user-1',
+      candidateId: reflectionInput.existingCandidates
+        .find((candidate) => candidate.key === key && candidate.value === value)?.candidateId,
+      scope: 'chat',
+      chatKey: 'group:100',
       confidence: 0.95,
-      evidenceRefs: [`session:${job.sessionId}`]
+      supportRefs: job.evidence.traitEvidencePool
+        .filter((item) => String(item.text).includes(key === 'communication_style' ? 'concise' : 'English'))
+        .map((item) => item.sourceRef),
+      counterRefs: []
     }],
     capabilityGapProposals: [],
     summary: `reflection for ${job.sessionId}`
@@ -110,19 +149,18 @@ function reflectionPluginFixture() {
     getBasePersona: () => base,
     getAccountId: () => ACCOUNT_ID,
     now: () => 1000,
-    reflector: async ({ job }) => {
+    reflector: async ({ job, reflectionInput }) => {
       modelCalls += 1;
-      if (job.sessionId === 'job-1') {
-        return reflectionOutput(job, 'communication_style', 'concise');
+      if (job.sessionId.startsWith('communication-')) {
+        return reflectionOutput(job, reflectionInput, 'communication_style', 'concise');
       }
-      return reflectionOutput(job, 'language_preference', 'English');
+      return reflectionOutput(job, reflectionInput, 'language_preference', 'English');
     },
     limits: {
       leaseMs: 10,
       workerLeaseMs: 10,
       maxCallsPerDay: 20,
-      backoffMs: 0,
-      autoApplyBehaviorTraits: true
+      backoffMs: 0
     }
   });
   const started = plugin.start({}, {
@@ -138,35 +176,71 @@ function reflectionPluginFixture() {
   return { base, baseSnapshot, dataDir, modelCalls: () => modelCalls, plugin, ...started };
 }
 
-test('reflection plugin applies job1/job2 as revisions 1/2 and rollback changes learned context', async () => {
+test('reflection plugin accumulates v3 candidates, requires review CAS, and rollback changes learned context', async () => {
   const fixture = reflectionPluginFixture();
   const { base, baseSnapshot, dataDir, modelCalls, plugin, store, worker } = fixture;
   try {
-    store.enqueueObservation(completionEvent('job-1'));
-    const first = await worker.runOnce();
-    assert.equal(first.status, 'completed');
-    assert.equal(first.profileRevision, 1);
-
-    store.enqueueObservation(completionEvent('job-2'));
-    const second = await worker.runOnce();
-    assert.equal(second.status, 'completed');
-    assert.equal(second.profileRevision, 2);
-    assert.equal(modelCalls(), 2);
-    const jobStatuses = Object.fromEntries(
-      store.listJobs().map((job) => [job.sessionId, job.status])
-    );
-    assert.deepEqual(jobStatuses, {
-      'job-1': 'applied',
-      'job-2': 'applied'
+    for (let index = 1; index <= 3; index += 1) {
+      const sessionId = `communication-${index}`;
+      store.enqueueObservation(completionEvent(sessionId));
+      assert.equal((await worker.runOnce()).status, 'completed');
+    }
+    for (let index = 1; index <= 3; index += 1) {
+      const sessionId = `language-${index}`;
+      store.enqueueObservation(completionEvent(sessionId, 'The user prefers English replies.'));
+      assert.equal((await worker.runOnce()).status, 'completed');
+    }
+    assert.equal(modelCalls(), 6);
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 0);
+    const candidates = store.listCandidates({
+      accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
+      status: 'ready'
     });
+    const communication = candidates.find((candidate) => candidate.key === 'communication_style');
+    const language = candidates.find((candidate) => candidate.key === 'language_preference');
+    assert.equal(communication.independentRoots.length, 3);
+    assert.equal(language.independentRoots.length, 3);
+    assert.equal(store.reviewCandidate({
+      proposalId: communication.proposalId,
+      decision: 'approve',
+      actor: 'closure-admin',
+      expectedProfileRevision: 0,
+      basePersonaHash: hashBasePersona(base)
+    }).profileRevision, 1);
+    const staleLanguage = store.reviewCandidate({
+      proposalId: language.proposalId,
+      decision: 'approve',
+      actor: 'closure-admin',
+      expectedProfileRevision: 1,
+      basePersonaHash: hashBasePersona(base)
+    });
+    assert.equal(staleLanguage.reviewed, false);
+    assert.equal(staleLanguage.reason, 'stale');
+    assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 1);
+    store.enqueueObservation(completionEvent('language-4', 'The user prefers English replies.'));
+    assert.equal((await worker.runOnce()).status, 'completed');
+    assert.equal(modelCalls(), 7);
+    const refreshedLanguage = store.listCandidates({
+      accountId: ACCOUNT_ID, chatKey: 'group:100', status: 'ready'
+    }).find((candidate) => candidate.key === 'language_preference');
+    assert.ok(refreshedLanguage);
+    assert.equal(store.reviewCandidate({
+      proposalId: refreshedLanguage.proposalId,
+      decision: 'approve',
+      actor: 'closure-admin',
+      expectedProfileRevision: 1,
+      basePersonaHash: hashBasePersona(base)
+    }).profileRevision, 2);
 
     let learned = store.getLearnedSelfContext({
       accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
       basePersona: base
     });
     assert.equal(learned.revision, 2);
-    assert.equal(learned.context.communication_style.value, 'concise');
-    assert.equal(learned.context.language_preference.value, 'English');
+    assert.equal(currentTrait(learned.context, 'communication_style').value, 'concise');
+    assert.equal(currentTrait(learned.context, 'language_preference').value, 'English');
 
     const rollback = store.rollbackProfile({
       accountId: ACCOUNT_ID,
@@ -180,11 +254,12 @@ test('reflection plugin applies job1/job2 as revisions 1/2 and rollback changes 
     assert.equal(rollback.parentRevision, 2);
     learned = store.getLearnedSelfContext({
       accountId: ACCOUNT_ID,
+      chatKey: 'group:100',
       basePersona: base
     });
     assert.equal(learned.revision, 3);
-    assert.equal(learned.context.communication_style.value, 'concise');
-    assert.equal(learned.context.language_preference, undefined);
+    assert.equal(currentTrait(learned.context, 'communication_style').value, 'concise');
+    assert.equal(currentTrait(learned.context, 'language_preference'), undefined);
     assert.deepEqual(
       store.listProfileVersions({ accountId: ACCOUNT_ID }).map((version) => version.revision),
       [3, 2, 1]

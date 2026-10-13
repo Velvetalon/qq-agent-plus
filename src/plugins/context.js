@@ -348,8 +348,14 @@ export function createRuntimeControlContext(hostCtx = {}) {
 export function createToolCallbackContext(tool, hostCtx = {}) {
   const ownerPluginId = String(tool?.ownerPluginId || '');
   if (ownerPluginId === 'legacy-tools') {
-    const { deliveryGuard, ...legacyContext } = hostCtx;
-    return legacyContext;
+    if (typeof hostCtx?.deliveryGuard === 'function') {
+      return {
+        ...hostCtx,
+        sender: senderFacade(hostCtx),
+        socialGuarded: true
+      };
+    }
+    return hostCtx;
   }
   const toolName = String(tool?.name || '');
   if (ownerPluginId === 'messaging' && MESSAGING_TOOLS.has(toolName)) {

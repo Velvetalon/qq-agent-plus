@@ -7,6 +7,7 @@ import {
   NotebookStore,
   notebookDatabasePath
 } from './notebook-store.js';
+import { NOTEBOOK_POLICY_VERSION } from './notebook-policy.js';
 import { selfEvolutionConfig } from './config.js';
 
 export const SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID = 'self-evolution.retrieval';
@@ -60,6 +61,33 @@ function currentMessageIds(runContext = {}) {
 
 function sourceRef(meta) {
   return `retrieval:${encodeURIComponent(JSON.stringify(meta))}`;
+}
+
+function currentMaterialRef(notebook, { accountId, chatKey, noteId, revision } = {}) {
+  if (!notebook || typeof notebook.get !== 'function') return null;
+  try {
+    const note = notebook.get({
+      accountId,
+      noteId,
+      currentChatKey: chatKey,
+      includeArchived: false,
+      admin: false
+    });
+    if (!note
+      || note.status !== 'active'
+      || note.recallable !== true
+      || Number(note.revision) !== Number(revision)) return null;
+    return {
+      kind: 'notebook',
+      id: String(note.id),
+      revision: Number(note.revision),
+      scope: String(note.scope),
+      visibility: note.scope === 'global' ? 'global' : `chat:${String(note.chatKey)}`,
+      policyVersion: NOTEBOOK_POLICY_VERSION
+    };
+  } catch {
+    return null;
+  }
 }
 
 function auditDefaults({
@@ -222,9 +250,20 @@ export class SelfEvolutionRetrievalProvider {
         const blocks = [];
         let usedChars = 0;
         for (const block of (result.contextBlocks || [])) {
+          const materialRef = currentMaterialRef(notebook, {
+            accountId,
+            chatKey,
+            noteId: text(block.noteId),
+            revision: block.revision
+          });
+          if (!materialRef) continue;
           const meta = {
             noteId: text(block.noteId),
             revision: block.revision ?? null,
+            scope: materialRef.scope,
+            visibility: materialRef.visibility,
+            policyVersion: materialRef.policyVersion,
+            materialRef,
             rankingSource: text(block.rankingSource || 'sqlite-vec'),
             chars: text(block.snippet).length,
             budget: block.budget || null,
@@ -240,6 +279,7 @@ export class SelfEvolutionRetrievalProvider {
             title: '历史 Notebook 参考',
             text: `${prefix}${snippet}`.trim(),
             sourceRefs: [`notebook:${meta.noteId}@${meta.revision}`, sourceRef(meta)],
+            materialRefs: [materialRef],
             noteId: meta.noteId,
             revision: meta.revision,
             snippet,
@@ -306,9 +346,20 @@ export class SelfEvolutionRetrievalProvider {
       let usedChars = 0;
       const blocks = [];
       for (const block of (result.contextBlocks || [])) {
+        const materialRef = currentMaterialRef(notebook, {
+          accountId,
+          chatKey,
+          noteId: text(block.noteId),
+          revision: block.revision
+        });
+        if (!materialRef) continue;
         const meta = {
           noteId: text(block.noteId),
           revision: block.revision ?? null,
+          scope: materialRef.scope,
+          visibility: materialRef.visibility,
+          policyVersion: materialRef.policyVersion,
+          materialRef,
           rankingSource: text(block.rankingSource || 'lexical'),
           chars: text(block.snippet).length,
           budget: block.budget || null,
@@ -324,6 +375,7 @@ export class SelfEvolutionRetrievalProvider {
           title: '历史 Notebook 参考',
           text: `${prefix}${snippet}`.trim(),
           sourceRefs: [`notebook:${meta.noteId}@${meta.revision}`, sourceRef(meta)],
+          materialRefs: [materialRef],
           noteId: meta.noteId,
           revision: meta.revision,
           snippet,

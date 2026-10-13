@@ -297,7 +297,8 @@ test('concurrent revisions use CAS and persist the losing conflict for audit', a
     const current = store.get({
       accountId: 'bot-1',
       noteId: created.note.id,
-      currentChatKey: 'group:100'
+      currentChatKey: 'group:100',
+      admin: true
     });
     assert.equal(current.revision, 2);
     assert.ok(['first edit', 'second edit'].includes(current.content));
@@ -393,7 +394,8 @@ test('archive advances revision, remains in history, and is excluded from recall
     const history = store.history({
       accountId: 'bot-1',
       noteId: created.note.id,
-      currentChatKey: 'group:100'
+      currentChatKey: 'group:100',
+      admin: true
     });
     assert.deepEqual(history.versions.map((item) => [item.revision, item.status]), [
       [2, 'archived'],

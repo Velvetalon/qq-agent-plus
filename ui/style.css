@@ -3057,3 +3057,16 @@ dialog { margin: auto; max-height: 88vh; }
 }
 .session-audit .context-metrics div strong { word-break: break-word; }
 .session-audit .coll-body { max-height: 320px; overflow: auto; }
+
+.preference-candidates { overflow-x: auto; border-radius: 8px; }
+.preference-candidates table { min-width: 780px; table-layout: auto; }
+.preference-candidates td { max-width: 260px; overflow-wrap: anywhere; }
+.preference-candidates details ul { padding-left: 16px; }
+.preference-candidates blockquote {
+  margin: 8px 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.preference-candidates .btn { white-space: nowrap; }

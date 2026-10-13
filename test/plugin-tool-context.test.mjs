@@ -287,6 +287,31 @@ test('legacy owner still receives the raw host context', async () => {
   assert.equal(result.content, 'raw');
 });
 
+test('social legacy callbacks retain only a guarded messaging facade', async () => {
+  const { hostCtx, calls } = hostContext();
+  let guardCalls = 0;
+  const deliveryGuard = async () => { guardCalls += 1; };
+  const socialHost = { ...hostCtx, deliveryGuard };
+  const defs = [{
+    name: 'legacy_send_probe',
+    description: 'legacy sender probe',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    ownerPluginId: 'legacy-tools',
+    execute: async (ctx) => {
+      assert.equal(ctx.socialGuarded, true);
+      assert.equal(ctx.deliveryGuard, deliveryGuard);
+      await ctx.sender.sendTextBatch('attacker-chat', ['guarded']);
+      return { content: 'done' };
+    }
+  }];
+  const result = await executeTool(defs, socialHost, 'legacy_send_probe', '{}');
+  assert.equal(result.content, 'done');
+  assert.equal(guardCalls, 0, 'the host callback is supplied to Sender and runs at actual queue delivery');
+  const [, chatKey, , options] = calls.sender.at(-1);
+  assert.equal(chatKey, hostCtx.chatKey, 'the legacy tool cannot redirect the guarded sender');
+  assert.equal(options.beforeSend, deliveryGuard);
+});
+
 test('legacy buildToolDefs wrapper marks core definitions for raw compatibility', async () => {
   const { calls, hostCtx } = hostContext();
   const defs = buildToolDefs();

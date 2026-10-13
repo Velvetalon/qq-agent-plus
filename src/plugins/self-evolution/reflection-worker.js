@@ -265,6 +265,9 @@ export class ReflectionWorker {
     let raw;
     try {
       const reflectionInput = await this.#buildReflectionInput(job, persona, notebook, taskSignal);
+      job.evidence.existingCandidates = Array.isArray(reflectionInput.existingCandidates)
+        ? reflectionInput.existingCandidates
+        : [];
       raw = await this.#callReflector({
         job,
         persona,
@@ -287,7 +290,8 @@ export class ReflectionWorker {
           modelCalls: 0,
           committed: noop.accepted === true,
           jobId: job.id,
-          reason: 'insufficient-context-budget'
+          reason: 'insufficient-context-budget',
+          contextBudget: error.details || null
         };
       }
       if (error?.code === 'REFLECTION_STOPPED' || signal.aborted || !this.active) {
@@ -494,6 +498,8 @@ export class ReflectionWorker {
     const traitEvidencePool = Array.isArray(evidence.traitEvidencePool)
       ? evidence.traitEvidencePool
         .filter((item) => (
+          Number(item?.schemaVersion) >= 3
+          &&
           Number(item?.evidenceVersion) >= 3
           && item?.role === 'user'
           && item?.sourceRecordType === 'message'
@@ -508,16 +514,37 @@ export class ReflectionWorker {
           sourceRef: String(item.sourceRef),
           sourceMessageId: String(item.originalSourceId),
           interactionId: String(item.interactionId),
+          schemaVersion: Number(item.schemaVersion),
           topicId: String(item.topicId || ''),
+          senderId: String(item.senderId || ''),
           role: 'user',
           text: String(item.text || '').slice(0, 240)
         }))
       : [];
+    let existingCandidates = [];
+    try {
+      existingCandidates = this.store.listCandidates?.({
+        accountId: job.accountId,
+        chatKey: job.chatKey,
+        status: 'pending',
+        limit: 24
+      }).map((candidate) => ({
+        candidateId: String(candidate.candidateId),
+        subject: String(candidate.subject),
+        key: String(candidate.key),
+        value: String(candidate.value),
+        scope: String(candidate.scope),
+        chatKey: String(candidate.chatKey)
+      })) || [];
+    } catch {
+      existingCandidates = [];
+    }
     return {
       conversationEvidence: Array.isArray(evidence.conversationEvidence)
         ? evidence.conversationEvidence
         : [],
       traitEvidencePool,
+      existingCandidates,
       preferenceEvidence: Array.isArray(evidence.conversationEvidence)
         ? evidence.conversationEvidence
           .filter((item) => item?.userEvidence === true && item?.role === 'user')
@@ -589,6 +616,7 @@ export class ReflectionWorker {
         Promise.resolve().then(() => this.reflector({
           job,
           evidence: job.evidence,
+          reflectionInput,
           basePersona: persona,
           basePersonaHash,
           mode: selectedMode,

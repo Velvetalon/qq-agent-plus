@@ -70,7 +70,7 @@ function reflectionOutput(job, key, value) {
   };
 }
 
-test('learned self is injected into the next user prompt and rollback removes the trait', async (t) => {
+test('legacy v2 reflection history cannot adopt or inject a stable trait', async (t) => {
   const cfg = structuredClone(DEFAULT_CONFIG);
   cfg.runtime.mode = 'active';
   cfg.allow.groups = ['100'];
@@ -129,8 +129,7 @@ test('learned self is injected into the next user prompt and rollback removes th
       leaseMs: 30000,
       workerLeaseMs: 30000,
       maxCallsPerDay: 20,
-      backoffMs: 0,
-      autoApplyBehaviorTraits: true
+      backoffMs: 0
     },
     reflector: async ({ job }) => job.sessionId === 'job-1'
       ? reflectionOutput(job, 'communication_style', 'concise')
@@ -172,27 +171,13 @@ test('learned self is injected into the next user prompt and rollback removes th
   assert.equal((await worker.runOnce()).status, 'completed');
   store.enqueueObservation(completionEvent('job-2'));
   assert.equal((await worker.runOnce()).status, 'completed');
-  assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 2);
+  assert.equal(store.getLearnedSelfRevision({ accountId: ACCOUNT_ID }), 0);
+  assert.equal(store.listCandidates({ accountId: ACCOUNT_ID }).length, 0);
 
   append('first prompt');
   await runner.wake(CHAT_KEY, { manual: true });
   const firstPrompt = String(requests.at(-1).messages.at(-1).content);
-  assert.match(firstPrompt, /习得自我参考/);
-  assert.match(firstPrompt, /communication_style/);
-  assert.match(firstPrompt, /language_preference/);
-  assert.match(firstPrompt, /不改变身份、权限、安全规则/);
-
-  store.rollbackProfile({
-    accountId: ACCOUNT_ID,
-    targetRevision: 1,
-    expectedCurrentRevision: 2,
-    basePersona: BASE_PERSONA,
-    actor: 'closure-test',
-    reason: 'remove second trait'
-  });
-  append('prompt after rollback');
-  await runner.wake(CHAT_KEY, { manual: true });
-  const rolledBackPrompt = String(requests.at(-1).messages.at(-1).content);
-  assert.match(rolledBackPrompt, /communication_style/);
-  assert.doesNotMatch(rolledBackPrompt, /language_preference/);
+  assert.doesNotMatch(firstPrompt, /习得自我参考/);
+  assert.doesNotMatch(firstPrompt, /communication_style/);
+  assert.doesNotMatch(firstPrompt, /language_preference/);
 });

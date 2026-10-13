@@ -382,7 +382,7 @@ function conversationStatusText(s) {
   const mode = s.conversationMode || 'legacy';
   const modeLabel = CONVERSATION_MODE_LABEL[mode] || mode;
   if (mode === 'social') {
-    const decision = { reply: '回复', listen: '倾听', wait: '等待', close: '结束' }[s.socialAudit?.decision];
+    const decision = { reply: '回复', share: '分享', react: '反应', listen: '倾听', wait: '等待', close: '结束' }[s.socialAudit?.decision];
     return decision ? `${modeLabel} · ${decision}` : modeLabel;
   }
   const threadLabel = THREAD_STATE_LABEL[lifecycleStateOf(s)];
@@ -393,7 +393,7 @@ function renderSessionModeBand(s) {
   const mode = ['legacy', 'threaded', 'lifecycle', 'social'].includes(s.conversationMode)
     ? s.conversationMode
     : 'legacy';
-  const socialDecision = { reply: '回复', listen: '倾听', wait: '等待', close: '结束', invalid: '无效决定' }[s.socialAudit?.decision];
+  const socialDecision = { reply: '回复', share: '分享', react: '反应', listen: '倾听', wait: '等待', close: '结束', invalid: '无效决定' }[s.socialAudit?.decision];
   const stateLabel = mode === 'social'
     ? socialDecision || '社交规划'
     : THREAD_STATE_LABEL[lifecycleStateOf(s)] || (mode === 'legacy' ? '单轮运行' : '尚未建立线程');
@@ -2270,7 +2270,7 @@ function renderSocialSessionPanel(s) {
   const audit = s.socialAudit || null;
   if (s.conversationMode !== 'social' && !audit) return '';
   const status = state.socialStatusChatKey === s.chatKey ? state.socialStatus : null;
-  const decisions = { reply: '回复', listen: '倾听', wait: '等待', close: '结束', invalid: '无效决定' };
+  const decisions = { reply: '回复', share: '分享', react: '反应', listen: '倾听', wait: '等待', close: '结束', invalid: '无效决定' };
   const sources = (audit?.sourceMessageIds || []).slice(0, 12);
   const topics = (status?.scene?.topics || []).slice(0, 8);
   const activeIntents = (status?.intents || []).filter((intent) =>
@@ -2291,7 +2291,7 @@ function renderSocialSessionPanel(s) {
           <strong>${esc(intent.goal || '（没有目标摘要）')}</strong>
           <small>${esc(intent.status === 'leased' ? '执行中' : '待处理')} · 话题 ${esc(intent.topicId || '-')} · 来源 ${(intent.sourceMessageIds || []).slice(0, 6).map((id) => `#${esc(id)}`).join(' ') || '-'} · 到期 ${intent.expiresAt ? esc(fmtTime(intent.expiresAt)) : '-'}</small>
         </div>
-        ${intent.status === 'pending' ? `<button type="button" class="btn btn-small btn-danger" data-social-cancel="${esc(intent.id)}" title="取消并记录原因">取消待办</button>` : ''}
+        <button type="button" class="btn btn-small btn-danger" data-social-cancel="${esc(intent.id)}" title="取消并记录原因">取消待办</button>
       </div>`).join('')
     : '<div class="empty-hint">暂无待处理待办</div>';
   const sceneText = topics.length
@@ -2314,13 +2314,15 @@ function renderSocialSessionPanel(s) {
       </div>
       ${audit ? `<dl class="social-audit-grid">
         <div><dt>规划决定</dt><dd>${esc(decisions[audit.decision] || audit.decision || '-')}</dd></div>
-        <div><dt>实际动作</dt><dd>${esc(actionText)}</dd></div>
+        <div><dt>实际动作</dt><dd>${esc(actionText)} · ${esc(audit.deliveryState || 'not_attempted')}</dd></div>
         <div><dt>目标话题</dt><dd>${esc(audit.topicId || '-')}</dd></div>
-        <div><dt>目标消息</dt><dd>${esc(audit.targetMessageId || '-')}</dd></div>
+        <div><dt>目标消息</dt><dd>${esc((audit.targetMessageIds || []).join(' · ') || audit.targetMessageId || '-')}</dd></div>
         <div><dt>主动发起</dt><dd>${audit.proactive ? '是' : '否'}</dd></div>
         <div><dt>沟通目标</dt><dd>${esc(audit.goal || '-')}</dd></div>
         <div><dt>新意摘要</dt><dd>${esc(audit.novelty || '-')}</dd></div>
-        <div><dt>材料来源</dt><dd>${sources.map((id) => `#${esc(id)}`).join(' ') || '-'}</dd></div>
+        <div><dt>材料来源</dt><dd>${(audit.sourceRefs || []).map(esc).join(' · ') || sources.map((id) => `#${esc(id)}`).join(' ') || '-'}</dd></div>
+        <div><dt>材料版本</dt><dd>${(audit.materialRefs || []).map((ref) => `${esc(ref.kind)}:${esc(ref.id)}@${esc(ref.revision)}`).join(' · ') || '-'}</dd></div>
+        <div><dt>未发送原因</dt><dd>${esc(audit.dispatchBlocked || audit.validation || '-')}</dd></div>
         <div><dt>触发 / 待办</dt><dd>${esc(audit.triggerKind || '-')} · ${esc(audit.intentId || '-')}</dd></div>
       </dl>` : '<div class="empty-hint">本次运行没有社交规划审计记录</div>'}
       <div class="social-intent-list">${intentRows}</div>
@@ -11355,7 +11357,9 @@ async function loadPluginsPage() {
 // ── P7：自我迭代页（四页签） ──────────────────────────────────────────────
 const SELF_EVOLUTION_TABS = [
   ['notebook', '笔记'],
+  ['quarantine', '隔离笔记'],
   ['learned', '习得自我'],
+  ['candidates', '偏好候选'],
   ['reflection', '反思作业 / 提案'],
   ['gaps', '能力缺口']
 ];
@@ -11378,7 +11382,7 @@ function renderSelfEvolutionNotebook(data = {}) {
         <small>${esc(note.id)}</small>
       </td>
       <td>${esc(note.scope || '-')}<small>${esc(note.chatKey || '')}</small></td>
-      <td>${esc(note.status || '-')}</td>
+      <td>${esc(note.status || '-')}<small>${esc(note.type || 'experience')}${note.recallable === false ? ' · 已隔离' : ''}</small></td>
       <td>${esc(note.revision ?? '-')}</td>
       <td>${note.updatedAt ? esc(fmtTime(note.updatedAt)) : '-'}</td>
       <td class="r">
@@ -11393,6 +11397,25 @@ function renderSelfEvolutionNotebook(data = {}) {
       </td>
     </tr>`).join('')}</tbody>
   </table></div>`;
+}
+
+function renderSelfEvolutionQuarantine(data = {}) {
+  const quarantine = data.quarantine || {};
+  if (quarantine.unavailable) {
+    return `<div class="context-warning">${esc(quarantine.error || '隔离清单不可用')}</div>`;
+  }
+  const entries = Array.isArray(quarantine.entries) ? quarantine.entries : [];
+  if (!entries.length) return '<div class="empty-hint">没有隔离笔记。</div>';
+  return `<div class="asset-table-wrap"><table class="asset-table">
+    <thead><tr><th>笔记 ID</th><th>范围</th><th>类型</th><th>版本</th><th>隔离原因</th><th>更新时间</th></tr></thead>
+    <tbody>${entries.map((entry) => `<tr>
+      <td>${esc(entry.id)}</td>
+      <td>${esc(entry.chatKey || entry.scope)}</td>
+      <td>${esc(entry.type)}<small>${esc(entry.channel)}</small></td>
+      <td>${esc(entry.revision)}</td>
+      <td>${esc(entry.policyReason || 'operational')}</td>
+      <td>${entry.updatedAt ? esc(fmtTime(entry.updatedAt)) : '-'}</td>
+    </tr>`).join('')}</tbody></table></div>`;
 }
 
 function renderSelfEvolutionLearned(data = {}) {
@@ -11419,6 +11442,7 @@ function renderSelfEvolutionLearned(data = {}) {
         ? `证据 ${refs.length} 条：${refs.slice(0, 3).join(' · ')}${refs.length > 3 ? ' · …' : ''}`
         : '暂无证据引用';
       const meta = [
+        structured.subject ? `主体 ${structured.subject}` : '',
         Number.isFinite(confidence) && confidence > 0
           ? `置信度 ${(confidence * 100).toFixed(0)}%`
           : '',
@@ -11426,7 +11450,7 @@ function renderSelfEvolutionLearned(data = {}) {
         evidence
       ].filter(Boolean).join(' · ');
       return `<li class="learned-profile-trait">
-        <div><strong>${esc(key)}</strong>：${esc(value)}</div>
+        <div><strong>${esc(structured.key || key)}</strong>：${esc(value)}</div>
         <small class="learned-profile-trait-meta">${esc(meta)}</small>
       </li>`;
     };
@@ -11466,6 +11490,56 @@ function renderSelfEvolutionLearned(data = {}) {
           ${Number(entry.revision) === headRevision ? '当前版本' : '回滚到该版本'}</button></td>
       </tr>`).join('')}</tbody>
     </table></div>`;
+}
+
+function renderSelfEvolutionCandidates(data = {}) {
+  const candidates = data.candidates || {};
+  const entries = Array.isArray(candidates.entries) ? candidates.entries : [];
+  if (candidates.unavailable) {
+    return `<div class="context-warning">${esc(candidates.error || '候选接口不可用')}</div>`;
+  }
+  if (!entries.length) return '<div class="empty-hint">没有偏好候选。</div>';
+  const disabled = candidates.disabled === true || data.status?.reflection?.running !== true;
+  const evidence = (refs, label) => {
+    const items = Array.isArray(refs) ? refs.slice(0, 8) : [];
+    return items.length
+      ? `<div><strong>${label}</strong><ul>${items.map((ref) => `<li>${esc(ref)}</li>`).join('')}</ul></div>`
+      : '';
+  };
+  return `<div class="asset-table-wrap preference-candidates"><table class="asset-table">
+    <thead><tr><th>候选</th><th>主体 / 范围</th><th>证据</th><th>状态</th><th>到期</th><th></th></tr></thead>
+    <tbody>${entries.map((entry) => {
+      const busy = state.selfEvolutionBusy === entry.proposalId;
+      const pending = ['pending', 'pending_insufficient', 'ready'].includes(entry.status);
+      const subject = typeof entry.subject === 'object'
+        ? [entry.subject?.kind, entry.subject?.id].filter(Boolean).join(':')
+        : entry.subject;
+      return `<tr>
+        <td><strong>${esc(entry.key)}</strong><div>${esc(entry.value || '')}</div>
+          <small>${esc(entry.candidateId || entry.proposalId)}</small></td>
+        <td>${esc(subject || '-')}<small>${esc(entry.chatKey || entry.scope || '-')}</small></td>
+        <td>${(entry.independentRoots || []).length} 个来源 · ${(entry.interactionIds || []).length} 次互动
+          <details><summary>证据引用</summary>
+            ${evidence(entry.supportRefs, '支撑')}${evidence(entry.counterRefs, '反证')}
+            ${(entry.supportingEvidence || []).slice(0, 8).map((item) =>
+              `<blockquote>${esc(item.text || '')}<small>${esc(item.sourceRef || '')}</small></blockquote>`).join('')}
+            ${(entry.counterEvidence || []).slice(0, 8).map((item) =>
+              `<blockquote>${esc(item.text || '')}<small>反证 · ${esc(item.sourceRef || '')}</small></blockquote>`).join('')}
+          </details></td>
+        <td>${esc(entry.status)}<small>${esc(entry.reason || '')}</small></td>
+        <td>${entry.expiresAt ? esc(fmtTime(entry.expiresAt)) : '-'}</td>
+        <td class="r">
+          <button type="button" class="btn btn-small" data-candidate-review="${esc(entry.proposalId)}"
+            data-decision="approve" data-chat-key="${esc(entry.chatKey)}"
+            data-revision="${esc(entry.currentProfileRevision)}"
+            ${disabled || busy || !pending || entry.eligible !== true ? 'disabled' : ''}>采用</button>
+          <button type="button" class="btn btn-small btn-danger" data-candidate-review="${esc(entry.proposalId)}"
+            data-decision="reject" data-chat-key="${esc(entry.chatKey)}"
+            data-revision="${esc(entry.currentProfileRevision)}"
+            ${disabled || busy || !pending ? 'disabled' : ''}>拒绝</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
 }
 
 function renderSelfEvolutionReflection(data = {}) {
@@ -11531,6 +11605,8 @@ function renderSelfEvolutionPage() {
     ? state.selfEvolutionTab
     : 'notebook';
   const body = tab === 'learned' ? renderSelfEvolutionLearned(data)
+    : tab === 'quarantine' ? renderSelfEvolutionQuarantine(data)
+    : tab === 'candidates' ? renderSelfEvolutionCandidates(data)
     : tab === 'reflection' ? renderSelfEvolutionReflection(data)
       : tab === 'gaps' ? renderSelfEvolutionGaps(data)
         : renderSelfEvolutionNotebook(data.notebook || {});
@@ -11566,6 +11642,35 @@ function renderSelfEvolutionPage() {
     });
   });
   $('#self-evolution-refresh')?.addEventListener('click', () => loadSelfEvolutionPage());
+  $$('#self-evolution-page [data-candidate-review]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const proposalId = button.dataset.candidateReview;
+      const decision = button.dataset.decision;
+      if (state.selfEvolutionBusy) return;
+      if (!await askForConfirmation(decision === 'approve' ? '采用这条偏好候选？' : '拒绝这条偏好候选？')) return;
+      state.selfEvolutionBusy = proposalId;
+      button.disabled = true;
+      try {
+        const result = await api(`/api/self-evolution/reflection/candidates/${encodeURIComponent(proposalId)}/review`, {
+          method: 'POST',
+          body: JSON.stringify({
+            decision,
+            chatKey: button.dataset.chatKey,
+            expectedRevision: Number(button.dataset.revision),
+            confirm: true
+          })
+        });
+        state.selfEvolutionError = result.reviewed === false
+          ? `未完成审核：${result.reason || result.candidate?.reason || '候选状态已改变'}`
+          : '';
+      } catch (error) {
+        state.selfEvolutionError = `审核失败：${error.message}`;
+      } finally {
+        state.selfEvolutionBusy = '';
+        await loadSelfEvolutionPage();
+      }
+    });
+  });
   $$('#self-evolution-page [data-note-save]').forEach((button) => {
     button.addEventListener('click', async () => {
       const noteId = button.dataset.noteSave;
@@ -11655,16 +11760,18 @@ async function loadSelfEvolutionPage() {
     error: error.message
   }));
   try {
-    const [status, notebook, jobs, proposals, gaps, profiles] = await Promise.all([
+    const [status, notebook, jobs, proposals, gaps, profiles, candidates, quarantine] = await Promise.all([
       api('/api/self-evolution/status'),
       optional('/api/self-evolution/notebook?includeArchived=1&limit=200', { notes: [], count: 0 }),
       optional('/api/self-evolution/reflection/jobs?limit=100', { entries: [], count: 0 }),
       optional('/api/self-evolution/reflection/proposals?limit=100', { entries: [], count: 0 }),
       optional('/api/self-evolution/reflection/gaps?limit=100', { entries: [], count: 0 }),
-      optional('/api/self-evolution/reflection/profiles?limit=100', { entries: [], count: 0, headRevision: 0 })
+      optional('/api/self-evolution/reflection/profiles?limit=100', { entries: [], count: 0, headRevision: 0 }),
+      optional('/api/self-evolution/reflection/candidates?limit=100', { entries: [], count: 0 }),
+      optional('/api/self-evolution/notebook/quarantine?limit=200', { entries: [], count: 0 })
     ]);
     if (state.tab !== 'self-evolution') return;
-    state.selfEvolutionData = { status, notebook, jobs, proposals, gaps, profiles };
+    state.selfEvolutionData = { status, notebook, jobs, proposals, gaps, profiles, candidates, quarantine };
     state.selfEvolutionError = '';
   } catch (error) {
     if (state.tab !== 'self-evolution') return;

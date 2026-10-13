@@ -296,7 +296,36 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     onebot,
     emit,
     getIdentityPilot: () => identityPilot,
-    getIncidentPilot: () => incidentPilot
+    getIncidentPilot: () => incidentPilot,
+    validateSocialMaterials: ({ accountId, chatKey, refs = [] }) => {
+      if (!refs.length) return { valid: true, invalidRefs: [] };
+      const notebookRefs = refs.filter((ref) => ref?.kind === 'notebook');
+      const learnedRefs = refs.filter((ref) => ref?.kind === 'learned-self');
+      const unknownRefs = refs.filter((ref) => !['notebook', 'learned-self'].includes(ref?.kind));
+      const notebookResult = notebookRefs.length ? withNotebookStore((notebook) => (
+        notebook?.validateMaterialRefs?.({
+          accountId,
+          currentChatKey: chatKey,
+          refs: notebookRefs
+        }) || { valid: false, invalidRefs: notebookRefs }
+      )) : { valid: true, invalidRefs: [] };
+      const learnedResult = learnedRefs.length ? withReflectionStore((reflection) => (
+        reflection?.validateMaterialRefs?.({
+          accountId,
+          currentChatKey: chatKey,
+          refs: learnedRefs,
+          basePersona: reflectionBasePersona()
+        }) || { valid: false, invalidRefs: learnedRefs }
+      )) : { valid: true, invalidRefs: [] };
+      return {
+        valid: unknownRefs.length === 0 && notebookResult.valid === true && learnedResult.valid === true,
+        invalidRefs: [
+          ...unknownRefs,
+          ...(notebookResult.invalidRefs || []),
+          ...(learnedResult.invalidRefs || [])
+        ]
+      };
+    }
   });
 
   // ── P7：自我迭代插件的宿主接线 ─────────────────────────────────────────
@@ -3373,14 +3402,14 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           }
           const currentStatus = orchestrator.getSocialStatus(scope.chatKey);
           const hasPendingIntent = (currentStatus?.intents || []).some((item) =>
-            item.id === intentId && item.status === 'pending'
+            item.id === intentId && ['pending', 'leased'].includes(item.status)
           );
           if (!hasPendingIntent) return json(res, 404, { error: '待处理待办不存在' });
           const socialState = orchestrator.getSocialState(scope.chatKey, { create: false });
           if (!socialState) return json(res, 404, { error: '待处理待办不存在' });
           const storedIntent = socialState.listIntents({
             accountId: account.accountId, chatKey: scope.chatKey, limit: 50
-          }).find((item) => item.id === intentId && item.status === 'pending');
+          }).find((item) => item.id === intentId && ['pending', 'leased'].includes(item.status));
           if (!storedIntent) return json(res, 404, { error: '待处理待办不存在' });
           const cancelled = socialState.cancelIntent({
             accountId: account.accountId,
@@ -3753,6 +3782,31 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       }
 
       // ── P7：Notebook（管理员可见，可含归档） ────────────────────────────
+      if (pathname === '/api/self-evolution/notebook/quarantine' && method === 'GET') {
+        const account = accountNamespace();
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 200));
+        try {
+          return withNotebookStore((notebook) => {
+            const entries = notebook?.listForCleanup?.({ accountId: account.accountId, limit }) || [];
+            const visible = entries.filter((entry) => {
+              if (entry.recallable !== false) return false;
+              if (entry.scope === 'global') return true;
+              const scope = parseSocialChatKey(entry.chatKey);
+              return scope && allowed(scope.kind, scope.id, cfgNow);
+            });
+            return json(res, 200, {
+              accountId: account.accountId,
+              accountSource: account.source,
+              entries: visible,
+              count: visible.length,
+              disabled: !selfEvolutionEnabled()
+            });
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
       if (pathname === '/api/self-evolution/notebook' && method === 'GET') {
         const account = accountNamespace();
         const includeArchived = ['1', 'true'].includes(
@@ -3949,6 +4003,111 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       }
 
       // ── P7：反思作业 / 提案 / 能力缺口 / 习得自我（只读历史） ────────────
+      if (pathname === '/api/self-evolution/reflection/candidates' && method === 'GET') {
+        const account = accountNamespace();
+        const rawChatKey = url.searchParams.get('chatKey') || '';
+        const scope = rawChatKey ? parseSocialChatKey(rawChatKey) : null;
+        if (rawChatKey && !scope) return apiFailure(res, 400, 'INVALID_BODY', 'chatKey 格式错误');
+        if (scope && !allowed(scope.kind, scope.id, cfgNow)) {
+          return apiFailure(res, 403, 'REFLECTION_SCOPE_DENIED', '会话不在允许范围内');
+        }
+        const rawLimit = Number(url.searchParams.get('limit') || 100);
+        const limit = Number.isSafeInteger(rawLimit) ? Math.min(100, Math.max(1, rawLimit)) : 100;
+        const status = String(url.searchParams.get('status') || '').slice(0, 40);
+        try {
+          return withReflectionStore((store) => {
+            const entries = store?.listCandidates?.({
+              accountId: account.accountId,
+              chatKey: scope?.chatKey || '',
+              status,
+              limit
+            }) || [];
+            const visible = entries.filter((entry) => {
+              const target = parseSocialChatKey(entry.chatKey);
+              return entry.accountId === account.accountId
+                && entry.scope === 'chat'
+                && target && allowed(target.kind, target.id, cfgNow);
+            });
+            return json(res, 200, {
+              accountId: account.accountId,
+              accountSource: account.source,
+              entries: visible,
+              count: visible.length,
+              disabled: !reflectionEnabled()
+            });
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
+      const candidateReviewMatch =
+        /^\/api\/self-evolution\/reflection\/candidates\/(refprop_[a-f0-9]{24})\/review$/.exec(pathname);
+      if (candidateReviewMatch && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try { body = await readJsonBody(req); }
+        catch (error) { return sendStoreError(res, error, 'INVALID_BODY'); }
+        if (!['approve', 'reject'].includes(body.decision)) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'decision 必须为 approve 或 reject');
+        }
+        if (body.confirm !== true) {
+          return apiFailure(res, 409, 'REFLECTION_CONFIRM_REQUIRED', '审核需要显式确认');
+        }
+        if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0) {
+          return apiFailure(res, 400, 'INVALID_BODY', 'expectedRevision 必须是非负整数');
+        }
+        const scope = parseSocialChatKey(body.chatKey);
+        if (!scope) return apiFailure(res, 400, 'INVALID_BODY', 'chatKey 格式错误');
+        if (!allowed(scope.kind, scope.id, cfgNow)) {
+          return apiFailure(res, 403, 'REFLECTION_SCOPE_DENIED', '会话不在允许范围内');
+        }
+        const account = accountNamespace();
+        if (account.source !== 'selfId') {
+          return apiFailure(res, 409, 'SELF_EVOLUTION_HOST_ACCOUNT_REQUIRED', '无法确认宿主账号');
+        }
+        if (!reflectionEnabled()) {
+          return apiFailure(res, 409, 'REFLECTION_DISABLED', '反思已停用，审核写入被拒绝');
+        }
+        const store = reflectionPlugin.getStore?.();
+        if (!store) return apiFailure(res, 409, 'REFLECTION_DISABLED', '反思存储未运行');
+        try {
+          const proposal = store.getProposal({
+            proposalId: candidateReviewMatch[1],
+            accountId: account.accountId
+          });
+          if (!proposal || proposal.type !== 'trait') {
+            return apiFailure(res, 404, 'REFLECTION_NOT_FOUND', '候选不存在');
+          }
+          if (proposal.scope !== 'chat' || proposal.chatKey !== scope.chatKey) {
+            return apiFailure(res, 403, 'REFLECTION_SCOPE_DENIED', '候选不属于当前会话');
+          }
+          const result = store.reviewCandidate({
+            proposalId: proposal.id,
+            decision: body.decision,
+            actor: 'console',
+            expectedProfileRevision: body.expectedRevision,
+            basePersona: reflectionBasePersona()
+          });
+          if (result.reviewed === false) {
+            const code = /cas-conflict/.test(result.reason || '')
+              ? 'REFLECTION_CAS_CONFLICT'
+              : 'REFLECTION_CANDIDATE_NOT_ELIGIBLE';
+            return apiFailure(res, 409, code, result.reason || '候选状态已改变', {
+              currentProfileRevision: result.currentProfileRevision
+            });
+          }
+          emit('self-evolution-update', { accountId: account.accountId });
+          return json(res, 200, {
+            accountId: account.accountId,
+            accountSource: account.source,
+            ...result
+          });
+        } catch (error) {
+          return sendStoreError(res, error);
+        }
+      }
+
       const reflectionListRoutes = new Map([
         ['/api/self-evolution/reflection/jobs', 'jobs'],
         ['/api/self-evolution/reflection/proposals', 'proposals'],
@@ -4125,6 +4284,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             chatKey: body.chatKey,
             action: body.action,
             value: body.value,
+            subject: body.subject,
             confidence: body.confidence,
             expectedCurrentRevision: body.expectedRevision,
             basePersona: reflectionBasePersona(),

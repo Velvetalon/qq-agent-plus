@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   ReflectionStore,
+  ReflectionWorker,
   createLearnedSelfContextProvider,
   hashBasePersona,
   reflectionDatabasePath
@@ -20,8 +21,17 @@ const BASE_PERSONA = {
   botName: 'lsr4-bot'
 };
 
+function currentTrait(context, key, subject = 'user:user-1') {
+  return Object.values(context || {}).find((entry) => (
+    entry?.key === key && entry.subject === subject
+  ));
+}
+
 function event(sessionId, chatKey) {
+  const interactionId = `interaction-${sessionId}`;
+  const rootId = `root-${sessionId}`;
   return {
+    schemaVersion: 3,
     eventId: `event-${sessionId}`,
     observerId: 'self-evolution.reflection',
     observerPluginId: 'self-evolution',
@@ -29,11 +39,16 @@ function event(sessionId, chatKey) {
     sessionId,
     runId: `run-${sessionId}`,
     chatKey,
-    observationWindowId: 'lsr4-window',
+    interactionId,
+    topicId: 'lsr4-topic',
+    originalSourceIds: [rootId],
     evidenceVersion: 3,
     resultClass: 'done',
     actionSummary: {
       evidenceVersion: 3,
+      interactionId,
+      topicId: 'lsr4-topic',
+      originalSourceIds: [rootId],
       sentCount: 1,
       finishReason: 'finish',
       outboundAttempted: true,
@@ -42,10 +57,14 @@ function event(sessionId, chatKey) {
       outbound: { attempted: 1, succeeded: 1, failed: 0, unknown: 0, held: 0 },
       conversationEvidence: [{
         evidenceId: `message:${sessionId}`,
-        sourceRecordId: sessionId,
+        sourceRecordType: 'message',
+        sourceRecordId: `local-${sessionId}`,
+        originalSourceId: rootId,
+        interactionId,
+        topicId: 'lsr4-topic',
+        senderId: 'user-1',
         role: 'user',
-        userEvidence: true,
-        userConfirmed: true,
+        userConfirmed: false,
         text: `用户偏好 ${sessionId}`
       }]
     },
@@ -66,52 +85,53 @@ test('LSR4 stores metadata, filters expired traits, exposes provider diagnostics
       traitTtlMs: 100
     }
   });
+  const worker = new ReflectionWorker({
+    store,
+    owner: 'lsr4-test',
+    now: () => now,
+    reflector: async ({ job, reflectionInput }) => ({
+      noteOperations: [],
+      traitProposals: [{
+        action: 'set',
+        key: 'communication_style',
+        value: '简短',
+        subject: 'user:user-1',
+        candidateId: reflectionInput.existingCandidates
+          .find((candidate) => candidate.key === 'communication_style'
+            && candidate.value === '简短')?.candidateId,
+        scope: 'chat',
+        chatKey: 'group:100',
+        confidence: 0.9,
+        supportRefs: job.evidence.traitEvidencePool.map((item) => item.sourceRef),
+        counterRefs: []
+      }],
+      capabilityGapProposals: [],
+      summary: 'closure'
+    })
+  });
+  worker.start({ enabled: true, pollIntervalMs: 100000, basePersona: BASE_PERSONA });
   try {
-    let result;
-    for (const [sessionId, chatKey] of [
-      ['closure-1', 'group:100'],
-      ['closure-2', 'group:200'],
-      ['closure-3', 'group:100']
-    ]) {
-      result = store.enqueueObservation(event(sessionId, chatKey));
+    const sessions = ['closure-1', 'closure-2', 'closure-3'];
+    for (const sessionId of sessions) {
+      const chatKey = 'group:100';
+      assert.equal(store.enqueueObservation(event(sessionId, chatKey)).created, true);
     }
-    assert.equal(result.created, true);
-    const generation = store.beginWorkerGeneration({ owner: 'lsr4-test' });
-    const claimed = store.claimNextJob({
-      owner: 'lsr4-test',
-      generation,
-      leaseMs: 60000,
-      workerLeaseMs: 60000
+    for (const _sessionId of sessions) {
+      assert.equal((await worker.runOnce()).status, 'completed');
+    }
+    const [candidate] = store.listCandidates({
+      accountId: 'lsr4-account',
+      chatKey: 'group:100',
+      status: 'ready'
     });
-    const committed = store.commitReflectionResult({
-      job: claimed.job,
-      owner: 'lsr4-test',
-      generation,
-      mode: 'bounded_auto',
-      basePersona: BASE_PERSONA,
-      basePersonaHash: hashBasePersona(BASE_PERSONA),
-      expectedProfileRevision: 0,
-      output: {
-        noteOperations: [],
-        traitProposals: [{
-          action: 'set',
-          key: 'communication_style',
-          value: '简短',
-          scope: 'global',
-          confidence: 0.9,
-          evidenceRefs: [result.job.evidence.userEvidenceRefs[0]]
-        }],
-        capabilityGapProposals: [],
-        summary: 'closure'
-      }
-    });
-    assert.equal(committed.jobStatus, 'ready');
-    const reviewed = store.reviewBatch({
-      batchId: committed.batchId,
+    assert.ok(candidate);
+    assert.equal(candidate.supportingEvidence.length, 3);
+    const reviewed = store.reviewCandidate({
+      proposalId: candidate.proposalId,
       decision: 'approve',
       actor: 'lsr4-reviewer',
       expectedProfileRevision: 0,
-      basePersona: BASE_PERSONA
+      basePersonaHash: hashBasePersona(BASE_PERSONA)
     });
     assert.equal(reviewed.profileRevision, 1);
 
@@ -120,10 +140,11 @@ test('LSR4 stores metadata, filters expired traits, exposes provider diagnostics
       chatKey: 'group:100',
       basePersona: BASE_PERSONA
     });
-    assert.equal(active.context.communication_style.value, '简短');
-    assert.equal(active.context.communication_style.scope, 'global');
-    assert.equal(active.context.communication_style.evidenceCount, 1);
-    assert.equal(active.context.communication_style.expiresAt, 1100);
+    const activeTrait = currentTrait(active.context, 'communication_style');
+    assert.equal(activeTrait.value, '简短');
+    assert.equal(activeTrait.scope, 'chat');
+    assert.equal(activeTrait.evidenceCount, 3);
+    assert.equal(activeTrait.expiresAt, 1100);
     assert.equal(active.expiredTraitCount, 0);
 
     const provider = createLearnedSelfContextProvider({
@@ -136,8 +157,8 @@ test('LSR4 stores metadata, filters expired traits, exposes provider diagnostics
       basePersonaHash: hashBasePersona(BASE_PERSONA)
     });
     assert.equal(provided.blocks.length, 1);
-    assert.match(provided.blocks[0].text, /scope=global/);
-    assert.match(provided.blocks[0].text, /evidence=1/);
+    assert.match(provided.blocks[0].text, /scope=chat/);
+    assert.match(provided.blocks[0].text, /evidence=3/);
     assert.match(provided.blocks[0].text, /expiresAt=1970-01-01/);
 
     now = 1101;
@@ -146,7 +167,7 @@ test('LSR4 stores metadata, filters expired traits, exposes provider diagnostics
       chatKey: 'group:100',
       basePersona: BASE_PERSONA
     });
-    assert.equal(expired.context.communication_style, undefined);
+    assert.equal(currentTrait(expired.context, 'communication_style'), undefined);
     assert.equal(expired.expiredTraitCount, 1);
     const expiredProvided = await provider.provide({
       accountId: 'lsr4-account',
@@ -159,6 +180,9 @@ test('LSR4 stores metadata, filters expired traits, exposes provider diagnostics
     const corrected = store.correctProfileTrait({
       accountId: 'lsr4-account',
       key: 'communication_style',
+      subject: 'user:user-1',
+      scope: 'chat',
+      chatKey: 'group:100',
       action: 'remove',
       expectedCurrentRevision: 1,
       basePersona: BASE_PERSONA,
@@ -167,15 +191,18 @@ test('LSR4 stores metadata, filters expired traits, exposes provider diagnostics
       confirm: true
     });
     assert.equal(corrected.revision, 2);
-    assert.equal(store.getLearnedSelfContext({
+    const afterCorrection = store.getLearnedSelfContext({
       accountId: 'lsr4-account',
+      chatKey: 'group:100',
       basePersona: BASE_PERSONA
-    }).context.communication_style, undefined);
+    });
+    assert.equal(currentTrait(afterCorrection.context, 'communication_style'), undefined);
     const metrics = store.learnedSelfMetrics({ accountId: 'lsr4-account' });
     assert.equal(metrics.currentRevision, 2);
     assert.equal(metrics.injectedCount, 0);
-    assert.equal(metrics.globalPromotionCount, 1);
+    assert.equal(metrics.globalPromotionCount, 0);
   } finally {
+    await worker.stop();
     store.close();
   }
 });

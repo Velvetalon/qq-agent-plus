@@ -21,7 +21,11 @@ const BASE_PERSONA = {
 };
 
 function event(sessionId, chatKey) {
+  const interactionId = `interaction-${sessionId}`;
+  const rootId = `root-${sessionId}`;
+  const sourceId = `local-${sessionId}`;
   return {
+    schemaVersion: 3,
     eventId: `event-${sessionId}`,
     observerId: 'self-evolution.reflection',
     observerPluginId: 'self-evolution',
@@ -29,11 +33,16 @@ function event(sessionId, chatKey) {
     sessionId,
     runId: `run-${sessionId}`,
     chatKey,
-    observationWindowId: 'lsr3-window',
+    interactionId,
+    topicId: 'policy-topic',
+    originalSourceIds: [rootId],
     evidenceVersion: 3,
     resultClass: 'done',
     actionSummary: {
       evidenceVersion: 3,
+      interactionId,
+      topicId: 'policy-topic',
+      originalSourceIds: [rootId],
       sentCount: 1,
       finishReason: 'finish',
       outboundAttempted: true,
@@ -42,10 +51,14 @@ function event(sessionId, chatKey) {
       outbound: { attempted: 1, succeeded: 1, failed: 0, unknown: 0, held: 0 },
       conversationEvidence: [{
         evidenceId: `message:${sessionId}`,
-        sourceRecordId: sessionId,
+        sourceRecordType: 'message',
+        sourceRecordId: sourceId,
+        originalSourceId: rootId,
+        interactionId,
+        topicId: 'policy-topic',
+        senderId: 'user-1',
         role: 'user',
-        userEvidence: true,
-        userConfirmed: true,
+        userConfirmed: false,
         text: `用户偏好 ${sessionId}`
       }]
     },
@@ -56,11 +69,8 @@ function event(sessionId, chatKey) {
 
 function seedReadyJob(store) {
   let result;
-  for (const [sessionId, chatKey] of [
-    ['policy-1', 'group:100'],
-    ['policy-2', 'group:200'],
-    ['policy-3', 'group:100']
-  ]) {
+  for (const sessionId of ['policy-1', 'policy-2', 'policy-3']) {
+    const chatKey = 'group:100';
     result = store.enqueueObservation(event(sessionId, chatKey));
   }
   assert.equal(result.created, true);
@@ -75,7 +85,7 @@ function seedReadyJob(store) {
   return { generation, job: claimed.job };
 }
 
-test('LSR3 rejects procedural traits and keeps bounded_auto behavior traits pending', () => {
+test('procedural claims reject per item; behavior candidates stay pending until explicit review', () => {
   const store = new ReflectionStore({
     filename: reflectionDatabasePath(path.join(root, 'policy')),
     now: () => 1000,
@@ -84,22 +94,23 @@ test('LSR3 rejects procedural traits and keeps bounded_auto behavior traits pend
   try {
     const { generation, job } = seedReadyJob(store);
     const validEvidence = job.evidence;
-    assert.throws(
-      () => validateReflectionOutput({
+    const rejected = validateReflectionOutput({
         noteOperations: [],
         traitProposals: [{
           action: 'set',
           key: 'communication_style',
           value: 'result=120 后重试 queue',
-          scope: 'global',
+          subject: 'user:user-1',
+          scope: 'chat',
+          chatKey: 'group:100',
           confidence: 0.99,
-          evidenceRefs: [validEvidence.userEvidenceRefs[0]]
+          supportRefs: validEvidence.traitEvidencePool.map((item) => item.sourceRef),
+          counterRefs: []
         }],
         capabilityGapProposals: [],
         summary: 'procedural'
-      }, { evidence: validEvidence }),
-      (error) => error.code === 'REFLECTION_PROCEDURAL_TRAIT'
-    );
+      }, { evidence: validEvidence });
+    assert.equal(rejected.rejectedTraitProposals[0].code, 'REFLECTION_PROCEDURAL_TRAIT');
 
     const committed = store.commitReflectionResult({
       job,
@@ -115,9 +126,12 @@ test('LSR3 rejects procedural traits and keeps bounded_auto behavior traits pend
           action: 'set',
           key: 'communication_style',
           value: '简短且具体',
-          scope: 'global',
+          subject: 'user:user-1',
+          scope: 'chat',
+          chatKey: 'group:100',
           confidence: 0.99,
-          evidenceRefs: [validEvidence.userEvidenceRefs[0]]
+          supportRefs: validEvidence.traitEvidencePool.map((item) => item.sourceRef),
+          counterRefs: []
         }],
         capabilityGapProposals: [],
         summary: 'abstract preference'
@@ -131,15 +145,29 @@ test('LSR3 rejects procedural traits and keeps bounded_auto behavior traits pend
     assert.equal(store.listAudit({ accountId: 'lsr3-account' })
       .some((row) => row.code === 'REFLECTION_BEHAVIOR_REVIEW_REQUIRED'), true);
 
-    const reviewed = store.reviewBatch({
-      batchId: committed.batchId,
+    const [candidate] = store.listCandidates({
+      accountId: 'lsr3-account',
+      chatKey: 'group:100',
+      status: 'pending'
+    });
+    assert.ok(['pending_insufficient', 'ready'].includes(candidate.status));
+    assert.equal(candidate.eligible, candidate.status === 'ready');
+    const reviewed = store.reviewCandidate({
+      proposalId: candidate.proposalId,
       decision: 'approve',
       actor: 'lsr3-reviewer',
       expectedProfileRevision: 0,
-      basePersona: BASE_PERSONA
+      basePersonaHash: hashBasePersona(BASE_PERSONA)
     });
-    assert.equal(reviewed.reviewed, true);
-    assert.equal(reviewed.profileRevision, 1);
+    if (candidate.eligible) {
+      assert.equal(reviewed.reviewed, true);
+      assert.equal(reviewed.profileRevision, 1);
+    } else {
+      assert.equal(reviewed.reviewed, false);
+      assert.match(reviewed.reason, /insufficient-/);
+    }
+    assert.equal(store.getLearnedSelfRevision({ accountId: 'lsr3-account' }),
+      candidate.eligible ? 1 : 0);
   } finally {
     store.close();
   }

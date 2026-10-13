@@ -63,19 +63,46 @@ export function sessionAuditView(source = {}) {
 export function sessionSocialAuditView(source = null) {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
   const text = (value, max) => String(value ?? '').slice(0, max);
-  const decisions = new Set(['reply', 'listen', 'wait', 'close', 'invalid']);
+  const decisions = new Set(['reply', 'share', 'react', 'listen', 'wait', 'close', 'invalid']);
+  const deliveryStates = new Set(['not_attempted', 'sent', 'failed', 'unknown', 'partial']);
   const decision = String(source.decision || '');
+  const deliveryState = String(source.deliveryState || 'not_attempted');
+  const ids = (value) => Array.isArray(value)
+    ? [...new Set(value.slice(0, 12).map((item) => text(item, 160)))]
+    : [];
   return {
     version: Number(source.version) === 1 ? 1 : 0,
     interactionId: text(source.interactionId, 120),
     decision: decisions.has(decision) ? decision : 'invalid',
     topicId: source.topicId == null ? null : text(source.topicId, 120),
     targetMessageId: source.targetMessageId == null ? null : text(source.targetMessageId, 120),
+    targetMessageIds: ids(source.targetMessageIds),
     goal: text(source.goal, 300),
     novelty: text(source.novelty, 200),
     sourceMessageIds: Array.isArray(source.sourceMessageIds)
       ? source.sourceMessageIds.slice(0, 12).map((id) => text(id, 120))
       : [],
+    sourceRefs: ids(Array.isArray(source.sourceRefs)
+      ? source.sourceRefs.map((ref) => ref && typeof ref === 'object'
+        ? `${text(ref.kind, 40)}:${text(ref.id, 120)}@${Number(ref.revision) || 0}`
+        : ref)
+      : []),
+    materialRefs: Array.isArray(source.materialRefs)
+      ? source.materialRefs.slice(0, 8).map((ref) => ({
+          kind: text(ref?.kind, 40),
+          id: text(ref?.id, 160),
+          revision: Number.isSafeInteger(ref?.revision) ? ref.revision : 0,
+          scope: text(ref?.scope, 20),
+          visibility: text(ref?.visibility, 160),
+          policyVersion: text(ref?.policyVersion, 60)
+        }))
+      : [],
+    deliveryState: deliveryStates.has(deliveryState) ? deliveryState : 'not_attempted',
+    delivered: source.delivered === true,
+    dispatchBlocked: text(source.dispatchBlocked, 120),
+    validation: text(source.validation, 120),
+    replyerFinished: source.replyerFinished === true,
+    proposedIntentId: source.proposedIntentId == null ? null : text(source.proposedIntentId, 120),
     proactive: source.proactive === true,
     triggerKind: text(source.triggerKind, 40),
     intentId: source.intentId == null ? null : text(source.intentId, 120)

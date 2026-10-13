@@ -3,7 +3,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../../core/config.js';
-import { classifyNotebookMemory, isRecallableNotebookNote } from './notebook-policy.js';
+import {
+  classifyNotebookMemory,
+  isRecallableNotebookNote,
+  NOTEBOOK_POLICY_VERSION
+} from './notebook-policy.js';
 import {
   VectorMemory,
   ensureVectorSchema,
@@ -1220,7 +1224,77 @@ export class NotebookStore {
       .get(id, account);
     this.#assertVisible(row, { account, currentChatKey, admin });
     if (!includeArchived && row.status !== 'active') return null;
-    return noteView(row);
+    const note = noteView(row);
+    if (!admin && (!note.recallable || note.status !== 'active')) return null;
+    return note;
+  }
+
+  validateMaterialRefs({
+    accountId: rawAccount,
+    currentChatKey = '',
+    refs = []
+  } = {}) {
+    if (!Array.isArray(refs)) {
+      return {
+        valid: false,
+        invalidRefs: [{ ref: refs, reason: 'invalid-ref-list' }],
+        validatedRefs: [],
+        policyVersion: NOTEBOOK_POLICY_VERSION
+      };
+    }
+    if (refs.length === 0) {
+      return { valid: true, invalidRefs: [], validatedRefs: [], policyVersion: NOTEBOOK_POLICY_VERSION };
+    }
+    const db = this.#requireDb();
+    const account = accountId(rawAccount);
+    const current = currentChatKey ? chatKey(currentChatKey) : '';
+    const valid = [];
+    const invalidRefs = [];
+    for (const ref of refs) {
+      const id = String(ref?.id ?? ref?.noteId ?? '').trim();
+      const revisionValue = Number(ref?.revision);
+      const revisionMatches = Number.isSafeInteger(revisionValue) && revisionValue > 0;
+      const policyMatches = ref?.policyVersion === NOTEBOOK_POLICY_VERSION;
+      const row = ref?.kind === 'notebook' && id && revisionMatches
+        ? db.prepare('SELECT * FROM notebook_notes WHERE id=? AND account_id=?')
+          .get(id, account)
+        : null;
+      const note = row ? noteView(row) : null;
+      let reason = '';
+      if (ref?.kind !== 'notebook') reason = 'unsupported-material-kind';
+      else if (!policyMatches) reason = 'stale-policy-version';
+      else if (!id) reason = 'invalid-id';
+      else if (!revisionMatches) reason = 'invalid-revision';
+      else if (!note) reason = 'note-not-found';
+      else if (note.status !== 'active') reason = 'note-not-active';
+      else if (note.revision !== revisionValue) reason = 'stale-revision';
+      else if (!isRecallableNotebookNote(note)) reason = 'note-not-recallable';
+      else if (ref.scope !== note.scope) reason = 'scope-mismatch';
+      else if (note.scope === 'chat'
+        && (!current || note.chatKey !== current || ref.visibility !== `chat:${current}`)) {
+        reason = 'chat-visibility-mismatch';
+      } else if (note.scope === 'global' && ref.visibility !== 'global') {
+        reason = 'global-visibility-mismatch';
+      }
+      if (reason) {
+        invalidRefs.push({ ref, reason });
+      } else {
+        valid.push({
+          kind: 'notebook',
+          id: note.id,
+          revision: note.revision,
+          scope: note.scope,
+          visibility: note.scope === 'global' ? 'global' : `chat:${note.chatKey}`,
+          policyVersion: NOTEBOOK_POLICY_VERSION
+        });
+      }
+    }
+    return {
+      valid: invalidRefs.length === 0,
+      invalidRefs,
+      validatedRefs: valid,
+      policyVersion: NOTEBOOK_POLICY_VERSION
+    };
   }
 
   search({
@@ -1315,8 +1389,11 @@ export class NotebookStore {
       WHERE note_id=? AND account_id=?
       ORDER BY revision DESC
       LIMIT ?
-    `).all(id, account, max).map(versionView);
-    return { note: noteView(current), versions };
+    `).all(id, account, max).map(versionView)
+      .filter((item) => admin || (item.status === 'active' && item.recallable));
+    const note = noteView(current);
+    if (!admin && (!note.recallable || note.status !== 'active')) return null;
+    return { note, versions };
   }
 
   listOperations({ accountId: rawAccount, limit = 100, action = '' } = {}) {

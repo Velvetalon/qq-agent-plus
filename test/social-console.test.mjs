@@ -53,11 +53,25 @@ test('social mode config and console state routes are scoped, bounded, and non-c
   const auditView = sessionSocialAuditView({
     version: 1, decision: 'reply', goal: 'answer the question', novelty: 'new detail',
     sourceMessageIds: Array.from({ length: 20 }, (_, index) => String(index)),
+    targetMessageIds: ['1', '2'],
+    materialRefs: [{
+      kind: 'notebook', id: 'note-1', revision: 3, scope: 'chat',
+      visibility: 'chat:group:10001', policyVersion: 'notebook-memory-v2',
+      content: 'must not be exposed'
+    }],
+    deliveryState: 'not_attempted', delivered: false,
+    dispatchBlocked: 'material-stale',
     reasoning: 'must not be exposed', internal: 'must not be exposed'
   });
   assert.equal(auditView.sourceMessageIds.length, 12);
   assert.equal('reasoning' in auditView, false);
   assert.equal('internal' in auditView, false);
+  assert.deepEqual(auditView.targetMessageIds, ['1', '2']);
+  assert.equal('content' in auditView.materialRefs[0], false);
+  assert.equal(auditView.dispatchBlocked, 'material-stale');
+  assert.equal(auditView.delivered, false);
+  assert.equal(sessionSocialAuditView({ decision: 'share' }).decision, 'share');
+  assert.equal(sessionSocialAuditView({ decision: 'react' }).decision, 'react');
 
   const port = await freePort();
   const cfg = structuredClone(DEFAULT_CONFIG);
@@ -101,6 +115,15 @@ test('social mode config and console state routes are scoped, bounded, and non-c
   assert.equal(disabled.body.enabled, false);
   assert.deepEqual(disabled.body.intents, []);
   assert.deepEqual(socialTables(), [], 'disabled status read must not initialize social tables');
+  const noCandidates = await request('/api/self-evolution/reflection/candidates');
+  assert.equal(noCandidates.status, 200);
+  assert.deepEqual(noCandidates.body.entries, []);
+  assert.equal(fs.existsSync(path.join(dataDir, 'plugins/self-evolution/reflection.sqlite')), false,
+    'candidate history GET must not create a never-used reflection database');
+  const deniedCandidates = await request('/api/self-evolution/reflection/candidates?chatKey=group:99999');
+  assert.equal(deniedCandidates.status, 403);
+  const malformedCandidates = await request('/api/self-evolution/reflection/candidates?chatKey=person:10001');
+  assert.equal(malformedCandidates.status, 400);
   const absentCancel = await request('/api/conversation/social/intents/missing/cancel', {
     method: 'POST', body: { chatKey: 'group:10001', reason: '不存在的待办' }
   });
@@ -182,6 +205,8 @@ test('social mode config and console state routes are scoped, bounded, and non-c
   assert.equal(switchedBack.body.config.conversation.mode, 'legacy');
   const disabledWithHistory = await request('/api/conversation/social?chatKey=group:10001');
   assert.equal(disabledWithHistory.body.enabled, false);
+  assert.equal(disabledWithHistory.body.scene.topics[0].id, topic.id,
+    'disabled mode retains historical scene visibility without starting new work');
   assert.equal(disabledWithHistory.body.intents.find((item) => item.id === intent.id)?.status, 'cancelled');
   assert.equal(disabledWithHistory.body.intents.find((item) => item.id === disabledIntent.id)?.status, 'pending');
   const disabledIntentPath = '/api/conversation/social/intents/' + encodeURIComponent(disabledIntent.id) + '/cancel';
