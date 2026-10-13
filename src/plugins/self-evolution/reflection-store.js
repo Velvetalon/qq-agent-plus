@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../../core/config.js';
 import { SELF_EVOLUTION_PLUGIN_ID } from './notebook-store.js';
-import { reflectionRoleNoteText } from './notebook-policy.js';
+import { classifyNotebookMemory, reflectionRoleNoteText } from './notebook-policy.js';
 
 export const REFLECTION_DATABASE_NAME = 'reflection.sqlite';
 export const REFLECTION_OBSERVER_ID = 'self-evolution.reflection';
@@ -69,8 +69,10 @@ export const DEFAULT_REFLECTION_LIMITS = Object.freeze({
   maxCallsPerDay: 100,
   minValidSessions: 1,
   minTraitValidSessions: 3,
-  minTraitUserEvidence: 2,
+  minTraitUserEvidence: 3,
   minTraitGlobalChats: 2,
+  maxTraitEvidenceInteractions: 24,
+  traitEvidenceWindowMs: 90 * 24 * 60 * 60 * 1000,
   autoApplyBehaviorTraits: false,
   traitTtlMs: 30 * 24 * 60 * 60 * 1000,
   observationWindowMs: 0,
@@ -228,9 +230,11 @@ function normalizeLimits(limits = {}) {
   result.maxAttempts = Math.max(1, result.maxAttempts);
   result.maxCallsPerDay = Math.max(1, result.maxCallsPerDay);
   result.minValidSessions = Math.max(1, result.minValidSessions);
-  result.minTraitValidSessions = Math.max(1, result.minTraitValidSessions);
-  result.minTraitUserEvidence = Math.max(0, result.minTraitUserEvidence);
+  result.minTraitValidSessions = Math.max(3, result.minTraitValidSessions);
+  result.minTraitUserEvidence = Math.max(3, result.minTraitUserEvidence);
   result.minTraitGlobalChats = Math.max(1, result.minTraitGlobalChats);
+  result.maxTraitEvidenceInteractions = Math.max(3, Math.min(100, result.maxTraitEvidenceInteractions));
+  result.traitEvidenceWindowMs = Math.max(1, result.traitEvidenceWindowMs);
   result.traitTtlMs = Math.max(1, result.traitTtlMs);
   result.observationWindowMs = Math.max(0, result.observationWindowMs);
   result.leaseMs = Math.max(1, result.leaseMs);
@@ -319,36 +323,73 @@ function boundedOutbound(value) {
   };
 }
 
-function boundedConversationEvidence(value) {
+function boundedExecutionOutcome(value) {
+  const outcome = plainObject(value) ? value : {};
+  return {
+    kind: optionalText(outcome.kind, 'executionOutcome.kind', 80),
+    status: optionalText(outcome.status, 'executionOutcome.status', 80),
+    code: optionalText(outcome.code || outcome.reasonCode, 'executionOutcome.code', 120),
+    noReply: outcome.noReply === true,
+    failed: outcome.failed === true,
+    timeout: outcome.timeout === true,
+    cancelled: outcome.cancelled === true,
+    aborted: outcome.aborted === true,
+    notCalled: outcome.notCalled === true,
+    apiFailure: outcome.apiFailure === true,
+    toolFailure: outcome.toolFailure === true
+  };
+}
+
+function boundedConversationEvidence(value, {
+  evidenceVersion = 0,
+  interactionId = '',
+  topicId = '',
+  originalSourceId = ''
+} = {}) {
   if (!Array.isArray(value)) return [];
   const unique = new Map();
+  const hostV3 = Number(evidenceVersion) >= 3;
   for (const item of value.slice(0, 40)) {
     const evidenceId = optionalText(item?.evidenceId, 'conversationEvidence.evidenceId', 160);
     const content = optionalText(item?.text, 'conversationEvidence.text', 240);
     if (!evidenceId || !content) continue;
+    const role = optionalText(item?.role, 'conversationEvidence.role', 20);
+    const messageId = optionalText(item?.messageId, 'conversationEvidence.messageId', 160);
+    const sourceRecordId = optionalText(
+      item?.sourceRecordId || messageId || (hostV3 ? '' : evidenceId),
+      'conversationEvidence.sourceRecordId',
+      160
+    );
     const normalized = {
       evidenceId,
       sourceRecordType: optionalText(
-        item?.sourceRecordType || (evidenceId.includes(':') ? evidenceId.split(':', 1)[0] : 'message'),
+        item?.sourceRecordType || (hostV3 ? '' : (evidenceId.includes(':') ? evidenceId.split(':', 1)[0] : 'message')),
         'conversationEvidence.sourceRecordType',
         40
       ),
-      sourceRecordId: optionalText(
-        item?.sourceRecordId || item?.messageId || evidenceId,
-        'conversationEvidence.sourceRecordId',
-        160
-      ),
-      messageId: optionalText(item?.messageId, 'conversationEvidence.messageId', 160),
+      sourceRecordId,
+      messageId,
       senderId: optionalText(item?.senderId, 'conversationEvidence.senderId', 40),
       speaker: optionalText(item?.speaker || item?.role, 'conversationEvidence.speaker', 20),
-      role: optionalText(item?.role, 'conversationEvidence.role', 20),
+      role,
+      originalSourceId: optionalText(
+        item?.originalSourceId || originalSourceId,
+        'conversationEvidence.originalSourceId',
+        160
+      ),
+      interactionId: optionalText(
+        item?.interactionId || interactionId,
+        'conversationEvidence.interactionId',
+        160
+      ),
+      topicId: optionalText(item?.topicId || topicId, 'conversationEvidence.topicId', 160),
       at: Math.max(0, Number(item?.at) || 0),
       text: content,
       truncated: item?.truncated === true,
       confirmed: item?.confirmed === true,
-      delivered: item?.delivered === true,
-      userEvidence: item?.userEvidence === true,
-      userConfirmed: item?.userConfirmed === true
+      delivered: role === 'assistant' && item?.delivered === true,
+      userEvidence: hostV3 && role === 'user' && sourceRecordId.length > 0,
+      userConfirmed: role === 'user' && item?.userConfirmed === true
     };
     const current = unique.get(evidenceId);
     if (!current || (normalized.confirmed && !current.confirmed)
@@ -474,29 +515,45 @@ export function hashBasePersona(basePersona = {}) {
   }));
 }
 
+function explicitPreferenceText(value) {
+  const textValue = String(value || '');
+  return /(?:我|本人)?(?:更)?(?:喜欢|喜歡|偏好|感兴趣|感興趣|爱好|愛好|最爱|最愛|想聊|想看|想玩|愿意|願意|不喜欢|不喜歡|讨厌|討厭|不愿意|不願意)/u.test(textValue)
+    || /\b(?:i\s+(?:like|love|enjoy|prefer|am interested in|want to)|i\s+do(?:n't| not)\s+like)\b/iu.test(textValue);
+}
+
 export function normalizeCompletionObservation(event) {
   const lineage = sourceLineage(event);
   const actionSummary = plainObject(event.actionSummary) ? event.actionSummary : {};
-  const rawConversationEvidence = Array.isArray(actionSummary.conversationEvidence)
-    ? actionSummary.conversationEvidence
-    : [];
-  const rawEvidenceVersion = Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0;
-  const structuredEvidence = Array.isArray(actionSummary.conversationEvidence) && (
-    rawEvidenceVersion >= 3
-    || actionSummary.userEvidenceProvided === true
-    || rawConversationEvidence.some((item) => (
-      Object.hasOwn(item || {}, 'userEvidence')
-      || Object.hasOwn(item || {}, 'userConfirmed')
-      || Object.hasOwn(item || {}, 'delivered')
-      || String(item?.role || item?.speaker || '').toLowerCase() === 'assistant'
-    ))
+  const rawEvidenceVersion = Number(event.evidenceVersion ?? actionSummary.evidenceVersion) || 0;
+  const structuredEvidence = rawEvidenceVersion >= 3;
+  const triggerKind = optionalText(
+    event.triggerKind || actionSummary.triggerKind, 'event.triggerKind', 80
   );
-  const conversationEvidence = boundedConversationEvidence(actionSummary.conversationEvidence)
+  const interactionId = optionalText(
+    event.interactionId || actionSummary.interactionId, 'event.interactionId', 160
+  );
+  const topicId = optionalText(event.topicId || actionSummary.topicId, 'event.topicId', 160);
+  const originalSourceId = optionalText(
+    event.originalSourceId || actionSummary.originalSourceId, 'event.originalSourceId', 160
+  );
+  const delivered = event.delivered === true || actionSummary.delivered === true;
+  const conversationEvidence = boundedConversationEvidence(actionSummary.conversationEvidence, {
+    evidenceVersion: rawEvidenceVersion,
+    interactionId,
+    topicId,
+    originalSourceId
+  })
     .map((item) => ({
       ...item,
       sessionId: lineage.sessionId,
       chatKey: lineage.chatKey,
-      userEvidence: item.userEvidence === true || evidenceRole(item) === 'user',
+      accountId: lineage.accountId,
+      evidenceVersion: rawEvidenceVersion,
+      proactive: event.proactive === true || actionSummary.proactive === true,
+      userEvidence: rawEvidenceVersion >= 3
+        && item.role === 'user'
+        && item.sourceRecordType === 'message'
+        && Boolean(item.sourceRecordId && item.originalSourceId && item.interactionId),
       assistantContext: item.delivered === true || evidenceRole(item) === 'assistant',
       sourceRef: [
         lineage.accountId,
@@ -511,9 +568,7 @@ export function normalizeCompletionObservation(event) {
   const neverWoken = actionSummary.neverWoken === true;
   const participation = boundedParticipation(actionSummary.participation);
   const termination = boundedTermination(actionSummary.termination);
-  const executionOutcome = plainObject(actionSummary.executionOutcome)
-    ? structuredClone(actionSummary.executionOutcome)
-    : {};
+  const executionOutcome = boundedExecutionOutcome(actionSummary.executionOutcome);
   const behaviorChange = behaviorChangeSignal(event, actionSummary);
   const failures = failureKinds(
     resultClass,
@@ -533,12 +588,14 @@ export function normalizeCompletionObservation(event) {
     && outbound.failed === 0
     && outbound.unknown === 0
     && outbound.held === 0;
-  const explicitPreference = actionSummary.explicitPreference === true
-    || actionSummary.userPreferenceConfirmed === true
-    || conversationEvidence.some((item) => item.userConfirmed === true);
+  const explicitPreference = conversationEvidence.some((item) => (
+    item.userEvidence === true
+    && (item.userConfirmed === true || explicitPreferenceText(item.text))
+  ));
   const participationMode = `${participation.mode} ${participation.decision} ${participation.reasonCode}`.toLowerCase();
-  const proactive = actionSummary.proactive === true
-    || /\b(?:proactive|scheduled|schedule|wake|wakeup|manual_wake|cron)\b/u.test(participationMode);
+  const proactive = event.proactive === true || actionSummary.proactive === true
+    || (rawEvidenceVersion < 3
+      && /\b(?:proactive|scheduled|schedule|wake|wakeup|manual_wake|cron)\b/u.test(participationMode));
   const userEvidence = conversationEvidence.filter((item) => item.userEvidence === true);
   const userEvidenceRefs = [...new Set(userEvidence.map((item) =>
     item.sourceRef || item.evidenceId
@@ -549,6 +606,7 @@ export function normalizeCompletionObservation(event) {
   const userEvidenceChatKeys = [...new Set(userEvidence.map((item) =>
     String(item.chatKey || lineage.chatKey || '').trim()
   ).filter(Boolean))];
+  const currentUserSourceRefs = [...new Set(userEvidence.map((item) => item.sourceRef).filter(Boolean))];
   const sourceMessageIds = (Array.isArray(event.sourceMessageIds) ? event.sourceMessageIds : [])
     .map(String)
     .map((item) => item.trim())
@@ -564,14 +622,16 @@ export function normalizeCompletionObservation(event) {
   ].filter(Boolean);
   return {
     sourceKind: 'run_completion',
-    evidenceVersion: Math.max(
-      2,
-      Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0
-    ),
+    evidenceVersion: rawEvidenceVersion,
     eventId: lineage.eventId,
     observerId: lineage.observerId,
     observerPluginId: lineage.observerPluginId,
     originKind: lineage.originKind,
+    triggerKind,
+    interactionId,
+    topicId,
+    originalSourceId,
+    delivered,
     structuredEvidence,
     accountId: lineage.accountId,
     sessionId: lineage.sessionId,
@@ -581,10 +641,13 @@ export function normalizeCompletionObservation(event) {
     observationWindowId: lineage.observationWindowId,
     resultClass,
     actionSummary: {
-      evidenceVersion: Math.max(
-        2,
-        Number(actionSummary.evidenceVersion || event.evidenceVersion) || 0
-      ),
+      evidenceVersion: rawEvidenceVersion,
+      triggerKind,
+      proactive,
+      interactionId,
+      topicId,
+      originalSourceId,
+      delivered,
       sentCount: Math.max(0, Number(actionSummary.sentCount) || 0),
       finishReason,
       outboundAttempted: actionSummary.outboundAttempted === true,
@@ -601,6 +664,7 @@ export function normalizeCompletionObservation(event) {
         },
     conversationEvidence,
     userEvidenceRefs,
+    currentUserSourceRefs,
     userEvidenceCount: userEvidenceRefs.length,
     userEvidenceSessionCount: userEvidenceSessionIds.length,
     userEvidenceChatCount: userEvidenceChatKeys.length,
@@ -622,6 +686,8 @@ export function normalizeCompletionObservation(event) {
 }
 
 function observationWindowToken(normalized, windowMs = 0) {
+  if (normalized.interactionId) return `interaction:${normalized.interactionId}`;
+  if (normalized.evidenceVersion >= 3 && normalized.eventId) return `event:${normalized.eventId}`;
   if (normalized.observationWindowId) return `explicit:${normalized.observationWindowId}`;
   const duration = Math.max(0, Number(windowMs) || 0);
   const completedAt = Number(normalized.completedAt) || 0;
@@ -636,7 +702,7 @@ export function observationWindowKey(event, { windowMs = 0 } = {}) {
   return hash(stableJson({
     observerId: normalized.observerId,
     accountId: normalized.accountId,
-    chatKey: normalized.observationWindowId ? '' : normalized.chatKey,
+    chatKey: normalized.chatKey,
     window: observationWindowToken(normalized, windowMs)
   }));
 }
@@ -701,89 +767,79 @@ function disinterestLike(value) {
   return DISINTEREST_PATTERNS.some((pattern) => pattern.test(String(value)));
 }
 
+function verifiedTraitSources(evidence) {
+  const pool = Array.isArray(evidence?.traitEvidencePool)
+    ? evidence.traitEvidencePool
+    : Array.isArray(evidence?.conversationEvidence) ? evidence.conversationEvidence : [];
+  return pool.filter((entry) => (
+    Number(entry?.evidenceVersion) >= 3
+    && entry?.role === 'user'
+    && entry?.sourceRecordType === 'message'
+    && String(entry?.sourceRecordId || '').trim()
+    && String(entry?.originalSourceId || '').trim()
+    && String(entry?.interactionId || '').trim()
+    && String(entry?.accountId || evidence?.accountId || '').trim() === String(evidence?.accountId || '').trim()
+    && String(entry?.chatKey || evidence?.chatKey || '').trim() === String(evidence?.chatKey || '').trim()
+    && entry?.proactive !== true
+  ));
+}
+
 function traitEvidenceGate(evidence, limits = DEFAULT_REFLECTION_LIMITS, item = null) {
-  if (evidence?.structuredEvidence !== true) {
-    return {
-      mode: 'legacy',
-      eligible: true,
-      globalScopeEligible: true,
-      reasons: [],
-      validSessionCount: Number(evidence?.validSessionCount) || 1,
-      userEvidenceCount: Number(evidence?.userEvidenceCount) || 0,
-      userEvidenceRefs: Array.isArray(evidence?.userEvidenceRefs)
-        ? evidence.userEvidenceRefs.slice()
-        : [],
-      userEvidenceSessionCount: Number(evidence?.userEvidenceSessionCount) || 0,
-      userEvidenceChatCount: Number(evidence?.userEvidenceChatCount) || 0,
-      explicitSilence: evidence?.explicitSilence === true,
-      explicitPreference: evidence?.explicitPreference === true,
-      proactive: evidence?.proactive === true
-    };
+  const sources = verifiedTraitSources(evidence);
+  const uniqueByRoot = new Map();
+  for (const entry of sources) {
+    const root = String(entry.originalSourceId || '').trim();
+    const interactionId = String(entry.interactionId || '').trim();
+    const identity = `${interactionId}:${root}`;
+    if (!uniqueByRoot.has(identity)) uniqueByRoot.set(identity, entry);
   }
-  const gate = plainObject(evidence?.traitGate) ? evidence.traitGate : {};
-  const userEvidence = Array.isArray(evidence?.conversationEvidence)
-    ? evidence.conversationEvidence.filter((entry) => (
-        entry?.userEvidence === true || evidenceRole(entry) === 'user'
-      ))
-    : [];
-  const userRefs = [...new Set(userEvidence.map((entry) =>
-    String(entry?.sourceRef || entry?.evidenceId || '').trim()
-  ).filter(Boolean))];
-  const userSessions = [...new Set(userEvidence.map((entry) =>
-    String(entry?.sessionId || evidence?.sessionId || '').trim()
-  ).filter(Boolean))];
-  const userChats = [...new Set(userEvidence.map((entry) =>
-    String(entry?.chatKey || evidence?.chatKey || '').trim()
-  ).filter(Boolean))];
-  const validSessions = Math.max(
-    Number(gate.validSessionCount) || 0,
-    Number(evidence?.validSessionCount) || 0,
-    Array.isArray(evidence?.sessionIds) ? evidence.sessionIds.length : 0
-  );
-  const userEvidenceCount = Math.max(
-    Number(gate.userEvidenceCount) || 0,
-    Number(evidence?.userEvidenceCount) || 0,
-    userRefs.length
-  );
-  const sessionCount = Math.max(
-    Number(gate.userEvidenceSessionCount) || 0,
-    Number(evidence?.userEvidenceSessionCount) || 0,
-    userSessions.length,
-    validSessions
-  );
-  const chatCount = Math.max(
-    Number(gate.userEvidenceChatCount) || 0,
-    Number(evidence?.userEvidenceChatCount) || 0,
-    userChats.length
-  );
-  const explicitSilence = gate.explicitSilence === true || evidence?.explicitSilence === true;
-  const explicitPreference = gate.explicitPreference === true
-    || evidence?.explicitPreference === true
-    || userEvidence.some((entry) => entry?.userConfirmed === true);
-  const proactive = gate.proactive === true || evidence?.proactive === true;
+  const selectedRefs = new Set(Array.isArray(item?.evidenceRefs) ? item.evidenceRefs.map(String) : []);
+  const selected = item
+    ? [...uniqueByRoot.values()].filter((entry) => selectedRefs.has(String(entry.sourceRef || '')))
+    : [...uniqueByRoot.values()];
+  const interactions = new Set(selected.map((entry) => String(entry.interactionId || '')));
+  const roots = new Set(selected.map((entry) => String(entry.originalSourceId || '')));
+  const currentInteractionId = String(evidence?.interactionId || '').trim();
+  const hasCurrentHumanEvidence = Array.isArray(evidence?.currentUserSourceRefs)
+    && evidence.currentUserSourceRefs.length > 0;
+  const selectedCurrent = currentInteractionId
+    ? selected.some((entry) => String(entry.interactionId || '') === currentInteractionId)
+    : false;
   const reasons = [];
-  if (proactive) reasons.push('proactive-run');
-  if (userEvidenceCount === 0) reasons.push('assistant-only');
-  if (explicitSilence && !explicitPreference) reasons.push('explicit-silence');
-  if (sessionCount < Number(limits.minTraitValidSessions)) reasons.push('insufficient-sessions');
-  if (userEvidenceCount < Number(limits.minTraitUserEvidence)) reasons.push('insufficient-user-evidence');
-  const scope = item?.scope || '';
-  const globalScopeEligible = scope !== 'global'
-    || chatCount >= Number(limits.minTraitGlobalChats);
-  if (scope === 'global' && !globalScopeEligible) reasons.push('insufficient-global-chats');
+  if (Number(evidence?.evidenceVersion) < 3 || evidence?.structuredEvidence !== true) {
+    reasons.push('legacy-evidence');
+  }
+  if (evidence?.proactive === true) reasons.push('proactive-run');
+  if (!hasCurrentHumanEvidence || !selectedCurrent) reasons.push('no-current-human-interaction');
+  if (evidence?.explicitSilence === true && evidence?.explicitPreference !== true) {
+    reasons.push('explicit-silence');
+  }
+  if (Array.isArray(evidence?.invalidEvidenceKinds) && evidence.invalidEvidenceKinds.length) {
+    reasons.push('unreliable-completion');
+  }
+  if (interactions.size < Number(limits.minTraitValidSessions)) reasons.push('insufficient-interactions');
+  if (roots.size < Number(limits.minTraitUserEvidence)) reasons.push('insufficient-human-sources');
+  if (item?.scope === 'global') reasons.push('global-cross-chat-evidence-unavailable');
   return {
-    mode: 'structured',
-    eligible: reasons.length === 0 && globalScopeEligible,
-    globalScopeEligible,
+    mode: evidence?.evidenceVersion >= 3 ? 'host-v3' : 'legacy-audit',
+    eligible: reasons.length === 0,
+    globalScopeEligible: item?.scope !== 'global',
     reasons: [...new Set(reasons)],
-    validSessionCount: sessionCount,
-    userEvidenceCount,
-    userEvidenceRefs: userRefs,
-    userEvidenceSessionCount: userSessions.length,
-    userEvidenceChatCount: chatCount,
-    explicitSilence,
-    explicitPreference,
-    proactive
+    validSessionCount: interactions.size,
+    userEvidenceCount: roots.size,
+    userEvidenceRefs: selected.map((entry) => String(entry.sourceRef || '')).filter(Boolean),
+    userEvidenceSessionCount: interactions.size,
+    userEvidenceChatCount: new Set(selected.map((entry) => String(entry.chatKey || ''))).size,
+    supportingEvidence: selected.slice(0, limits.maxEvidenceRefsPerItem).map((entry) => ({
+      sourceRef: String(entry.sourceRef || ''),
+      sourceMessageId: String(entry.originalSourceId || ''),
+      interactionId: String(entry.interactionId || ''),
+      topicId: String(entry.topicId || ''),
+      text: String(entry.text || '').slice(0, 240)
+    })),
+    explicitSilence: evidence?.explicitSilence === true,
+    explicitPreference: evidence?.explicitPreference === true,
+    proactive: evidence?.proactive === true
   };
 }
 
@@ -804,11 +860,17 @@ function noteContentRejection(content) {
   if (!value) return null;
   // Keep objective run telemetry out of the Notebook, while allowing a
   // concrete experience or temporary impression to use natural language.
-  if (/(?:^|[\s，。])(?:本轮|本次运行|本次会话|token|预算|外发|工具调用|延迟|latency)(?:$|[\s，。])/iu.test(value)
-    || /\b(?:this run|run telemetry|token budget|outbound count)\b/i.test(value)) {
+  if (/(?:本轮|本次)(?:运行|会话)[^。！？\n]{0,16}(?:统计|状态|预算|指标|记录)/iu.test(value)
+    || /(?:token\s*budget|token预算|预算统计|外发统计|工具调用统计|延迟统计|run telemetry|outbound count)/iu.test(value)) {
     return {
       code: 'REFLECTION_NOTE_NOT_DURABLE',
       message: 'Notebook note cannot be run telemetry or model budget metadata'
+    };
+  }
+  if (!classifyNotebookMemory(value).recallable) {
+    return {
+      code: 'REFLECTION_NOTE_OPERATIONAL',
+      message: 'Notebook note cannot be an operational self-instruction or run record'
     };
   }
   return null;
@@ -831,6 +893,9 @@ function validateNoteOperation(raw, index, evidence, limits) {
     fail('REFLECTION_INVALID_OUTPUT', `${pathName}.operation must be append, update, or archive`);
   }
   const scope = itemScope(raw.scope, evidence, pathName);
+  if (scope !== 'chat') {
+    fail('REFLECTION_SCOPE', `${pathName}.scope must remain chat-scoped to the observed interaction`);
+  }
   const chatKey = chatKeyForScope(raw.chatKey, scope, evidence, pathName);
   const refs = evidenceRefs(raw.evidenceRefs, evidence, limits, `${pathName}.evidenceRefs`);
   const result = {
@@ -936,28 +1001,13 @@ function validateTraitProposal(raw, index, evidence, limits) {
       `${pathName} contains procedural or scripted behavior`,
       { reason: proceduralReason });
   }
-  const invalidKinds = Array.isArray(evidence.invalidEvidenceKinds)
-    ? evidence.invalidEvidenceKinds
-    : (Array.isArray(evidence.failureKinds)
-      ? evidence.failureKinds.filter((kind) => REFLECTION_INVALID_EVIDENCE_KINDS.includes(kind))
-      : []);
-  if (invalidKinds.length > 0 || evidence.traitEligible === false) {
-    fail('REFLECTION_PROHIBITED_INFERENCE',
-      `${pathName} requires valid chat evidence`,
-      { invalidEvidenceKinds: invalidKinds }
-    );
-  }
   const gate = traitEvidenceGate(evidence, limits, result);
-  if (!gate.eligible) {
-    fail('REFLECTION_EVIDENCE_GATE',
-      `${pathName} does not have enough independent user evidence`,
-      { reasons: gate.reasons, gate });
-  }
   const unreliable = evidence.reliability !== 'normal';
   if (unreliable && (disinterestLike(key) || disinterestLike(result.value || ''))) {
-    fail('REFLECTION_PROHIBITED_INFERENCE',
-      `${pathName} cannot infer disinterest from failures, timeouts, unknown writes, or missing wakeups`);
+    gate.eligible = false;
+    gate.reasons = [...new Set([...gate.reasons, 'failure-based-disinterest-inference'])];
   }
+  result.evidenceGate = gate;
   return result;
 }
 
@@ -1014,12 +1064,6 @@ export function validateReflectionOutput(raw, {
   if (!Array.isArray(noteInput) || !Array.isArray(traitInput) || !Array.isArray(gapInput)) {
     fail('REFLECTION_INVALID_OUTPUT', 'proposal collections must be arrays');
   }
-  if (noteInput.length > normalizedLimits.maxNoteOperations) {
-    fail('REFLECTION_LIMIT_EXCEEDED', 'noteOperations exceeds the limit');
-  }
-  if (traitInput.length > normalizedLimits.maxTraitProposals) {
-    fail('REFLECTION_LIMIT_EXCEEDED', 'traitProposals exceeds the limit');
-  }
   if (gapInput.length > normalizedLimits.maxCapabilityGapProposals) {
     fail('REFLECTION_LIMIT_EXCEEDED', 'capabilityGapProposals exceeds the limit');
   }
@@ -1030,13 +1074,51 @@ export function validateReflectionOutput(raw, {
   if (summary.length > normalizedLimits.maxSummaryChars) {
     fail('REFLECTION_LIMIT_EXCEEDED', 'summary exceeds the limit');
   }
+  const noteOperations = [];
+  const rejectedNoteOperations = [];
+  for (const [index, item] of noteInput.slice(0, normalizedLimits.maxNoteOperations).entries()) {
+    try {
+      noteOperations.push(validateNoteOperation(item, index, evidence, normalizedLimits));
+    } catch (error) {
+      rejectedNoteOperations.push({
+        index,
+        code: String(error?.code || 'REFLECTION_INVALID_OUTPUT').slice(0, 120),
+        reason: String(error?.message || error).slice(0, 300)
+      });
+    }
+  }
+  for (let index = normalizedLimits.maxNoteOperations; index < noteInput.length; index += 1) {
+    rejectedNoteOperations.push({
+      index,
+      code: 'REFLECTION_LIMIT_EXCEEDED',
+      reason: 'note operation limit exceeded'
+    });
+  }
+  const traitProposals = [];
+  const rejectedTraitProposals = [];
+  for (const [index, item] of traitInput.slice(0, normalizedLimits.maxTraitProposals).entries()) {
+    try {
+      traitProposals.push(validateTraitProposal(item, index, evidence, normalizedLimits));
+    } catch (error) {
+      rejectedTraitProposals.push({
+        index,
+        code: String(error?.code || 'REFLECTION_INVALID_OUTPUT').slice(0, 120),
+        reason: String(error?.message || error).slice(0, 300)
+      });
+    }
+  }
+  for (let index = normalizedLimits.maxTraitProposals; index < traitInput.length; index += 1) {
+    rejectedTraitProposals.push({
+      index,
+      code: 'REFLECTION_LIMIT_EXCEEDED',
+      reason: 'trait proposal limit exceeded'
+    });
+  }
   const result = {
-    noteOperations: noteInput.map((item, index) => validateNoteOperation(
-      item, index, evidence, normalizedLimits
-    )),
-    traitProposals: traitInput.map((item, index) => validateTraitProposal(
-      item, index, evidence, normalizedLimits
-    )),
+    noteOperations,
+    rejectedNoteOperations,
+    traitProposals,
+    rejectedTraitProposals,
     capabilityGapProposals: gapInput.map((item, index) => validateCapabilityGap(
       item, index, evidence, normalizedLimits
     )),
@@ -1051,8 +1133,10 @@ export function validateReflectionOutput(raw, {
 
 function isEmptyOutput(output) {
   return output.noteOperations.length === 0
+    && output.rejectedNoteOperations.length === 0
     && output.traitProposals.length === 0
-    && output.capabilityGapProposals.length === 0;
+    && output.capabilityGapProposals.length === 0
+    && output.rejectedTraitProposals.length === 0;
 }
 
 function jobView(row) {
@@ -1614,6 +1698,8 @@ export class ReflectionStore {
         );
         CREATE INDEX IF NOT EXISTS reflection_observations_window
           ON reflection_observations(observation_window_key, created_at);
+        CREATE INDEX IF NOT EXISTS reflection_observations_scope
+          ON reflection_observations(account_id,chat_key,observer_id,created_at DESC);
 
         CREATE TABLE IF NOT EXISTS reflection_worker_state (
           singleton INTEGER PRIMARY KEY CHECK(singleton=1),
@@ -1796,6 +1882,91 @@ export class ReflectionStore {
     );
   }
 
+  #attachTraitEvidencePool(db, evidence, ts) {
+    const empty = {
+      ...evidence,
+      traitEvidencePool: [],
+      traitGate: traitEvidenceGate({
+        ...evidence,
+        traitEvidencePool: [],
+        currentUserSourceRefs: evidence.currentUserSourceRefs || []
+      }, this.limits)
+    };
+    if (evidence.evidenceVersion < 3 || !evidence.chatKey || !evidence.interactionId) {
+      return empty;
+    }
+    const cutoff = Math.max(0, ts - this.limits.traitEvidenceWindowMs);
+    const rows = db.prepare(`
+      SELECT evidence_json,created_at,id FROM reflection_observations
+      WHERE account_id=? AND chat_key=? AND observer_id=? AND created_at>=?
+      ORDER BY created_at DESC,id DESC LIMIT ?
+    `).all(
+      evidence.accountId,
+      evidence.chatKey,
+      evidence.observerId,
+      cutoff,
+      Math.max(100, this.limits.maxTraitEvidenceInteractions * 8)
+    ).map((row) => ({
+      observation: parseJson(row.evidence_json, {}),
+      createdAt: Number(row.created_at) || 0,
+      id: String(row.id || '')
+    })).sort((left, right) => {
+      const leftCurrent = left.observation.interactionId === evidence.interactionId ? 1 : 0;
+      const rightCurrent = right.observation.interactionId === evidence.interactionId ? 1 : 0;
+      return rightCurrent - leftCurrent || right.createdAt - left.createdAt || right.id.localeCompare(left.id);
+    });
+    const byRoot = new Map();
+    const interactions = new Set();
+    for (const row of rows) {
+      const observation = row.observation;
+      if (Number(observation.evidenceVersion) < 3
+        || observation.structuredEvidence !== true
+        || observation.proactive === true
+        || (Array.isArray(observation.invalidEvidenceKinds) && observation.invalidEvidenceKinds.length > 0)) {
+        continue;
+      }
+      for (const item of (Array.isArray(observation.conversationEvidence)
+        ? observation.conversationEvidence : [])) {
+        if (item.userEvidence !== true
+          || item.role !== 'user'
+          || item.sourceRecordType !== 'message'
+          || !item.sourceRecordId
+          || !item.originalSourceId
+          || !item.interactionId
+          || String(item.accountId || observation.accountId || '') !== evidence.accountId
+          || String(item.chatKey || observation.chatKey || '') !== evidence.chatKey) continue;
+        const interactionId = String(item.interactionId);
+        if (!interactions.has(interactionId)
+          && interactions.size >= this.limits.maxTraitEvidenceInteractions) continue;
+        interactions.add(interactionId);
+        const rootId = String(item.originalSourceId);
+        const identity = `${interactionId}:${rootId}`;
+        if (!byRoot.has(identity)) {
+          byRoot.set(identity, {
+            ...item,
+            accountId: evidence.accountId,
+            chatKey: evidence.chatKey,
+            evidenceVersion: Number(observation.evidenceVersion),
+            interactionId,
+            sourceRef: String(item.sourceRef || '').slice(0, 420),
+            proactive: false,
+            completedAt: Number(observation.completedAt) || row.createdAt
+          });
+        }
+      }
+    }
+    const pool = [...byRoot.values()];
+    const evidenceIds = [...new Set([
+      ...(Array.isArray(evidence.evidenceIds) ? evidence.evidenceIds : []),
+      ...pool.map((item) => String(item.sourceRef || '')).filter(Boolean)
+    ])];
+    const withPool = { ...evidence, traitEvidencePool: pool, evidenceIds };
+    return {
+      ...withPool,
+      traitGate: traitEvidenceGate(withPool, this.limits)
+    };
+  }
+
   enqueueObservation(event, {
     sourceKind = 'run_completion',
     observationWindowId = ''
@@ -1855,9 +2026,26 @@ export class ReflectionStore {
       `).all(observationKey);
       const validSessionCount = rows.filter((row) => row.valid_session === 1).length;
       const behaviorChange = rows.some((row) => row.behavior_change === 1);
+      const reflectableConversation = evidence.conversationEvidence.some((item) => (
+        item.role === 'user' || (item.role === 'assistant' && item.delivered === true)
+      ));
+      if (!existing && evidence.evidenceVersion >= 3
+        && !reflectableConversation && evidence.failureKinds.length === 0 && !behaviorChange) {
+        this.#audit(db, {
+          accountId: evidence.accountId,
+          event: 'reflection-empty-evidence',
+          code: 'REFLECTION_NO_EPISODE_EVIDENCE',
+          message: 'completion had no human message, confirmed assistant delivery, or capability evidence',
+          details: { interactionId: evidence.interactionId, triggerKind: evidence.triggerKind },
+          ts
+        });
+        return { created: false, reason: 'no-reflectable-evidence', job: null };
+      }
       if (existing) {
         if (existing.status === 'pending') {
-          const aggregate = aggregateObservations(rows, observationKey, this.limits);
+          const aggregate = this.#attachTraitEvidencePool(
+            db, aggregateObservations(rows, observationKey, this.limits), ts
+          );
           const aggregateJson = safeJson(aggregate);
           if (aggregateJson.length > this.limits.maxEvidenceChars) {
             fail('REFLECTION_LIMIT_EXCEEDED',
@@ -1877,67 +2065,9 @@ export class ReflectionStore {
           behaviorChange
         };
       }
-      const aggregate = aggregateObservations(rows, observationKey, this.limits);
-      if (aggregate.structuredEvidence && aggregate.traitGate?.eligible !== true) {
-        const reasons = Array.isArray(aggregate.traitGate.reasons)
-          ? aggregate.traitGate.reasons
-          : [];
-        this.#audit(db, {
-          accountId: evidence.accountId,
-          event: 'trait-evidence-gate',
-          code: 'REFLECTION_EVIDENCE_GATE',
-          message: 'observation did not meet the behavior-trait evidence gate',
-          details: {
-            observationWindowKey: observationKey,
-            reasons,
-            validSessionCount: aggregate.validSessionCount,
-            userEvidenceCount: aggregate.userEvidenceCount,
-            userEvidenceChatCount: aggregate.userEvidenceChatCount
-          },
-          ts
-        });
-        return {
-          created: false,
-          reason: reasons.some((reason) => (
-            ['assistant-only', 'proactive-run', 'explicit-silence'].includes(reason)
-          ))
-            ? 'trait-evidence-gate'
-            : 'trait-evidence-threshold',
-          job: null,
-          observationWindowKey: observationKey,
-          validSessionCount,
-          behaviorChange,
-          traitGate: aggregate.traitGate
-        };
-      }
-      // The legacy P6 default reflects every completed session, including an
-      // unreliable one, so existing failure/capability-gap handling remains
-      // observable. Configured multi-session windows use valid sessions only.
-      const thresholdSatisfied = validSessionCount >= this.limits.minValidSessions
-        || (this.limits.minValidSessions === 1 && rows.length > 0);
-      if (!behaviorChange && !thresholdSatisfied) {
-        this.#audit(db, {
-          accountId: evidence.accountId,
-          event: 'observation-threshold',
-          code: 'REFLECTION_OBSERVATION_THRESHOLD',
-          message: 'observation window has not reached the valid-session threshold',
-          details: {
-            observationWindowKey: observationKey,
-            validSessionCount,
-            minValidSessions: this.limits.minValidSessions,
-            behaviorChange
-          },
-          ts
-        });
-        return {
-          created: false,
-          reason: 'threshold',
-          job: null,
-          observationWindowKey: observationKey,
-          validSessionCount,
-          behaviorChange
-        };
-      }
+      const aggregate = this.#attachTraitEvidencePool(
+        db, aggregateObservations(rows, observationKey, this.limits), ts
+      );
       const aggregateJson = safeJson(aggregate);
       if (aggregateJson.length > this.limits.maxEvidenceChars) {
         fail('REFLECTION_LIMIT_EXCEEDED',
@@ -2384,6 +2514,28 @@ export class ReflectionStore {
         return { accepted: false, reason: 'cas-conflict', committed: false };
       }
       const batchId = `refbatch_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
+      for (const rejected of normalized.rejectedNoteOperations || []) {
+        this.#audit(db, {
+          accountId: current.account_id,
+          jobId: current.id,
+          event: 'note-operation-rejected',
+          code: rejected.code,
+          message: rejected.reason,
+          details: { index: rejected.index },
+          ts
+        });
+      }
+      for (const rejected of normalized.rejectedTraitProposals || []) {
+        this.#audit(db, {
+          accountId: current.account_id,
+          jobId: current.id,
+          event: 'trait-proposal-rejected',
+          code: rejected.code,
+          message: rejected.reason,
+          details: { index: rejected.index },
+          ts
+        });
+      }
       const allItems = [
         ...normalized.noteOperations.map((item, index) => ({
           type: 'note',
@@ -2468,6 +2620,10 @@ export class ReflectionStore {
               sessionId: job.evidence.sessionId,
               runId: job.evidence.runId,
               chatKey: job.evidence.chatKey,
+              interactionId: job.evidence.interactionId,
+              topicId: job.evidence.topicId,
+              originalSourceId: job.evidence.originalSourceId,
+              triggerKind: job.evidence.triggerKind,
               notebook,
               ts,
               actor: policyActor
@@ -2478,7 +2634,8 @@ export class ReflectionStore {
             const code = String(error?.code || 'REFLECTION_NOTE_APPLY_FAILED');
             const stale = code.includes('CAS') || code.includes('REVISION') || code.includes('ARCHIVED');
             const policyRejected = code === 'REFLECTION_NOTE_TELEMETRY'
-              || code === 'REFLECTION_NOTE_NOT_DURABLE';
+              || code === 'REFLECTION_NOTE_NOT_DURABLE'
+              || code === 'REFLECTION_NOTE_OPERATIONAL';
             db.prepare(`
               UPDATE reflection_proposals
               SET status=?,reviewed_at=?,reviewer=?,error_code=?,error_message=?
@@ -2496,67 +2653,16 @@ export class ReflectionStore {
           }
         }
         const traitProposals = proposals.filter((entry) => entry.type === 'trait');
-        if (traitProposals.length > 0 && this.limits.autoApplyBehaviorTraits !== true) {
+        if (traitProposals.length > 0) {
           this.#audit(db, {
             accountId: current.account_id,
             jobId: current.id,
             event: 'behavior-trait-review-required',
             code: 'REFLECTION_BEHAVIOR_REVIEW_REQUIRED',
-            message: 'bounded_auto keeps behavior traits pending for human review',
+            message: 'behavior traits remain pending for explicit human review',
             details: { batchId, proposals: traitProposals.length },
             ts
           });
-        } else if (traitProposals.length > 0) {
-          const highRiskTraits = traitProposals.filter((entry) => entry.risk !== 'low');
-          for (const proposal of highRiskTraits) {
-            db.prepare(`
-              UPDATE reflection_proposals
-              SET status='rejected',reviewed_at=?,reviewer=?,
-                error_code='REFLECTION_HIGH_RISK_REJECTED',
-                error_message='High-risk reflection behavior is rejected by policy'
-              WHERE id=? AND status='pending'
-            `).run(ts, policyActor, proposal.id);
-            rejectedCount += 1;
-          }
-          const lowRiskTraits = traitProposals.filter((entry) => entry.risk === 'low');
-          if (lowRiskTraits.length > 0) {
-            const result = this.#applyTraitProposals(db, {
-              accountId: current.account_id,
-              proposals: lowRiskTraits,
-              baseHash,
-              expectedRevision,
-              actor: policyActor,
-              source: {
-              kind: 'reflection',
-              jobId: current.id,
-              batchId,
-              mode: normalizedMode,
-              sourceChatKeys: [
-                ...new Set(
-                  (parseJson(current.evidence_json, {}).conversationEvidence || [])
-                    .map((item) => String(item?.chatKey || '').trim())
-                    .filter(Boolean)
-                )
-              ]
-              },
-              ts
-            });
-            appliedCount += result.applied;
-            invalidCount += result.invalid;
-            appliedTraitCount += result.applied;
-            noopCount += result.nooped;
-            rejectedCount += result.invalid;
-            profileRevision = result.profileRevision;
-            if (result.applied > 0) {
-              db.prepare(`
-                UPDATE reflection_batches SET expected_profile_revision=? WHERE id=?
-              `).run(profileRevision, batchId);
-              db.prepare(`
-                UPDATE reflection_proposals SET expected_profile_revision=?
-                WHERE batch_id=? AND status='pending'
-              `).run(profileRevision, batchId);
-            }
-          }
         }
       }
       const remaining = db.prepare(`
@@ -2774,6 +2880,10 @@ export class ReflectionStore {
             sessionId: batch.evidence.sessionId,
             runId: batch.evidence.runId,
             chatKey: batch.evidence.chatKey,
+            interactionId: batch.evidence.interactionId,
+            topicId: batch.evidence.topicId,
+            originalSourceId: batch.evidence.originalSourceId,
+            triggerKind: batch.evidence.triggerKind,
             notebook,
             ts,
             actor: reviewer
@@ -2803,9 +2913,25 @@ export class ReflectionStore {
           };
         }
       }
+      const eligibleTraits = [];
+      let gatedTraitCount = 0;
+      for (const proposal of traitProposals) {
+        const gate = traitEvidenceGate(batch.evidence, this.limits, proposal.payload);
+        if (gate.eligible) {
+          eligibleTraits.push(proposal);
+          continue;
+        }
+        gatedTraitCount += 1;
+        innerDb.prepare(`
+          UPDATE reflection_proposals
+          SET status='rejected',reviewed_at=?,reviewer=?,error_code='REFLECTION_EVIDENCE_GATE',
+            error_message=?
+          WHERE id=? AND status='pending'
+        `).run(ts, reviewer, gate.reasons.join(',').slice(0, 500), proposal.id);
+      }
       const applied = this.#applyTraitProposals(innerDb, {
         accountId: batch.accountId,
-        proposals: traitProposals,
+        proposals: eligibleTraits,
         baseHash: currentBaseHash,
         expectedRevision,
         actor: reviewer,
@@ -2828,7 +2954,7 @@ export class ReflectionStore {
         reviewed: true,
         decision: 'approve',
         applied: applied.applied,
-        invalid: applied.invalid,
+        invalid: applied.invalid + gatedTraitCount,
         profileRevision: applied.profileRevision,
         batch: batchView(innerDb.prepare('SELECT * FROM reflection_batches WHERE id=?').get(batch.id))
       };
@@ -3876,6 +4002,10 @@ export class ReflectionStore {
     sessionId,
     runId,
     chatKey,
+    interactionId = '',
+    topicId = '',
+    originalSourceId = '',
+    triggerKind = '',
     notebook,
     ts,
     actor
@@ -3896,6 +4026,10 @@ export class ReflectionStore {
       chatKey: proposal.scope === 'chat' ? proposal.chatKey : chatKey,
       sessionId,
       runId,
+      interactionId,
+      topicId,
+      originalSourceId,
+      triggerKind,
       actor: actor || 'reflection-review'
     };
     const item = proposal.payload;
@@ -4082,13 +4216,17 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
     reflectionRoleNoteText(),
     'Do not create notes that only contain run telemetry, token/budget usage, sent/replied counts, transient execution state, or ordinary bookkeeping. If there is no useful future-facing note, return noteOperations: [].',
     'Treat executionState, delivery status, retry/queue/schedule/wake information, system reminders, timestamps, and message IDs as diagnostics only; never turn them into Learned Self traits.',
-    'Only preferenceEvidence with explicit user evidence may support a behavior trait. Assistant context or delivered outbound text is not user confirmation.',
+    'A meaningful single human interaction, silence, or delivered assistant experience may support a specific episodic note; the note must describe what happened, not prescribe future behavior.',
+    'Stable trait proposals are tentative candidates only. Select real sourceRef values from traitEvidencePool; each selected source must independently support this same candidate, and sources must come from at least three distinct host interactionIds and original human roots. Do not count assistant output, Notebook notes, currentProfile, summaries, IDs, or diagnostics as independent sources.',
+    'The host checks source provenance and independence, then a human reviews meaning. If fewer than three independent sources support a plausible candidate, you may return it with only the real references available; it stays gated and cannot be auto-applied. Do not invent references or use global scope.',
+    'Your own genuine likes or experience may be recorded as an episodic note, but assistant output alone cannot establish a stable trait. No new human input means no new trait support.',
+    'CurrentProfile and Notebook are historical context only, not evidenceRefs. Keep notes chat-scoped to the observed chat; never merge private chats or create global notes from a chat observation.',
     'noteOperations item schema: operation (append|update|archive), scope (global|chat), chatKey, content, tags, noteId, expectedRevision, evidenceRefs.',
     'For noteOperations: append requires operation, scope, content, tags, evidenceRefs and omits noteId/expectedRevision; update requires noteId and expectedRevision plus content or tags; archive requires noteId and expectedRevision and omits content/tags.',
     'traitProposals item schema: action (set|remove), key, value (only for set), scope (global|chat), chatKey, confidence, evidenceRefs.',
     'Allowed preference keys: communication_style, language_preference, working_habit, topic_interests, interaction_preferences, expression_preferences. working_habit is never bounded-auto and requires human review.',
     'capabilityGapProposals item schema: category, capability, requestKey, scope (global|chat), chatKey, detail, evidenceRefs.',
-    'Use chatKey="" for global scope. For chat scope, use the observed chatKey exactly. Use [] when a collection has no proposal.',
+    'For note and trait proposals use scope="chat" and the observed chatKey exactly. Use [] when a collection has no proposal.',
     'Canonical empty shape: {"noteOperations":[],"traitProposals":[],"capabilityGapProposals":[],"summary":"没有足够证据时说明原因"}.',
     `Limits: noteOperations<=${normalizedLimits.maxNoteOperations}, ` +
       `traitProposals<=${normalizedLimits.maxTraitProposals}, ` +
@@ -4099,6 +4237,10 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
   ].join('\n');
   const input = plainObject(reflectionInput) ? structuredClone(reflectionInput) : {};
   const shrink = () => {
+    if (Array.isArray(input.traitEvidencePool) && input.traitEvidencePool.length > 12) {
+      input.traitEvidencePool = input.traitEvidencePool.slice(-12);
+      return true;
+    }
     if (Array.isArray(input.preferenceEvidence) && input.preferenceEvidence.length > 8) {
       input.preferenceEvidence = input.preferenceEvidence.slice(-8);
       return true;
@@ -4142,6 +4284,9 @@ export function reflectionPrompt(job, limits = DEFAULT_REFLECTION_LIMITS, reflec
       : [];
     input.preferenceEvidence = Array.isArray(input.preferenceEvidence)
       ? input.preferenceEvidence.slice(-4)
+      : [];
+    input.traitEvidencePool = Array.isArray(input.traitEvidencePool)
+      ? input.traitEvidencePool.slice(-4)
       : [];
     input.notebook = Array.isArray(input.notebook)
       ? input.notebook.slice(0, 2)

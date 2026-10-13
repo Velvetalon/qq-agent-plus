@@ -1,5 +1,11 @@
 # Repository Instructions
 
+## Development Plans
+
+Archive new development plans under `/plan_doc` before implementation. Ordered
+task cards and handoff progress may live under `/delay`, with links back to the
+archived plan. Keep production credentials and raw chat evidence outside Git.
+
 When adding or changing an experimental feature, follow
 [`docs/EXPERIMENTAL_FEATURE_STANDARD.md`](docs/EXPERIMENTAL_FEATURE_STANDARD.md).
 

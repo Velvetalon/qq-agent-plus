@@ -17,6 +17,9 @@ const state = {
   sessions: [],          // 摘要列表
   currentSessionId: null,
   sessionDetail: null,   // 完整记录
+  socialStatusChatKey: '',
+  socialStatus: null,
+  socialStatusSeq: 0,
   sessionInspectorTab: 'input',
   chats: [],
   currentChatKey: null,
@@ -261,7 +264,7 @@ function esc(s) {
 }
 
 const STATUS_LABEL = { waiting: '等待中', done: '已发言', noreply: '未回复', running: '运行中', error: '出错', aborted: '中止' };
-const CONVERSATION_MODE_LABEL = { legacy: '传统触发', threaded: '参与者续接', lifecycle: '完整生命周期' };
+const CONVERSATION_MODE_LABEL = { legacy: '传统触发', threaded: '参与者续接', lifecycle: '完整生命周期', social: '社交会话' };
 const THREAD_STATE_LABEL = {
   starting: '启动中',
   engaged: '续接窗口中',
@@ -378,22 +381,32 @@ function sessionStatusText(s) {
 function conversationStatusText(s) {
   const mode = s.conversationMode || 'legacy';
   const modeLabel = CONVERSATION_MODE_LABEL[mode] || mode;
+  if (mode === 'social') {
+    const decision = { reply: '回复', listen: '倾听', wait: '等待', close: '结束' }[s.socialAudit?.decision];
+    return decision ? `${modeLabel} · ${decision}` : modeLabel;
+  }
   const threadLabel = THREAD_STATE_LABEL[lifecycleStateOf(s)];
   return threadLabel ? `${modeLabel} · ${threadLabel}` : modeLabel;
 }
 
 function renderSessionModeBand(s) {
-  const mode = ['legacy', 'threaded', 'lifecycle'].includes(s.conversationMode)
+  const mode = ['legacy', 'threaded', 'lifecycle', 'social'].includes(s.conversationMode)
     ? s.conversationMode
     : 'legacy';
-  const stateLabel = THREAD_STATE_LABEL[lifecycleStateOf(s)]
-    || (mode === 'legacy' ? '单轮运行' : '尚未建立线程');
+  const socialDecision = { reply: '回复', listen: '倾听', wait: '等待', close: '结束', invalid: '无效决定' }[s.socialAudit?.decision];
+  const stateLabel = mode === 'social'
+    ? socialDecision || '社交规划'
+    : THREAD_STATE_LABEL[lifecycleStateOf(s)] || (mode === 'legacy' ? '单轮运行' : '尚未建立线程');
   const detail = mode === 'legacy'
     ? '本轮按响应档位独立触发'
     : mode === 'threaded'
       ? '当前参与者可在续接窗口内确定性唤醒'
-      : '生命周期内的新消息批次继续交给模型判断';
-  const threadRef = s.threadId ? `线程 ${String(s.threadId).slice(0, 8)}` : '无持续线程';
+      : mode === 'lifecycle'
+        ? '生命周期内的新消息批次继续交给模型判断'
+        : '独立话题与目标消息由宿主校验';
+  const threadRef = mode === 'social'
+    ? (s.socialAudit?.topicId ? `话题 ${String(s.socialAudit.topicId).slice(0, 16)}` : '社交话题')
+    : s.threadId ? `线程 ${String(s.threadId).slice(0, 8)}` : '无持续线程';
   return `
     <div class="session-mode-band mode-${mode}">
       <div class="session-mode-name">${esc(CONVERSATION_MODE_LABEL[mode])}</div>
@@ -1545,6 +1558,7 @@ function connectSSE() {
       triggerKind: data.triggerKind || '',
       triggerReason: data.triggerReason || '',
       conversationMode: data.conversationMode || 'legacy',
+      socialAudit: data.socialAudit || null,
       threadId: data.threadId ?? null,
       threadState: data.threadState ?? null,
       lifecycle: data.lifecycle || null,
@@ -1817,7 +1831,7 @@ function buildSessionDisplayItems(sessions = []) {
   const items = [];
   const grouped = new Map();
   for (const session of sessions) {
-    const mode = ['legacy', 'threaded', 'lifecycle'].includes(session.conversationMode)
+    const mode = ['legacy', 'threaded', 'lifecycle', 'social'].includes(session.conversationMode)
       ? session.conversationMode
       : 'legacy';
     const groupable = mode !== 'legacy' && Boolean(session.threadId);
@@ -1892,7 +1906,7 @@ function renderSessionList() {
     const searchHtml = Number(s.totalSearches) > 0
       ? `<span class="muted">搜 ${s.totalSearches}</span>`
       : '';
-    const mode = ['legacy', 'threaded', 'lifecycle'].includes(s.conversationMode)
+    const mode = ['legacy', 'threaded', 'lifecycle', 'social'].includes(s.conversationMode)
       ? s.conversationMode
       : 'legacy';
     const isNew = !state.seenSessionIds.has(s.displayKey);
@@ -2052,6 +2066,12 @@ async function loadSessionDetail(id, {
     state.sessionDetail = s;
     if (state.tab === 'sessions') {
       renderSessionDetail(s, { scrollMode, scrollTop, timelineScrollLeft });
+    }
+    if (s.conversationMode === 'social') {
+      loadSocialSessionStatus(s.chatKey);
+    } else if (state.socialStatusChatKey) {
+      state.socialStatusChatKey = '';
+      state.socialStatus = null;
     }
   } catch (e) {
     if (!quiet) $('#session-detail').innerHTML = `<div class="empty-hint">加载失败：${esc(e.message)}</div>`;
@@ -2233,7 +2253,8 @@ function sessionDetailFingerprint(s) {
     s.pluginSnapshot ? JSON.stringify(s.pluginSnapshot) : '',
     s.pluginContext ? JSON.stringify(s.pluginContext) : '',
     s.retrieval ? JSON.stringify(s.retrieval) : '',
-    s.contextBudget ? JSON.stringify(s.contextBudget) : ''
+    s.contextBudget ? JSON.stringify(s.contextBudget) : '',
+    s.socialAudit ? JSON.stringify(s.socialAudit) : ''
   ].join('~');
   return `${s.id}|${s.status}|${s.conversationMode || 'legacy'}|${s.threadState || ''}`
     + `|${s.lifecycle?.state || ''}|${s.lifecycle?.deadline || 0}|${s.triggerKind || ''}`
@@ -2241,7 +2262,121 @@ function sessionDetailFingerprint(s) {
     + `|${(s.messages || []).length}|${(s.sent || []).length}|${s.error ? 1 : 0}`
     + `|${s.activity || ''}|${s.sessionMetrics?.estimatedCost || 0}`
     + `|${state.sessionInspectorTab}|${state.sessionJsonMode === s.id ? 'json' : 'ui'}`
+    + `|social:${state.socialStatusChatKey === s.chatKey ? JSON.stringify(state.socialStatus) : ''}`
     + `|${audit}`;
+}
+
+function renderSocialSessionPanel(s) {
+  const audit = s.socialAudit || null;
+  if (s.conversationMode !== 'social' && !audit) return '';
+  const status = state.socialStatusChatKey === s.chatKey ? state.socialStatus : null;
+  const decisions = { reply: '回复', listen: '倾听', wait: '等待', close: '结束', invalid: '无效决定' };
+  const sources = (audit?.sourceMessageIds || []).slice(0, 12);
+  const topics = (status?.scene?.topics || []).slice(0, 8);
+  const activeIntents = (status?.intents || []).filter((intent) =>
+    ['pending', 'leased'].includes(intent.status)
+  ).slice(0, 50);
+  const sentCount = Array.isArray(s.sent) ? s.sent.length : 0;
+  const attemptedCount = Number(s.outbound?.attempted) || 0;
+  const succeededCount = Number(s.outbound?.succeeded) || sentCount;
+  const actionText = succeededCount
+    ? `已发出 ${succeededCount} 条`
+    : attemptedCount
+      ? `尝试外发 ${attemptedCount} 条`
+      : '未外发';
+  const intentRows = activeIntents.length
+    ? activeIntents.map((intent) => `
+      <div class="social-intent-row">
+        <div>
+          <strong>${esc(intent.goal || '（没有目标摘要）')}</strong>
+          <small>${esc(intent.status === 'leased' ? '执行中' : '待处理')} · 话题 ${esc(intent.topicId || '-')} · 来源 ${(intent.sourceMessageIds || []).slice(0, 6).map((id) => `#${esc(id)}`).join(' ') || '-'} · 到期 ${intent.expiresAt ? esc(fmtTime(intent.expiresAt)) : '-'}</small>
+        </div>
+        ${intent.status === 'pending' ? `<button type="button" class="btn btn-small btn-danger" data-social-cancel="${esc(intent.id)}" title="取消并记录原因">取消待办</button>` : ''}
+      </div>`).join('')
+    : '<div class="empty-hint">暂无待处理待办</div>';
+  const sceneText = topics.length
+    ? topics.map((topic) => `${topic.topic || '未命名话题'} · ${topic.status || 'active'} (${topic.participantIds?.length || 0} 人)`).join('；')
+    : '暂无话题快照';
+  const stateText = !status
+    ? '未加载'
+    : status.loading
+      ? '加载中'
+      : status.error
+        ? `加载失败：${status.error}`
+        : status.enabled
+          ? '运行中'
+          : '当前会话未启用';
+  return `
+    <section class="social-session-panel" aria-label="社交会话审计与待办">
+      <div class="social-session-head">
+        <div><strong>社交会话</strong><small>${esc(stateText)} · ${esc(sceneText)}</small></div>
+        <button type="button" class="icon-btn" data-social-refresh title="刷新社交状态" aria-label="刷新社交状态">↻</button>
+      </div>
+      ${audit ? `<dl class="social-audit-grid">
+        <div><dt>规划决定</dt><dd>${esc(decisions[audit.decision] || audit.decision || '-')}</dd></div>
+        <div><dt>实际动作</dt><dd>${esc(actionText)}</dd></div>
+        <div><dt>目标话题</dt><dd>${esc(audit.topicId || '-')}</dd></div>
+        <div><dt>目标消息</dt><dd>${esc(audit.targetMessageId || '-')}</dd></div>
+        <div><dt>主动发起</dt><dd>${audit.proactive ? '是' : '否'}</dd></div>
+        <div><dt>沟通目标</dt><dd>${esc(audit.goal || '-')}</dd></div>
+        <div><dt>新意摘要</dt><dd>${esc(audit.novelty || '-')}</dd></div>
+        <div><dt>材料来源</dt><dd>${sources.map((id) => `#${esc(id)}`).join(' ') || '-'}</dd></div>
+        <div><dt>触发 / 待办</dt><dd>${esc(audit.triggerKind || '-')} · ${esc(audit.intentId || '-')}</dd></div>
+      </dl>` : '<div class="empty-hint">本次运行没有社交规划审计记录</div>'}
+      <div class="social-intent-list">${intentRows}</div>
+    </section>`;
+}
+
+function refreshSocialSessionDetail(chatKey) {
+  const session = state.sessionDetail;
+  if (session?.chatKey !== chatKey || state.currentSessionId !== session.id || state.tab !== 'sessions') return;
+  lastDetailFp = null;
+  renderSessionDetail(session);
+}
+
+function loadSocialSessionStatus(chatKey, { force = false } = {}) {
+  if (!chatKey) return;
+  if (!force && state.socialStatusChatKey === chatKey && state.socialStatus) return;
+  const seq = ++state.socialStatusSeq;
+  state.socialStatusChatKey = chatKey;
+  state.socialStatus = { loading: true };
+  refreshSocialSessionDetail(chatKey);
+  api(`/api/conversation/social?chatKey=${encodeURIComponent(chatKey)}`)
+    .then((data) => {
+      if (seq !== state.socialStatusSeq || state.socialStatusChatKey !== chatKey) return;
+      state.socialStatus = data;
+      refreshSocialSessionDetail(chatKey);
+    })
+    .catch((error) => {
+      if (seq !== state.socialStatusSeq || state.socialStatusChatKey !== chatKey) return;
+      state.socialStatus = { error: error.message || '请求失败' };
+      refreshSocialSessionDetail(chatKey);
+    });
+}
+
+function promptSocialCancelReason() {
+  return new Promise((resolve) => {
+    const overlay = modelModalShell({
+      head: '取消社交待办',
+      body: '<div class="field"><label for="social-cancel-reason">取消原因</label><textarea id="social-cancel-reason" maxlength="200" required></textarea></div>',
+      foot: '<button type="button" class="btn" data-social-cancel-close>返回</button><button type="button" class="btn btn-danger" data-social-cancel-confirm>记录并取消</button>'
+    });
+    const finish = (reason) => { closeModelModal(overlay); resolve(reason); };
+    overlay.querySelector('[data-social-cancel-close]').addEventListener('click', () => finish(null));
+    overlay.querySelector('.model-modal-close').addEventListener('click', () => finish(null));
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) finish(null);
+    });
+    overlay.querySelector('[data-social-cancel-confirm]').addEventListener('click', () => {
+      const reason = overlay.querySelector('#social-cancel-reason').value.trim();
+      if (!reason) {
+        overlay.querySelector('#social-cancel-reason').focus();
+        return;
+      }
+      finish(reason);
+    });
+    overlay.querySelector('#social-cancel-reason').focus();
+  });
 }
 
 /** 运行审计面板：停用/旧会话也要显示默认值，不做"有才画"的条件渲染。 */
@@ -2344,7 +2479,8 @@ function renderSessionDetail(s, {
     ${renderSessionModeBand(s)}
     ${renderLifecycleOverview(s)}
     ${renderSessionThreadTimeline(s)}
-    ${renderSessionAuditPanels(s)}`);
+    ${renderSessionAuditPanels(s)}
+    ${renderSocialSessionPanel(s)}`);
 
   const jsonMode = state.sessionJsonMode === s.id;
   if (jsonMode) {
@@ -2460,6 +2596,25 @@ function renderSessionDetail(s, {
     button.addEventListener('click', () => {
       if (button.dataset.threadSessionId !== state.currentSessionId) {
         selectSession(button.dataset.threadSessionId, { preserveDetail: true });
+      }
+    });
+  });
+  detail.querySelector('[data-social-refresh]')?.addEventListener('click', () =>
+    loadSocialSessionStatus(s.chatKey, { force: true }));
+  detail.querySelectorAll('[data-social-cancel]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const reason = await promptSocialCancelReason();
+      if (!reason) return;
+      button.disabled = true;
+      try {
+        await api(`/api/conversation/social/intents/${encodeURIComponent(button.dataset.socialCancel)}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({ chatKey: s.chatKey, reason })
+        });
+        loadSocialSessionStatus(s.chatKey, { force: true });
+      } catch (error) {
+        alert(`取消失败：${error.message}`);
+        button.disabled = false;
       }
     });
   });
@@ -8385,8 +8540,9 @@ function conversationModeForChat(chatKey, cfg = state.config) {
   const conversation = cfg?.conversation || {};
   if (conversation.unifiedMode !== false) return conversation.mode || 'legacy';
   const match = /^group:(\d+)$/.exec(String(chatKey || ''));
-  return match && conversation.groupModes?.[match[1]]
-    ? conversation.groupModes[match[1]]
+  const scopedMode = match ? conversation.groupModes?.[match[1]] : '';
+  return ['legacy', 'threaded', 'lifecycle', 'social'].includes(scopedMode)
+    ? scopedMode
     : (conversation.mode || 'legacy');
 }
 
@@ -8497,13 +8653,14 @@ const TIER_HINT = {
 };
 
 function renderConversationModePanels(conversation = {}) {
-  const activeMode = ['legacy', 'threaded', 'lifecycle'].includes(conversation.mode)
+  const activeMode = ['legacy', 'threaded', 'lifecycle', 'social'].includes(conversation.mode)
     ? conversation.mode
     : 'legacy';
   const modes = [
     ['legacy', '传统触发', '按规则启动'],
     ['threaded', '参与者续接', '短窗口延续'],
-    ['lifecycle', '完整生命周期', '持续批次判断']
+    ['lifecycle', '完整生命周期', '持续批次判断'],
+    ['social', '社交会话', '规划后再回复']
   ];
   const panelAttrs = (mode) =>
     `class="conversation-mode-panel${activeMode === mode ? '' : ' hidden'} mode-${mode}" `
@@ -8583,6 +8740,33 @@ function renderConversationModePanels(conversation = {}) {
             <div class="field"><label>追加上下文兜底（字符）</label><input type="number" id="cfg-life-chars" min="20000" max="1000000" step="10000" value="${esc(conversation.maxTranscriptChars ?? 240000)}" /></div>
           </div>
         </section>
+
+        <section ${panelAttrs('social')}>
+          <div class="conversation-mode-heading">
+            <div>
+              <strong>社交会话</strong>
+              <span>规划参与决定与回复；待办必须关联真实消息来源</span>
+            </div>
+            <span class="mode-state-token">独立话题</span>
+          </div>
+          <div class="conversation-mode-flow" aria-label="社交会话流程">
+            <span>消息</span><i></i><span>规划</span><i></i><span>回复 / 等待 / 结束</span>
+          </div>
+          <div class="field-row conversation-mode-fields">
+            <div class="field"><label title="每次规划可读取的消息数，上限由服务端约束">上下文消息数</label><input type="number" id="cfg-social-context" min="10" max="200" value="${esc(conversation.social?.contextLimit ?? 60)}" /></div>
+            <div class="field"><label title="规划阶段最多调用模型的轮数">规划轮数上限</label><input type="number" id="cfg-social-planner-rounds" min="1" max="5" value="${esc(conversation.social?.maxPlannerRounds ?? 3)}" /></div>
+            <div class="field"><label title="回复阶段最多调用模型的轮数">回复轮数上限</label><input type="number" id="cfg-social-reply-rounds" min="1" max="12" value="${esc(conversation.social?.maxReplyRounds ?? 6)}" /></div>
+            <div class="field"><label title="每个会话最多保留的话题数">话题上限</label><input type="number" id="cfg-social-topics" min="1" max="20" value="${esc(conversation.social?.maxTopics ?? 8)}" /></div>
+            <div class="field"><label title="话题空闲多久后视为过期">话题空闲（分钟）</label><input type="number" id="cfg-social-topic-idle" min="1" max="1440" value="${esc(Math.round((conversation.social?.topicIdleMs ?? 1800000) / 60000))}" /></div>
+          </div>
+          <div class="field-row conversation-mode-fields">
+            <div class="field"><label title="由真实消息来源支撑的待办最长保留时间">待办有效期（分钟）</label><input type="number" id="cfg-social-intent-ttl" min="1" max="10080" value="${esc(Math.round((conversation.social?.intentTtlMs ?? 21600000) / 60000))}" /></div>
+            <div class="field"><label title="两次主动发起之间的最短间隔">主动间隔（分钟）</label><input type="number" id="cfg-social-initiative-gap" min="1" max="10080" value="${esc(Math.round((conversation.social?.minInitiativeGapMs ?? 1800000) / 60000))}" /></div>
+            <div class="field"><label title="允许未获回应的主动发起数量">未回应主动数</label><input type="number" id="cfg-social-unanswered" min="0" max="3" value="${esc(conversation.social?.maxUnansweredInitiatives ?? 1)}" /></div>
+            <div class="field"><label title="回复目标失效前的最长等待时间">回复目标时限（分钟）</label><input type="number" id="cfg-social-target-ttl" min="1" max="30" value="${esc(Math.round((conversation.social?.replyTargetTtlMs ?? 180000) / 60000))}" /></div>
+            <div class="field"><label title="单次社交发言最多包含的独立消息数">每轮消息数上限</label><input type="number" id="cfg-social-messages" min="1" max="6" value="${esc(conversation.social?.maxMessagesPerTurn ?? 3)}" /></div>
+          </div>
+        </section>
       </div>
     </div>`;
 }
@@ -8615,6 +8799,7 @@ return `
               <option value="legacy">传统触发</option>
               <option value="threaded">参与者续接</option>
               <option value="lifecycle">完整生命周期</option>
+              <option value="social">社交会话</option>
             </select>
           </div>
         </div>
@@ -9194,10 +9379,11 @@ function bindSettingsEvents(c) {
   const triggerHints = {
     legacy: '每批消息都依据以下档位决定是否启动。',
     threaded: '没有有效续接线程时使用以下档位；续接对象直接进入运行。',
-    lifecycle: '没有活动生命周期时使用以下档位；生命周期内消息不再受档位拦截。'
+    lifecycle: '没有活动生命周期时使用以下档位；生命周期内消息不再受档位拦截。',
+    social: '该会话按社交规划器的参与决定处理。'
   };
   const syncConversationMode = (mode) => {
-    const next = ['legacy', 'threaded', 'lifecycle'].includes(mode) ? mode : 'legacy';
+    const next = ['legacy', 'threaded', 'lifecycle', 'social'].includes(mode) ? mode : 'legacy';
     if (conversationModeInput) conversationModeInput.value = next;
     if (conversationModeShell) {
       conversationModeShell.dataset.mode = next;
@@ -10836,7 +11022,20 @@ async function saveConfig({ quiet = false } = {}) {
       maxTranscriptChars: clampInt(
         val('#cfg-life-chars', c.conversation?.maxTranscriptChars),
         20000, 1000000, 240000
-      )
+      ),
+      social: {
+        ...(c.conversation?.social || {}),
+        contextLimit: clampInt(val('#cfg-social-context', c.conversation?.social?.contextLimit), 10, 200, 60),
+        maxPlannerRounds: clampInt(val('#cfg-social-planner-rounds', c.conversation?.social?.maxPlannerRounds), 1, 5, 3),
+        maxReplyRounds: clampInt(val('#cfg-social-reply-rounds', c.conversation?.social?.maxReplyRounds), 1, 12, 6),
+        maxTopics: clampInt(val('#cfg-social-topics', c.conversation?.social?.maxTopics), 1, 20, 8),
+        topicIdleMs: clampInt(val('#cfg-social-topic-idle', (c.conversation?.social?.topicIdleMs ?? 1800000) / 60000), 1, 1440, 30) * 60000,
+        intentTtlMs: clampInt(val('#cfg-social-intent-ttl', (c.conversation?.social?.intentTtlMs ?? 21600000) / 60000), 1, 10080, 360) * 60000,
+        minInitiativeGapMs: clampInt(val('#cfg-social-initiative-gap', (c.conversation?.social?.minInitiativeGapMs ?? 1800000) / 60000), 1, 10080, 30) * 60000,
+        maxUnansweredInitiatives: clampInt(val('#cfg-social-unanswered', c.conversation?.social?.maxUnansweredInitiatives), 0, 3, 1),
+        replyTargetTtlMs: clampInt(val('#cfg-social-target-ttl', (c.conversation?.social?.replyTargetTtlMs ?? 180000) / 60000), 1, 30, 3) * 60000,
+        maxMessagesPerTurn: clampInt(val('#cfg-social-messages', c.conversation?.social?.maxMessagesPerTurn), 1, 6, 3)
+      }
     };
     patch.send = {
       ...c.send,

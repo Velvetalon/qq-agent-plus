@@ -47,7 +47,11 @@ function toolSource(ctx) {
     chatKey: String(ctx?.chatKey || ''),
     sessionId: String(ctx?.sessionId || ctx?.session?.id || ''),
     runId: String(ctx?.runId || ctx?.session?.leaseId || ctx?.session?.id || ''),
-    toolCallId: String(ctx?.toolCallId || ctx?.session?.toolCallId || '')
+    toolCallId: String(ctx?.toolCallId || ctx?.session?.toolCallId || ''),
+    interactionId: String(ctx?.interactionId || ''),
+    topicId: String(ctx?.topicId || ''),
+    originalSourceId: String(ctx?.originalSourceId || ''),
+    triggerKind: String(ctx?.triggerKind || '')
   };
 }
 
@@ -144,6 +148,7 @@ function makeTools(getStore) {
                 chatKey: source.chatKey,
                 query: args.query,
                 scope: args.scope,
+                tags: args.tags,
                 maxNotes: args.limit,
                 maxChars: 2400,
                 maxSnippetChars: 600

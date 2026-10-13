@@ -14,7 +14,7 @@ import { ChatStore } from '../core/store.js';
 import { MemoryStore } from '../memory/memory.js';
 import { StickerManager } from '../onebot/sticker-manager.js';
 import { SendQueue } from '../onebot/sender.js';
-import { SessionRegistry, personaLabelOfPrompt, sessionAuditView } from '../core/sessions.js';
+import { SessionRegistry, personaLabelOfPrompt, sessionAuditView, sessionSocialAuditView } from '../core/sessions.js';
 import { Orchestrator } from '../core/orchestrator.js';
 import { DailyMomentsManager } from '../features/daily-moments.js';
 import { QzoneInteractionManager } from '../features/qzone-interactions.js';
@@ -91,6 +91,12 @@ function allowed(kind, id, cfg) {
   const allowList = cfg.allow?.[kind] ?? cfg.allow?.[`${kind}s`] ?? [];
   if (allowList.length > 0) return allowList.map(String).includes(s);
   return cfg.allowAllWhenEmpty === true;
+}
+
+function parseSocialChatKey(value) {
+  const match = /^(group|private):(\d{1,15})$/.exec(String(value || ''));
+  if (!match) return null;
+  return { chatKey: `${match[1]}:${match[2]}`, kind: match[1], id: match[2] };
 }
 
 function sameSecret(a, b) {
@@ -197,6 +203,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
             triggerReason: s.triggerReason ?? s.contextReason ?? '',
             messages: s.messages ?? [],
             conversationMode: s.conversationMode ?? 'legacy',
+            socialAudit: view.socialAudit,
             threadId: s.threadId ?? null,
             threadState: view.threadState ?? null,
             lifecycle: view.lifecycle,
@@ -3326,6 +3333,68 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         });
       }
 
+      if (pathname === '/api/conversation/social' && method === 'GET') {
+        const scope = parseSocialChatKey(url.searchParams.get('chatKey'));
+        if (!scope) return json(res, 400, { error: 'chatKey 格式错误' });
+        if (!allowed(scope.kind, scope.id, cfgNow)) return json(res, 403, { error: '会话不在允许范围内' });
+        const conversation = conversationConfigForChat(scope.chatKey);
+        const status = orchestrator.getSocialStatus(scope.chatKey);
+        return json(res, 200, {
+          chatKey: scope.chatKey,
+          mode: conversation.mode,
+          enabled: status?.enabled === true,
+          config: conversation.social,
+          scene: status?.snapshot ?? null,
+          intents: Array.isArray(status?.intents) ? status.intents.slice(0, 50) : []
+        });
+      }
+
+      const socialIntentCancel = /^\/api\/conversation\/social\/intents\/([^/]+)\/cancel$/.exec(pathname);
+      if (socialIntentCancel && method === 'POST') {
+        if (!authorizeWrite(req)) return json(res, 401, { error: '未授权写入' });
+        const body = await readJsonBody(req);
+        const scope = parseSocialChatKey(body.chatKey);
+        if (!scope) return json(res, 400, { error: 'chatKey 格式错误' });
+        if (!allowed(scope.kind, scope.id, cfgNow)) return json(res, 403, { error: '会话不在允许范围内' });
+        let intentId = '';
+        try { intentId = decodeURIComponent(socialIntentCancel[1]); }
+        catch { return json(res, 400, { error: '待办 ID 格式错误' }); }
+        if (!/^[A-Za-z0-9_-]{1,100}$/.test(intentId)) {
+          return json(res, 400, { error: '待办 ID 格式错误' });
+        }
+        const reason = String(body.reason || '').trim();
+        if (!reason || reason.length > 200) {
+          return json(res, 400, { error: '取消原因必须为 1-200 个字符' });
+        }
+        try {
+          const account = accountNamespace();
+          if (account.source !== 'selfId') {
+            return json(res, 409, { error: '无法确认 OneBot 宿主账号，不能取消待办' });
+          }
+          const currentStatus = orchestrator.getSocialStatus(scope.chatKey);
+          const hasPendingIntent = (currentStatus?.intents || []).some((item) =>
+            item.id === intentId && item.status === 'pending'
+          );
+          if (!hasPendingIntent) return json(res, 404, { error: '待处理待办不存在' });
+          const socialState = orchestrator.getSocialState(scope.chatKey, { create: false });
+          if (!socialState) return json(res, 404, { error: '待处理待办不存在' });
+          const storedIntent = socialState.listIntents({
+            accountId: account.accountId, chatKey: scope.chatKey, limit: 50
+          }).find((item) => item.id === intentId && item.status === 'pending');
+          if (!storedIntent) return json(res, 404, { error: '待处理待办不存在' });
+          const cancelled = socialState.cancelIntent({
+            accountId: account.accountId,
+            chatKey: scope.chatKey,
+            id: intentId,
+            reason
+          });
+          emit('social-update', { chatKey: scope.chatKey, intentId });
+          return json(res, 200, { ok: true, cancelled });
+        } catch (error) {
+          return sendStoreError(res, error, 'SOCIAL_INTENT_CANCEL_FAILED');
+        }
+      }
+
       const sessionMatch = /^\/api\/sessions\/([\w-]+)$/.exec(pathname);
       if (sessionMatch && method === 'GET') {
         const s = sessions.get(sessionMatch[1]);
@@ -4527,6 +4596,8 @@ function buildSessionView(s, store, options = {}) {
     threadState: lifecycle?.state || s.threadState || null,
     lifecycle,
     sessionMetrics: buildSessionMetrics(s),
+    // Social planner metadata is intentionally allowlisted; raw reasoning never enters the console view.
+    socialAudit: sessionSocialAuditView(s.socialAudit),
     // 旧会话没有 P7 审计字段：统一补默认值，三条读取路径（列表/SSE/详情）口径一致。
     ...sessionAuditView(s)
   };

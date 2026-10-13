@@ -102,7 +102,7 @@ import { currentProviders } from './providers.js';
 import { buildSlangContextForChat } from '../console/asset-observer.js';
 import { parseInlineToolCalls } from '../tools/inline-tools.js';
 import { executeLongtimeCommand } from '../tools/longtime.js';
-import { createRunContext } from '../plugins/context.js';
+import { createRunContext, createMessagingToolContext } from '../plugins/context.js';
 import { PluginManager } from '../plugins/manager.js';
 import { createLegacyToolsPlugin } from '../plugins/builtin/legacy-tools.js';
 import { runtimeControlPlugin } from '../plugins/builtin/runtime-control.js';
@@ -126,6 +126,17 @@ import {
   skippedToolResult,
   blockedTerminalResult
 } from './action-control.js';
+import { SocialStateStore } from '../conversation/state.js';
+import {
+  validateSocialDecision,
+  validateSocialInitiative,
+  socialPlannerTools,
+  socialReplyerTools
+} from '../conversation/runtime.js';
+import {
+  buildSocialPlannerPrompts,
+  buildSocialReplyerPrompts
+} from '../conversation/prompts.js';
 
 function handoffParticipantIds(triggerEntries) {
   return [...new Set((triggerEntries || [])
@@ -464,6 +475,45 @@ export class Orchestrator {
     };
   }
 
+  #socialScope(chatKey) {
+    const cfg = getConfig();
+    return {
+      accountId: String(this.onebot.selfId || cfg.onebot?.selfId || 'default'),
+      chatKey: String(chatKey || '')
+    };
+  }
+
+  getSocialState(chatKey, { create = undefined } = {}) {
+    const active = conversationConfigForChat(chatKey).mode === 'social';
+    if (active && !this.socialState) {
+      this.socialState = new SocialStateStore({
+        db: this.store.db,
+        maxTopics: conversationConfigForChat(chatKey).social?.maxTopics
+      });
+    }
+    if (active) return this.socialState;
+    if (create !== false || !SocialStateStore.isInitialized?.(this.store.db)) return null;
+    if (!this.socialState) {
+      this.socialState = new SocialStateStore({
+        db: this.store.db,
+        maxTopics: conversationConfigForChat(chatKey).social?.maxTopics
+      });
+    }
+    return this.socialState;
+  }
+
+  getSocialStatus(chatKey) {
+    const enabled = conversationConfigForChat(chatKey).mode === 'social';
+    const state = this.getSocialState(chatKey, { create: enabled ? undefined : false });
+    const scope = this.#socialScope(chatKey);
+    return {
+      enabled,
+      chatKey: scope.chatKey,
+      snapshot: enabled && state ? state.snapshot(scope) : null,
+      intents: state ? state.listIntents(scope) : []
+    };
+  }
+
   enforceChatControl(chatKey) {
     const decision = this.#chatRuntimeDecision(chatKey);
     if (decision.allowed) return decision;
@@ -540,6 +590,7 @@ export class Orchestrator {
    */
   #maybeScheduleFollowUp(chatKey, session) {
     try {
+      if (conversationConfigForChat(chatKey).mode === 'social') return;
       const window = proactiveWindowState(getConfig().proactive?.activeHours, Date.now());
       const plan = followUpPlan({
         sentCount: Array.isArray(session?.sent) ? session.sent.length : 0,
@@ -563,7 +614,7 @@ export class Orchestrator {
     if (!this.#chatRuntimeDecision(chatKey).allowed) return;
     if (this.runningChats.has(chatKey)) return;   // 运行结束后 drain 会接管
     // 自主节奏：不即时唤醒，攒着等"自己安排的醒来"统一处理；被 @ 时例外
-    if (this.#pacingApplies(chatKey)) {
+    if (conversationConfigForChat(chatKey).mode !== 'social' && this.#pacingApplies(chatKey)) {
       const pending = this.store.peekUnread(chatKey, 50) || [];
       const mentioned = pending.some((m) => m.mentionsSelf === true);
       if (!(mentioned && getConfig().pacing?.instantOnMention !== false)) {
@@ -576,6 +627,7 @@ export class Orchestrator {
 
   /** 自主节奏是否作用于该会话（按 pacing.scope 判定）。 */
   #pacingApplies(chatKey) {
+    if (conversationConfigForChat(chatKey).mode === 'social') return false;
     const p = getConfig().pacing || {};
     if (p.enabled !== true) return false;
     // 硬规则：私聊里每句话都是直接对它说的 —— 永远即时回复，不排队
@@ -587,6 +639,7 @@ export class Orchestrator {
 
   /** 确保该会话有一次自主节奏唤醒安排；已有且在合理范围内则不动。 */
   #ensurePacedWake(chatKey) {
+    if (conversationConfigForChat(chatKey).mode === 'social') return;
     const p = getConfig().pacing || {};
     const minMs = Math.max(60000, (Number(p.minWakeMinutes) || 5) * 60000);
     const maxMs = Math.max(minMs, (Number(p.maxSilenceMinutes) || 45) * 60000);
@@ -613,6 +666,15 @@ export class Orchestrator {
     const cfg = getConfig();
     const conversation = conversationConfigForChat(chatKey);
     const entries = this.store.peekUnread(chatKey, 100) || [];
+    if (conversation.mode === 'social') {
+      return {
+        shouldRespond: entries.length > 0,
+        tier: 9,
+        count: Math.max(1, Number(conversation.social?.contextLimit) || 60),
+        reason: entries.length ? '社交规划器：新消息' : '社交规划器：无新消息',
+        conversationMode: 'social'
+      };
+    }
     if (chatKey.startsWith('private:')) {
       const caps = tokenSaverCapsOf(cfg);
       return {
@@ -758,10 +820,10 @@ export class Orchestrator {
 
   #applyWaitingConversation(session, predicted, chatKey) {
     if (!session) return;
-    const mode = ['legacy', 'threaded', 'lifecycle'].includes(predicted?.conversationMode)
+    const mode = ['legacy', 'threaded', 'lifecycle', 'social'].includes(predicted?.conversationMode)
       ? predicted.conversationMode
       : conversationConfigForChat(chatKey).mode;
-    const currentThread = mode !== 'legacy'
+    const currentThread = mode !== 'legacy' && mode !== 'social'
       ? this.store.getConversationThread?.(chatKey)
       : null;
     const thread = currentThread?.mode === mode ? currentThread : null;
@@ -949,7 +1011,7 @@ export class Orchestrator {
     return task;
   }
 
-  async #wake(chatKey, { proactive = false, manual = false, waitingSessionId = null, wakeNote = '', paced = false } = {}) {
+  async #wake(chatKey, { proactive = false, manual = false, waitingSessionId = null, wakeNote = '', paced = false, socialIntentId = null } = {}) {
     if (!canRun(chatKey)) { if (waitingSessionId) this.#discardWaiting(waitingSessionId); return; }
     if (!this.#chatRuntimeDecision(chatKey).allowed) {
       if (waitingSessionId) this.#discardWaiting(waitingSessionId);
@@ -994,6 +1056,10 @@ export class Orchestrator {
             : storeConfigForChat(chatKey).allCount) || 100
       )), tokenSaverCapsOf(getConfig())?.allCount);
       if (pendingEntries.length === 0) {
+        if (conversation.mode === 'social' && manual && !socialIntentId) {
+          if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted');
+          return;
+        }
         if (!manual) {
           if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted');
           return; // 自动唤醒没有未读时不空跑
@@ -1045,6 +1111,15 @@ export class Orchestrator {
     if (!proactive && triggerEntries.length === 0) {
       if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted');
       return; // 没有未读就不空跑
+    }
+    if (proactive && !tierResult && conversation.mode === 'social') {
+      tierResult = {
+        tier: 9,
+        count: Math.max(1, Number(conversation.social?.contextLimit) || 60),
+        shouldRespond: true,
+        reason: socialIntentId ? '社交意图到期' : '社交主动机会',
+        conversationMode: 'social'
+      };
     }
     if (proactive && !tierResult) {
       // 主动开口（冷场开话题 / 自我安排的唤醒）没有触发消息，**不能**走随机档：
@@ -1105,6 +1180,14 @@ export class Orchestrator {
     }
     this.#applyWaitingConversation(session, tierResult, chatKey);
     this.#applySessionTrigger(session, tierResult, { manual, proactive, chatKey });
+    if (conversation.mode === 'social') {
+      session.conversationMode = 'social';
+      session.triggerKind = manual ? 'manual'
+        : (socialIntentId ? 'social_intent' : 'human_message');
+      session.triggerReason = socialIntentId ? '到期的主持端社交意图' : '社交参与规划';
+      session.contextTier = null;
+      session.socialIntentId = socialIntentId ? String(socialIntentId) : null;
+    }
     this.sessions.update(session.id);
     if (createdSession) {
       this.emit('session-start', {
@@ -1130,7 +1213,7 @@ export class Orchestrator {
 
     try {
       const runResult = await this.#runAgent(session, { kind, chatId, chatKey, triggerEntries, proactive, wakeNote, paced, seq,
-        manual, contextLimit: tierResult.count, tierInfo: tierResult, conversation, signal: controller.signal });
+        manual, socialIntentId, contextLimit: tierResult.count, tierInfo: tierResult, conversation, signal: controller.signal });
       controller.signal.throwIfAborted();
       session.outbound = summarizeOutbound(session, this.store);
       const explicitSilence = session.termination?.kind === 'explicit_silence'
@@ -1502,6 +1585,766 @@ export class Orchestrator {
     }
   }
 
+  async #runSocialAgent({
+    session, kind, chatId, chatKey, triggerEntries, proactive, manual, socialIntentId,
+    accountId, cfg, conversationCfg, runSnapshot, toolDefs, signal, chatName, selfNickname
+  }) {
+    const scope = this.#socialScope(chatKey);
+    const state = this.getSocialState(chatKey);
+    if (!state) throw new Error('Social state unavailable for the active conversation mode');
+    const socialConfig = conversationCfg.social || {};
+    const contextLimit = Math.min(200, Math.max(10, Number(socialConfig.contextLimit) || 60));
+    const blocked = kind === 'group'
+      ? new Set((cfg.blocklist?.[String(chatId)] || []).map(String))
+      : new Set();
+    const visible = (entry) => entry && (entry.self || !blocked.has(String(entry.senderId || '')));
+    const recent = this.store.recent(chatKey, {
+      limit: Math.min(400, contextLimit + (triggerEntries || []).length + 8)
+    }).filter(visible);
+    const hostMessages = new Map(recent.map((entry) => [String(entry.id), entry]));
+    for (const entry of triggerEntries || []) {
+      if (visible(entry)) hostMessages.set(String(entry.id), entry);
+    }
+    const orderedMessages = [...hostMessages.values()]
+      .sort((left, right) => Number(left.id) - Number(right.id));
+    const humanTriggerMessages = (triggerEntries || []).filter((entry) => !entry.self && visible(entry));
+    const triggerMessageIds = humanTriggerMessages.map((entry) => String(entry.id));
+    state.observe({ ...scope, messages: orderedMessages, selfId: scope.accountId });
+    let scene = state.snapshot(scope);
+    const intent = socialIntentId
+      ? state.listIntents(scope).find((item) => String(item.id) === String(socialIntentId)) || null
+      : null;
+    session.socialIntentId = socialIntentId ? String(socialIntentId) : null;
+    session.socialDelivered = [];
+    session.socialUsage = {
+      planner: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, calls: 0 },
+      replyer: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, calls: 0 }
+    };
+    session.socialPhases = {
+      planner: { calls: 0, toolNames: [], decision: null },
+      replyer: { calls: 0, toolNames: [] }
+    };
+    session.socialAudit = {
+      version: 1,
+      interactionId: String(session.id),
+      decision: 'invalid',
+      topicId: null,
+      targetMessageId: null,
+      goal: '',
+      novelty: '',
+      sourceMessageIds: triggerMessageIds.slice(0, 8),
+      proactive: Boolean(socialIntentId),
+      triggerKind: manual ? 'manual' : (socialIntentId ? 'social_intent' : 'human_message'),
+      intentId: socialIntentId ? String(socialIntentId) : null
+    };
+    session.conversationMode = 'social';
+    session.model = cfg.api.model;
+    session.vendor = vendorOfConfig(cfg);
+    session.chatName = chatName;
+    session.promptLayout = 'social-planner-replyer-v1';
+    session.lifecycleContinuation = false;
+    session.threadId = null;
+    session.pluginSnapshot = {
+      registryRevision: runSnapshot.registryRevision,
+      plugins: runSnapshot.plugins.map((plugin) => ({
+        id: plugin.id,
+        version: plugin.version,
+        generation: runSnapshot.generations[plugin.id] || 0
+      })),
+      toolNames: toolDefs.map((tool) => tool.name)
+    };
+
+    let runSignal = signal;
+    if (typeof AbortSignal?.any === 'function') runSignal = AbortSignal.any([signal, runSnapshot.signal]);
+    const identityPilot = this.getIdentityPilot();
+    const plannerTools = socialPlannerTools(toolDefs);
+    const replyerTools = socialReplyerTools(toolDefs);
+    const makeToolContext = (pluginContext, deliveryGuard = null, sender = this.sender) => ({
+      chatKey,
+      kind,
+      chatId,
+      accountId,
+      selfId: this.onebot.selfId || accountId,
+      selfNickname,
+      botName: cfg.persona.botName,
+      behaviorProfile: cfg.persona.behaviorProfile || 'legacy',
+      onebot: this.onebot,
+      store: this.store,
+      memory: this.memory,
+      identityPilot,
+      stickers: this.stickers,
+      sender,
+      session,
+      runSnapshot,
+      pluginContext,
+      signal: runSignal,
+      ...(deliveryGuard ? { deliveryGuard } : {}),
+      emit: (type, payload) => this.emit(type, payload)
+    });
+
+    if ((!triggerMessageIds.length && !socialIntentId) || (socialIntentId && !intent)) {
+      if (socialIntentId && !intent) {
+        session.socialAudit.decision = 'invalid';
+        session.socialAudit.dispatchBlocked = 'intent_missing';
+        state.finishIntent({ ...scope, id: String(socialIntentId), status: 'cancelled', reason: 'intent missing at execution' });
+      }
+      session.finishReason = socialIntentId ? '社交意图不存在，已安全结束' : '没有新人类消息或到期意图';
+      return { social: true, silent: true };
+    }
+
+    let finalDecision = null;
+    let selectedTopic = null;
+    let plannedSnapshot = scene;
+    try {
+      const dueSourceMessages = intent
+        ? (intent.sourceMessageIds || []).map((id) => this.store.findByLocalId(chatKey, id)).filter(visible)
+        : [];
+      if (intent && dueSourceMessages.length !== (intent.sourceMessageIds || []).length) {
+        state.finishIntent({ ...scope, id: String(intent.id), status: 'cancelled', reason: 'source message unavailable' });
+        session.socialAudit.dispatchBlocked = 'source_unavailable';
+        session.finishReason = '社交意图的原始消息已不在会话存档中';
+        return { social: true, silent: true };
+      }
+      const plannerMessages = [...new Map([...orderedMessages, ...dueSourceMessages]
+        .map((entry) => [String(entry.id), entry])).values()]
+        .sort((left, right) => Number(left.id) - Number(right.id));
+      const plannerPrompt = buildSocialPlannerPrompts({
+        persona: cfg.persona,
+        selfNickname,
+        kind,
+        chatName,
+        chatId,
+        scene,
+        messages: plannerMessages,
+        triggerMessageIds,
+        dueIntent: intent,
+        now: Date.now()
+      });
+      const plannerContext = createRunContext(runSnapshot, {
+        chatKey,
+        accountId,
+        sessionId: session.id,
+        signal: runSnapshot.signal,
+        visibleParticipants: [...new Set(plannerMessages.filter((entry) => !entry.self)
+          .map((entry) => String(entry.senderId || '')).filter(Boolean))],
+        currentMessageIds: plannerMessages.map((entry) => String(entry.id))
+      });
+      const plannerMessagesForModel = [
+        { role: 'system', content: plannerPrompt.system },
+        { role: 'user', content: plannerPrompt.user }
+      ];
+      session.systemPrompt = plannerPrompt.system;
+      session.userPrompt = plannerPrompt.user;
+      session.promptChars = plannerPrompt.system.length + plannerPrompt.user.length;
+      session.sessionsPhase = 'planner';
+      this.sessions.update(session.id);
+      const plannerResult = await this.#runSocialPhase({
+        phase: 'planner',
+        session,
+        messages: plannerMessagesForModel,
+        toolDefs: plannerTools,
+        ctx: makeToolContext(plannerContext),
+        cfg,
+        runSnapshot,
+        signal: runSignal,
+        chatKey,
+        maxRounds: Math.max(1, Math.min(5, Number(socialConfig.maxPlannerRounds) || 3)),
+        temperature: 0.2
+      });
+      const validated = validateSocialDecision(plannerResult.content, {
+        snapshot: scene,
+        knownMessages: plannerMessages
+      });
+      if (!validated.ok) {
+        session.socialAudit.decision = 'invalid';
+        session.socialAudit.validation = validated.reason;
+        session.socialPhases.planner.decision = { action: 'invalid', reason: validated.reason };
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'planner produced no valid decision' });
+        session.finishReason = '参与规划未能给出有效决定';
+        return { social: true, silent: true, invalidDecision: true };
+      }
+      finalDecision = validated.value;
+      if (!finalDecision.topicId && intent?.topicId
+        && scene.topics.some((topic) => String(topic.id) === String(intent.topicId))) {
+        finalDecision.topicId = String(intent.topicId);
+      }
+
+      if (!finalDecision.topicId && finalDecision.sourceMessageIds.length) {
+        const assigned = state.assignTopic({
+          ...scope,
+          messageIds: finalDecision.sourceMessageIds,
+          topic: finalDecision.topic,
+          expectedRevision: scene.revision
+        });
+        finalDecision.topicId = String(assigned?.id || assigned?.topicId || '');
+      } else if (finalDecision.topicId && finalDecision.sourceMessageIds.length) {
+        const existingTopic = scene.topics.find((topic) => String(topic.id) === String(finalDecision.topicId));
+        const existingOwner = new Map();
+        for (const topic of scene.topics) {
+          for (const id of topic.messageIds || []) existingOwner.set(String(id), String(topic.id));
+        }
+        const triggerSet = new Set(triggerMessageIds);
+        const canAssign = finalDecision.sourceMessageIds.every((id) => {
+          const owner = existingOwner.get(String(id));
+          return !owner || owner === String(finalDecision.topicId) || triggerSet.has(String(id));
+        });
+        if (!canAssign && finalDecision.action === 'reply') {
+          session.socialAudit.decision = 'invalid';
+          session.socialAudit.validation = 'cross_topic_source';
+          if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'planner source did not match selected topic' });
+          session.finishReason = '规划来源与话题不一致';
+          return { social: true, silent: true, invalidDecision: true };
+        }
+        if (canAssign) {
+          const assigned = state.assignTopic({
+            ...scope,
+            topicId: String(finalDecision.topicId),
+            messageIds: finalDecision.sourceMessageIds,
+            topic: finalDecision.topic || existingTopic?.topic || '',
+            expectedRevision: scene.revision
+          });
+          finalDecision.topicId = String(assigned?.id || assigned?.topicId || finalDecision.topicId);
+        }
+      }
+
+      const sourceOwner = new Map();
+      for (const topic of scene.topics) {
+        for (const id of topic.messageIds || []) sourceOwner.set(String(id), String(topic.id));
+      }
+      const rawInitiative = !socialIntentId && triggerMessageIds.length
+        ? validateSocialInitiative(finalDecision.initiative, {
+            humanMessageIds: triggerMessageIds,
+            now: Date.now(),
+            minDueAt: Date.now() + Math.max(60000, Number(socialConfig.minInitiativeGapMs) || 1800000),
+            maxExpiresAt: Date.now() + Math.max(60000, Number(socialConfig.intentTtlMs) || 21600000)
+          })
+        : null;
+      if (rawInitiative && finalDecision.topicId
+        && Number(scene.unansweredInitiatives || 0) < Math.max(0, Number(socialConfig.maxUnansweredInitiatives) || 1)) {
+        const intents = state.listIntents(scope);
+        const minGap = Math.max(60000, Number(socialConfig.minInitiativeGapMs) || 1800000);
+        const recentlyCreated = intents.some((item) => Date.now() - Number(item.createdAt || 0) < minGap
+          && !['cancelled', 'expired'].includes(String(item.status || '')));
+        if (!recentlyCreated) {
+          const added = state.addIntent({
+            ...scope,
+            topicId: String(finalDecision.topicId),
+            sourceMessageIds: rawInitiative.sourceMessageIds,
+            goal: rawInitiative.goal,
+            dueAt: rawInitiative.dueAt,
+            expiresAt: rawInitiative.expiresAt
+          });
+          session.socialAudit.proposedIntentId = added?.id ? String(added.id) : null;
+        }
+      }
+
+      if (finalDecision.topicId) {
+        plannedSnapshot = state.snapshot(scope);
+        selectedTopic = plannedSnapshot.topics.find((topic) => String(topic.id) === String(finalDecision.topicId)) || null;
+      }
+      session.socialAudit.decision = finalDecision.action;
+      session.socialAudit.topicId = finalDecision.topicId || null;
+      session.socialAudit.targetMessageId = finalDecision.targetMessageId || null;
+      session.socialAudit.goal = finalDecision.goal;
+      session.socialAudit.novelty = finalDecision.novelty;
+      session.socialAudit.sourceMessageIds = finalDecision.sourceMessageIds.slice(0, 8);
+      session.socialPhases.planner.decision = {
+        action: finalDecision.action,
+        topicId: finalDecision.topicId || null,
+        targetMessageId: finalDecision.targetMessageId || null,
+        goal: finalDecision.goal,
+        novelty: finalDecision.novelty,
+        sourceMessageIds: finalDecision.sourceMessageIds.slice(0, 8)
+      };
+      session.participation = {
+        mode: 'social',
+        decision: finalDecision.action,
+        reasonCode: finalDecision.novelty || finalDecision.action,
+        reason: finalDecision.goal || ''
+      };
+      if (finalDecision.action !== 'reply') {
+        session.termination = {
+          kind: 'social_' + finalDecision.action,
+          reasonCode: finalDecision.action,
+          reason: finalDecision.goal || '',
+          threadDisposition: finalDecision.action === 'close' ? 'close' : 'listening',
+          terminalToolCallId: '',
+          blocked: false
+        };
+        session.finishReason = '规划决定：' + finalDecision.action;
+        if (selectedTopic) {
+          state.recordOutcome({
+            ...scope,
+            topicId: String(selectedTopic.id),
+            targetMessageId: finalDecision.targetMessageId,
+            action: finalDecision.action,
+            sent: [],
+            runId: session.leaseId || session.id,
+            initiativeId: socialIntentId || undefined,
+            outcome: 'sent'
+          });
+        }
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'planner re-evaluated without reply' });
+        return { social: true, silent: true };
+      }
+      if (!selectedTopic || !finalDecision.targetMessageId) {
+        session.socialAudit.decision = 'invalid';
+        session.socialAudit.validation = 'topic_unavailable';
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'selected topic unavailable' });
+        session.finishReason = '规划话题不可用';
+        return { social: true, silent: true, invalidDecision: true };
+      }
+      const targetMessage = plannerMessages.find((entry) => String(entry.id) === String(finalDecision.targetMessageId));
+      if (!targetMessage || targetMessage.self) {
+        session.socialAudit.decision = 'invalid';
+        session.socialAudit.validation = 'target_unavailable';
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'selected target unavailable' });
+        session.finishReason = '规划回复目标不可用';
+        return { social: true, silent: true, invalidDecision: true };
+      }
+
+      const stateMessages = state.topicMessages({
+        ...scope,
+        topicId: String(selectedTopic.id),
+        limit: contextLimit
+      });
+      const selectedMessages = stateMessages
+        .map((entry) => this.store.findByLocalId(chatKey, entry.id) || entry)
+        .filter(visible)
+        .slice(-contextLimit);
+      if (!selectedMessages.some((entry) => String(entry.id) === String(finalDecision.targetMessageId))) {
+        session.socialAudit.decision = 'invalid';
+        session.socialAudit.validation = 'target_not_in_topic';
+        if (intent) state.finishIntent({ ...scope, id: String(intent.id), status: 'completed', reason: 'target was not in selected topic' });
+        session.finishReason = '回复目标不属于所选话题';
+        return { social: true, silent: true, invalidDecision: true };
+      }
+
+      const participantIds = [...new Set([
+        ...(selectedTopic.participantIds || []).map(String),
+        ...selectedMessages.filter((entry) => !entry.self).map((entry) => String(entry.senderId || ''))
+      ].filter(Boolean))];
+      const memoryText = typeof this.memory?.formatForPrompt === 'function'
+        ? this.memory.formatForPrompt(chatKey, { userIds: participantIds })
+        : '';
+      const retrievalQuery = selectedMessages.map((entry) => String(entry.text || '').trim())
+        .filter(Boolean).join('\n').slice(-4000);
+      const topicRunContext = createRunContext(runSnapshot, {
+        chatKey,
+        accountId,
+        sessionId: session.id,
+        signal: runSnapshot.signal,
+        visibleParticipants: participantIds,
+        currentMessageIds: selectedMessages.map((entry) => String(entry.id))
+      });
+      const selectedProviders = (runSnapshot.contextProviders || []).filter((provider) =>
+        provider.id === SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID);
+      const selectedContextSnapshot = Object.freeze({
+        ...runSnapshot,
+        contextProviders: Object.freeze(selectedProviders)
+      });
+      const extensionContext = await this.pluginManager.collectContext(
+        selectedContextSnapshot,
+        Object.freeze({ ...topicRunContext, retrievalQuery })
+      );
+      const extensionText = extensionContext.blocks
+        .map((block) => String(block.title || block.id) + ': ' + String(block.text || ''))
+        .join('\n\n');
+      const retrievalProvider = selectedProviders.find((provider) => provider.id === SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID);
+      const retrievalAudit = retrievalProvider?.consumeAudit?.(session.id) || retrievalAuditFallback({
+        enabled: cfg.selfEvolution?.enabled === true && cfg.selfEvolution?.retrieval?.enabled === true,
+        query: retrievalQuery,
+        currentMessageIds: selectedMessages.map((entry) => String(entry.id)),
+        reason: selectedProviders.length ? 'no-matches' : 'disabled'
+      });
+      retrievalAudit.integrated = selectedProviders.length > 0;
+      retrievalAudit.currentMessageIds = selectedMessages.map((entry) => String(entry.id));
+      session.retrieval = retrievalAudit;
+      session.pluginContext = {
+        blocks: extensionContext.blocks.map((block) => ({
+          id: block.id,
+          title: block.title,
+          sourceRefs: block.sourceRefs,
+          revision: block.revision
+        })),
+        diagnostics: extensionContext.diagnostics,
+        degraded: extensionContext.degraded === true
+      };
+      const replyPrompt = buildSocialReplyerPrompts({
+        persona: cfg.persona,
+        selfNickname,
+        kind,
+        chatName,
+        chatId,
+        topic: selectedTopic,
+        messages: selectedMessages,
+        memoryText,
+        pluginContext: extensionText,
+        decision: finalDecision,
+        dueIntent: intent,
+        now: Date.now()
+      });
+      session.systemPrompt = replyPrompt.system;
+      session.userPrompt = replyPrompt.user;
+      session.promptChars += replyPrompt.system.length + replyPrompt.user.length;
+      const replyerMessages = [
+        { role: 'system', content: replyPrompt.system },
+        { role: 'user', content: replyPrompt.user }
+      ];
+      const visibleLimit = Math.max(1, Math.min(6, Number(socialConfig.maxMessagesPerTurn) || 3));
+      const sentThisTurn = new Set();
+      const deliveryGuard = async ({ payload = {} } = {}) => {
+        runSignal.throwIfAborted();
+        if (session.socialGuardInvalidated) throw Object.assign(new Error('Social send guard stopped this turn'), { code: 'SOCIAL_STALE_ACTION', outcome: 'failed' });
+        if (Number(session.socialSendActions) >= visibleLimit) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = 'message_limit';
+          throw Object.assign(new Error('Social message limit reached'), { code: 'SOCIAL_MESSAGE_LIMIT', outcome: 'failed' });
+        }
+        const currentMessages = this.store.peekUnread(chatKey, 200) || [];
+        state.observe({ ...scope, messages: currentMessages, selfId: scope.accountId });
+        const text = String(payload.text || '');
+        const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (normalized && sentThisTurn.has(normalized)) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = 'duplicate_in_turn';
+          throw Object.assign(new Error('Duplicate social message in this turn'), { code: 'SOCIAL_DUPLICATE_ACTION', outcome: 'failed' });
+        }
+        const eligible = state.eligibleToSend({
+          ...scope,
+          topicId: String(selectedTopic.id),
+          targetMessageId: String(finalDecision.targetMessageId),
+          snapshotRevision: plannedSnapshot.revision,
+          currentMessages,
+          text,
+          initiativeId: socialIntentId || undefined,
+          direct: false
+        });
+        if (!eligible?.allowed) {
+          session.socialGuardInvalidated = true;
+          session.socialAudit.dispatchBlocked = String(eligible?.reason || 'stale_target').slice(0, 80);
+          throw Object.assign(new Error('Social reply no longer matches the selected topic'), { code: 'SOCIAL_STALE_ACTION', outcome: 'failed' });
+        }
+        if (normalized) sentThisTurn.add(normalized);
+        session.socialSendActions = (Number(session.socialSendActions) || 0) + 1;
+      };
+      const longtimeSender = createMessagingToolContext({
+        chatKey,
+        sender: this.sender,
+        store: this.store,
+        session,
+        signal: runSignal,
+        deliveryGuard
+      }).sender;
+      const replyerContext = makeToolContext(topicRunContext, deliveryGuard);
+      replyerContext.longtimeCommand = (args) => executeLongtimeCommand({
+        triggerEntries,
+        args,
+        chatKey,
+        stickers: this.stickers,
+        sender: longtimeSender,
+        onebot: this.onebot,
+        session,
+        signal: runSignal,
+        random: this.random
+      });
+      this.sessions.update(session.id);
+      const runLimits = effectiveRunLimits(cfg);
+      const replyResult = await this.#runSocialPhase({
+        phase: 'replyer',
+        session,
+        messages: replyerMessages,
+        toolDefs: replyerTools,
+        ctx: replyerContext,
+        cfg,
+        runSnapshot,
+        signal: runSignal,
+        chatKey,
+        maxRounds: Math.max(1, Math.min(runLimits.maxRounds, Number(socialConfig.maxReplyRounds) || 6)),
+        maxRunTokens: runLimits.maxRunTokens,
+        temperature: cfg.api.temperature ?? 0.8
+      });
+      session.socialAudit.replyerFinished = replyResult.completed === true;
+      session.socialAudit.delivered = session.socialDelivered.length > 0;
+      session.finishReason = session.socialAudit.delivered
+        ? '社交回应已完成'
+        : (session.socialGuardInvalidated ? '社交回应因话题变化而停止' : '回应阶段未发送消息');
+      session.outbound = summarizeOutbound(session, this.store);
+      const finalAction = session.socialGuardInvalidated && !session.socialDelivered.length
+        ? 'wait'
+        : (session.socialDelivered.length ? 'reply' : 'listen');
+      state.recordOutcome({
+        ...scope,
+        topicId: String(selectedTopic.id),
+        targetMessageId: String(finalDecision.targetMessageId),
+        action: finalAction,
+        sent: session.socialDelivered,
+        runId: session.leaseId || session.id,
+        initiativeId: socialIntentId || undefined,
+        outcome: this.store.hasUncertainEffects(session.leaseId) ? 'unknown' : 'sent'
+      });
+      if (intent) {
+        const uncertain = this.store.hasUncertainEffects(session.leaseId);
+        state.finishIntent({
+          ...scope,
+          id: String(intent.id),
+          status: uncertain ? 'held' : 'completed',
+          reason: uncertain ? 'delivery outcome unknown' : (session.socialDelivered.length ? 'reply delivered' : 'opportunity re-evaluated')
+        });
+      }
+      this.sessions.update(session.id);
+      this.emit('session-update', session.id);
+      return { social: true, replyer: true };
+    } catch (error) {
+      const uncertain = this.store.hasUncertainEffects(session.leaseId);
+      if (intent) {
+        try {
+          state.finishIntent({
+            ...scope,
+            id: String(intent.id),
+            status: uncertain ? 'held' : 'cancelled',
+            reason: uncertain ? 'delivery outcome unknown' : 'run stopped before a confirmed response'
+          });
+        } catch { /* a terminal intent state is never reopened */ }
+      }
+      if (uncertain && finalDecision?.topicId) {
+        try {
+          state.recordOutcome({
+            ...scope,
+            topicId: String(finalDecision.topicId),
+            targetMessageId: finalDecision.targetMessageId || null,
+            action: 'reply',
+            sent: session.socialDelivered,
+            runId: session.leaseId || session.id,
+            initiativeId: socialIntentId || undefined,
+            outcome: 'unknown'
+          });
+        } catch { /* preserve the original execution error */ }
+      }
+      throw error;
+    }
+  }
+
+  async #runSocialPhase({
+    phase, session, messages, toolDefs, ctx, cfg, runSnapshot, signal,
+    chatKey, maxRounds, maxRunTokens = Number.MAX_SAFE_INTEGER, temperature = 0.8
+  }) {
+    const openAiTools = toOpenAiTools(toolDefs, cfg);
+    const allowedNames = new Set(toolDefs.map((tool) => String(tool.name)));
+    const phaseAudit = session.socialPhases[phase];
+    let content = '';
+    let completed = false;
+    for (let round = 0; round < maxRounds; round += 1) {
+      signal.throwIfAborted();
+      runSnapshot.signal.throwIfAborted();
+      if (this.aborted || !canRun(chatKey)) throw new Error('Run cancelled');
+      const estimate = estimateNextPromptTokens({
+        messages,
+        tools: openAiTools,
+        previousPromptTokens: Number(session.callUsage?.at(-1)?.promptTokens) || 0,
+        previousEstimateChars: Number(session.inputEstimateChars) || 0,
+        previousImageCount: Number(session.inputImageCount) || 0
+      });
+      if (session.usage.calls > 0
+        && session.usage.totalTokens + estimate.estimatedPromptTokens + 2048 > maxRunTokens) {
+        session.budgetStopped = true;
+        session.budgetStopReason = 'social-phase-token-budget';
+        session.finishReason = '社交阶段 Token 预算不足，已安全结束';
+        break;
+      }
+      session.inputRound = Number(session.usage.calls) + 1;
+      session.inputPayloadChars = JSON.stringify({ messages, tools: openAiTools }).length;
+      session.inputEstimateChars = estimate.estimateChars;
+      session.inputImageCount = estimate.imageCount;
+      session.tokenEstimator = 'audit-chars-plus-image-reserve-v2';
+      session.inputHasOmittedImages = hasInlineImage(messages);
+      session.inputMessages = estimate.auditMessages;
+      session.inputTools = structuredClone(openAiTools);
+      session.inputRequestOptions = { toolChoice: 'auto', temperature };
+      session.socialPhase = phase;
+      session.activity = phase === 'planner' ? '正在规划参与方式…' : '正在组织回应…';
+      this.sessions.update(session.id);
+      this.emit('session-update', session.id);
+      const phaseHash = crypto.createHash('sha256')
+        .update(String(cfg.api.provider || ''))
+        .update('\0')
+        .update(String(cfg.api.baseUrl || ''))
+        .update('\0')
+        .update(String(cfg.api.model || ''))
+        .update('\0')
+        .update(phase)
+        .update('\0')
+        .update(JSON.stringify(openAiTools))
+        .digest('hex');
+      const response = await chatCompletionWithRetry({
+        messages,
+        tools: openAiTools,
+        signal,
+        temperature,
+        cacheKey: 'qq-agent-social-' + phase + ':' + phaseHash.slice(0, 32),
+        purpose: 'chat'
+      });
+      signal.throwIfAborted();
+      session.model = response.model || session.model;
+      addUsage(session.usage, response.usage);
+      session.usage.calls = (Number(session.usage.calls) || 0) + 1;
+      addUsage(session.socialUsage[phase], response.usage);
+      session.socialUsage[phase].calls = (Number(session.socialUsage[phase].calls) || 0) + 1;
+      phaseAudit.calls += 1;
+      session.rounds = (Number(session.rounds) || 0) + 1;
+      const promptTokens = Number(response.usage?.prompt_tokens) || 0;
+      const cachedTokens = Number(
+        response.usage?.prompt_tokens_details?.cached_tokens
+        ?? response.usage?.prompt_cache_hit_tokens
+        ?? response.usage?.cached_tokens
+      ) || 0;
+      session.callUsage ||= [];
+      session.callUsage.push({
+        phase,
+        round: session.rounds,
+        promptTokens,
+        cachedTokens: Math.min(promptTokens, cachedTokens),
+        cacheHitRate: promptTokens ? Math.min(1, cachedTokens / promptTokens) : 0,
+        completionTokens: Number(response.usage?.completion_tokens) || 0,
+        totalTokens: Number(response.usage?.total_tokens) || 0
+      });
+      const message = response.message || {};
+      content = typeof message.content === 'string' ? message.content : '';
+      let toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+      const assistantEntry = {
+        role: 'assistant',
+        content: phase === 'planner' && !toolCalls.length ? null : content,
+        ...(toolCalls.length ? { tool_calls: structuredClone(toolCalls) } : {}),
+        socialPhase: phase
+      };
+      messages.push(assistantEntry);
+      if (toolCalls.length) session.messages.push(structuredClone(assistantEntry));
+      else if (phase === 'replyer' && content) session.messages.push({ role: 'assistant', content, socialPhase: phase });
+      session.activity = '';
+      this.sessions.update(session.id);
+      this.emit('session-update', session.id);
+
+      if (!toolCalls.length && content) {
+        const inlineCalls = parseInlineToolCalls(content);
+        if (inlineCalls.length) {
+          toolCalls = inlineCalls.map((call, index) => ({
+            id: 'social_inline_' + phase + '_' + round + '_' + index,
+            type: 'function',
+            function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) }
+          }));
+          const lastMessage = messages.at(-1);
+          if (lastMessage?.role === 'assistant') {
+            lastMessage.content = null;
+            lastMessage.tool_calls = toolCalls;
+          }
+          if (phase === 'replyer') {
+            const lastAudit = session.messages.at(-1);
+            if (lastAudit?.role === 'assistant') {
+              lastAudit.content = null;
+              lastAudit.tool_calls = structuredClone(toolCalls);
+              lastAudit.inlineParsed = true;
+            }
+          }
+        }
+      }
+      if (!toolCalls.length) {
+        completed = true;
+        break;
+      }
+
+      const batchPlan = preflightToolCalls(toolCalls, toolDefs);
+      const toolResults = [];
+      const imageMessages = [];
+      let uncertainEffects = false;
+      let uncertainTool = '';
+      let priorToolFailure = false;
+      for (let index = 0; index < toolCalls.length; index += 1) {
+        signal.throwIfAborted();
+        const call = toolCalls[index];
+        const name = String(call?.function?.name || '');
+        const argsRaw = call?.function?.arguments ?? '{}';
+        phaseAudit.toolNames = [...new Set([...phaseAudit.toolNames, name])].slice(0, 40);
+        if (name === 'web_search' || name === 'web_fetch') {
+          session.webSearchCount = (Number(session.webSearchCount) || 0) + 1;
+        }
+        session.activity = '正在调用 ' + name + '…';
+        const planned = batchPlan.calls[index];
+        let executed = false;
+        let result;
+        if (!allowedNames.has(name)) {
+          result = { content: '错误：社交阶段不允许该工具', isError: true, reportIncident: false };
+        } else if (!planned?.execute) {
+          result = planned?.result || { content: '错误：工具未执行', isError: true, reportIncident: false };
+        } else if (uncertainEffects) {
+          result = skippedToolResult('未执行：前一个外部动作的投递结果未知，必须先人工核对。', 'SKIPPED_AFTER_UNCERTAIN_EFFECT');
+        } else if (priorToolFailure && isTerminalTool(name)) {
+          result = blockedTerminalResult('终止工具未执行：本轮前置工具有失败项。', 'FINISH_BARRIER_BLOCKED');
+        } else {
+          if (phase === 'planner' && toolDefs.find((tool) => tool.name === name)?.effect !== 'read') {
+            result = { content: '错误：参与规划阶段只允许只读工具', isError: true, reportIncident: false };
+          } else {
+            if (phase === 'replyer'
+              && toolDefs.find((tool) => tool.name === name)?.effect === 'external-write'
+              && !['send_message', 'send_sticker', 'send_face', 'send_poke', 'longtime'].includes(name)
+              && typeof ctx.deliveryGuard === 'function') {
+              await ctx.deliveryGuard({ payload: { type: 'plugin', text: '' } });
+            }
+            executed = true;
+            result = await executeTool(toolDefs, ctx, name, argsRaw);
+          }
+        }
+        if (executed) recordOutboundObservation(session, name, result, call?.id || '');
+        let resultText = '';
+        let images = [];
+        if (Array.isArray(result?.content)) {
+          resultText = result.content.filter((part) => part?.type === 'text').map((part) => part.text).join('\n');
+          images = result.content.filter((part) => part?.type === 'image_url');
+        } else {
+          resultText = String(result?.content ?? '');
+        }
+        toolResults.push({ role: 'tool', tool_call_id: call?.id || '', name, content: resultText, isError: result?.isError === true });
+        session.messages.push({
+          toolCall: {
+            id: String(call?.id || ''),
+            name,
+            args: result?.parsedArgs ?? safeParse(argsRaw),
+            result: resultText.slice(0, 2000),
+            isError: result?.isError === true,
+            skipped: result?.skipped === true,
+            ...(result?.errorCode ? { errorCode: result.errorCode } : {})
+          },
+          socialPhase: phase
+        });
+        if (images.length) {
+          imageMessages.push({
+            role: 'user',
+            content: [
+              { type: 'text', text: '以下是工具 ' + name + ' 返回的图片，请按所选话题理解后回应。' },
+              ...images
+            ]
+          });
+          session.messages.push({ toolImages: { tool: name, count: images.length }, socialPhase: phase });
+        }
+        this.sessions.update(session.id);
+        this.emit('session-update', session.id);
+        if (this.store.hasUncertainEffects(session.leaseId)) {
+          uncertainEffects = true;
+          uncertainTool = name || '工具';
+        }
+        priorToolFailure ||= result?.isError === true;
+        if (session.socialGuardInvalidated) break;
+      }
+      messages.push(...toolResults.map((result) => ({
+        role: 'tool', tool_call_id: result.tool_call_id, name: result.name, content: result.content
+      })));
+      messages.push(...imageMessages);
+      if (uncertainEffects) throw new Error('Delivery uncertain; batch held for operator review (' + uncertainTool + ')');
+      if (session.socialGuardInvalidated) break;
+      if (round === maxRounds - 1) session.roundBudgetStopped = true;
+    }
+    return { content, completed };
+  }
+
   async #runAgent(session, {
     kind,
     chatId,
@@ -1515,6 +2358,7 @@ export class Orchestrator {
     contextLimit = null,
     tierInfo = null,
     conversation = null,
+    socialIntentId = null,
     signal
   }) {
     const liveConfig = getConfig();
@@ -1567,6 +2411,13 @@ export class Orchestrator {
       return true;
     });
     const openAiTools = toOpenAiTools(toolDefs, cfg);
+    if (conversationCfg.mode === 'social') {
+      return this.#runSocialAgent({
+        session, kind, chatId, chatKey, triggerEntries, proactive, manual, socialIntentId,
+        seq, accountId, cfg, conversationCfg, runSnapshot, toolDefs, signal,
+        chatName, selfNickname
+      });
+    }
     const systemPrompt = buildSystemPrompt({
       // 与【此刻状态】用同一个名字（群名片优先），否则同一次请求里会出现两个"你在群里的名字"
       selfNickname,
@@ -2204,6 +3055,7 @@ export class Orchestrator {
       if (!item || item.at > now) continue;
       this.scheduledWakes.delete(chatKey);
       if (item.timer) clearTimeout(item.timer);
+      if (conversationConfigForChat(chatKey).mode === 'social') continue;
       // 系统提醒的补话：等待期间有人说话了（正常流程已经在处理），这次就不必再唤一次
       if (String(item.note || '').startsWith('【系统提醒】') && this.store.unreadCount(chatKey) > 0) continue;
       if (!item.paced) {
@@ -2223,6 +3075,7 @@ export class Orchestrator {
 
   /** 安排一次稍后的主动发言（模型调用 schedule_wake 时使用）。 */
   scheduleInitiativeWake(chatKey, delayMs, note = '', { paced = false } = {}) {
+    if (conversationConfigForChat(chatKey).mode === 'social') return 0;
     const minMs = 60 * 1000;
     const maxMs = 4 * 60 * 60 * 1000;
     const wait = Math.max(minMs, Math.min(Number(delayMs) || minMs, maxMs));
@@ -2296,6 +3149,7 @@ export class Orchestrator {
     for (const chatKey of this.store.listChats()) {
       const [kind, id] = chatKey.split(':');
       if (kind !== 'group') continue;
+      if (conversationConfigForChat(chatKey).mode === 'social') continue;
       if (!canRun(chatKey)) continue;
       if (allowGroups.length > 0 ? !allowGroups.includes(id) : !cfg.allowAllWhenEmpty) continue;
       const meta = this.store.getChatMeta(chatKey);

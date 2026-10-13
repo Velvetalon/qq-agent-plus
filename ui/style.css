@@ -454,6 +454,7 @@ html.boot-show .loading-overlay { opacity: 1; }
 .mode-legacy { --mode-color: var(--green); --mode-soft: rgba(63, 206, 122, .11); }
 .mode-threaded { --mode-color: var(--accent); --mode-soft: rgba(91, 140, 255, .12); }
 .mode-lifecycle { --mode-color: var(--orange); --mode-soft: rgba(255, 180, 84, .12); }
+.mode-social { --mode-color: #3b9c8f; --mode-soft: rgba(59, 156, 143, .12); }
 .mode-chip,
 .thread-pill {
   max-width: 100%;
@@ -491,6 +492,25 @@ html.boot-show .loading-overlay { opacity: 1; }
 .session-mode-state { font-weight: 600; }
 .session-mode-detail { color: var(--muted); min-width: 0; }
 .session-mode-ref { color: var(--faint); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+.social-session-panel {
+  margin: 0 0 18px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.social-session-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.social-session-head strong { font-size: 13px; }
+.social-session-head small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+.social-audit-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 14px; margin: 0 0 10px; }
+.social-audit-grid div { min-width: 0; }
+.social-audit-grid dt { color: var(--muted); font-size: 10px; }
+.social-audit-grid dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+.social-intent-list { margin-top: 8px; border-top: 1px solid var(--border); }
+.social-intent-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.social-intent-row > div { min-width: 0; }
+.social-intent-row strong, .social-intent-row small { display: block; overflow-wrap: anywhere; }
+.social-intent-row small { margin-top: 3px; color: var(--muted); font-size: 10.5px; }
+.social-intent-row .btn { flex: none; }
 .lifecycle-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -921,7 +941,7 @@ html.boot-show .loading-overlay { opacity: 1; }
 .conversation-mode-shell { margin-bottom: 16px; }
 .conversation-mode-switch {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
@@ -2652,6 +2672,8 @@ button.uu-chip:hover { border-color: var(--accent); color: var(--text); }
   .context-tabs { gap: 12px; overflow-x: auto; }
   .context-tabs button { flex: 0 0 auto; }
   .context-layout { max-width: 56%; }
+  .social-audit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .social-intent-row { align-items: start; }
   .conversation-mode-switch { grid-template-columns: 1fr; }
   .conversation-mode-stage { min-height: 0; }
   .conversation-mode-facts { grid-template-columns: 1fr; gap: 10px; }

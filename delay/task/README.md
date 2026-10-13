@@ -1,4 +1,17 @@
-# 2026-09-28 功能修复任务卡
+# 项目开发任务索引
+
+## 当前：拟人群聊内核完整设计（2026-10-13）
+
+**代码开发已按用户要求暂停。用户随后授权将全部未完成代码与文档提交GitHub作为WIP交接；这不是完成验收，也不授权自动恢复编码或上线。先读[当前工作交接入口](../README.md)。**
+
+1. [完整架构设计](../../plan_doc/2026-10-13-social-conversation-engine.md)：当前/目标对比、模块职责、事件与ID、场景、Planner/Replyer、主动意图、四类记忆、迁移与回退。
+2. [开发规划 SC0-SC8](../../plan_doc/2026-10-13-social-conversation-development-plan.md)：依赖顺序、各阶段范围/不做/交付和Agent决策空间。
+3. [单元与闭环验收](../../plan_doc/2026-10-13-social-conversation-acceptance.md)：A-E/S/P/R/I/D/M/L/C/H/B用例，区分单元、主链与真实模型效果。
+4. [暂停交接](../schedule/2026-10-13-social-engine.md)：已有未提交草稿、局部验证、未完成项及恢复边界。
+
+本方案替代后续发言内核方向；下方PR/LSR记录是历史计划和当时验证，不自动代表当前线上效果。旧的“所有笔记需用户确认”“所有沉默不得记忆”等限制不得覆盖本方案的经历/偏好分离设计。
+
+## 历史：2026-09-28 功能修复任务卡
 
 规划原文：[`delay/plan/2026-09-28-functional-repair.md`](../plan/2026-09-28-functional-repair.md)
 

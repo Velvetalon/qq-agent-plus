@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { embeddingProfileId } from './embedding-client.js';
+import { classifyNotebookMemory, isRecallableNotebookNote } from './notebook-policy.js';
 
 let sqliteVec = null;
 try {
@@ -29,7 +30,12 @@ function noteEmbeddingText(note) {
   const tags = Array.isArray(note?.tags)
     ? note.tags.map(text).filter(Boolean)
     : [];
-  return `${tags.join(' ')}\n${noteContent(note)}`.trim();
+  const memory = classifyNotebookMemory(noteContent(note), {
+    source: note?.source || note?.source_json,
+    storedType: note?.type ?? note?.noteType ?? note?.note_type,
+    storedChannel: note?.channel ?? note?.note_channel
+  });
+  return `${memory.type} ${memory.channel} ${tags.join(' ')}\n${noteContent(note)}`.trim();
 }
 
 function noteHash(note) {
@@ -45,7 +51,12 @@ function noteMeta(note) {
     chatKey: text(note?.chatKey ?? note?.chat_key),
     status: text(note?.status || 'active'),
     body: noteContent(note),
-    tags: Array.isArray(note?.tags) ? note.tags.map(text) : []
+    tags: Array.isArray(note?.tags) ? note.tags.map(text) : [],
+    type: text(note?.type ?? note?.noteType ?? note?.note_type),
+    channel: text(note?.channel ?? note?.note_channel),
+    source: note?.source && typeof note.source === 'object'
+      ? note.source
+      : note?.source_json || {}
   };
 }
 
@@ -173,6 +184,19 @@ export function queueEmbedding(db, note, { now = Date.now, profileId = '' } = {}
       WHERE account_id=? AND note_id=? AND note_revision=?
     `).run(timestamp, item.accountId, item.noteId, item.revision);
     return { queued: false, reason: 'note-not-active', inputHash };
+  }
+  if (!isRecallableNotebookNote(item)) {
+    db.prepare(`
+      UPDATE notebook_embedding_jobs
+      SET status='obsolete',updated_at=?,last_error='note-not-recallable'
+      WHERE account_id=? AND note_id=? AND note_revision=?
+    `).run(timestamp, item.accountId, item.noteId, item.revision);
+    db.prepare(`
+      UPDATE notebook_embeddings
+      SET status='obsolete',updated_at=?,last_error='note-not-recallable'
+      WHERE account_id=? AND note_id=? AND note_revision=?
+    `).run(timestamp, item.accountId, item.noteId, item.revision);
+    return { queued: false, reason: 'note-not-recallable', inputHash };
   }
   db.prepare(`
     INSERT INTO notebook_embedding_jobs (
@@ -314,6 +338,10 @@ export class VectorMemory {
         this.#markJob(job, 'obsolete', 'stale-note');
         continue;
       }
+      if (!isRecallableNotebookNote(note)) {
+        this.#markJob(job, 'obsolete', 'note-not-recallable');
+        continue;
+      }
       let noteTags = [];
       try {
         const parsed = JSON.parse(String(note.tags_json || '[]'));
@@ -321,7 +349,10 @@ export class VectorMemory {
       } catch {
         noteTags = [];
       }
-      const content = noteEmbeddingText({ body: note.body, tags: noteTags });
+      const content = noteEmbeddingText({
+        body: note.body, tags: noteTags, note_type: note.note_type, channel: note.channel,
+        source_json: note.source_json
+      });
       try {
         const vector = await client.embedNote({
           note: {
@@ -339,7 +370,8 @@ export class VectorMemory {
         const checked = validateEmbeddingVector(vector, dimension);
         if (!checked.ok) throw Object.assign(new Error(checked.reason), { code: checked.reason });
         const current = this.db.prepare(`
-          SELECT revision,status,body,tags_json FROM notebook_notes WHERE account_id=? AND id=?
+          SELECT revision,status,body,tags_json,note_type,channel,source_json
+          FROM notebook_notes WHERE account_id=? AND id=?
         `).get(job.account_id, job.note_id);
         let currentTags = [];
         try {
@@ -352,7 +384,10 @@ export class VectorMemory {
           || this.profileId !== profileId || this.embeddingClient !== client
           || !current || current.status !== 'active'
           || Number(current.revision) !== Number(job.note_revision)
-          || noteHash({ content: current.body, tags: currentTags }) !== String(job.input_hash)) {
+          || noteHash({
+            content: current.body, tags: currentTags, note_type: current.note_type,
+            channel: current.channel, source_json: current.source_json
+          }) !== String(job.input_hash)) {
           this.#markJob(job, 'obsolete', 'stale-note');
           continue;
         }
@@ -366,13 +401,17 @@ export class VectorMemory {
           `).get(job.account_id, job.note_id, job.note_revision, job.input_hash,
             profileId, job.lease_token);
           const stillCurrent = this.db.prepare(`
-            SELECT revision,status,body,tags_json FROM notebook_notes WHERE account_id=? AND id=?
+            SELECT revision,status,body,tags_json,note_type,channel,source_json
+            FROM notebook_notes WHERE account_id=? AND id=?
           `).get(job.account_id, job.note_id);
           let committedTags = [];
           try { committedTags = JSON.parse(String(stillCurrent?.tags_json || '[]')); } catch { /* stale */ }
           if (!stillOwned || !stillCurrent || stillCurrent.status !== 'active'
             || Number(stillCurrent.revision) !== Number(job.note_revision)
-            || noteHash({ content: stillCurrent.body, tags: committedTags }) !== String(job.input_hash)
+            || noteHash({
+              content: stillCurrent.body, tags: committedTags, note_type: stillCurrent.note_type,
+              channel: stillCurrent.channel, source_json: stillCurrent.source_json
+            }) !== String(job.input_hash)
             || signal?.aborted || this.profileId !== profileId || this.embeddingClient !== client) {
             this.db.exec('ROLLBACK');
             this.#markJob(job, 'obsolete', 'stale-note-or-lease');
@@ -608,6 +647,8 @@ export class VectorMemory {
       filters.push("n.tags_json LIKE ? ESCAPE '\\'");
       params.push(`%${text(tag).replace(/[\\%_]/g, (value) => `\\${value}`)}%`);
     }
+    const requestedNotes = Math.max(1, Math.min(100, Number(maxNotes) || 5));
+    const candidateLimit = Math.min(1000, Math.max(requestedNotes, requestedNotes * 20));
     const current = this.db.prepare(`
       SELECT n.*, e.note_revision, e.input_hash, e.profile_id,
         vec_distance_cosine(e.vector, ?) AS distance
@@ -620,7 +661,7 @@ export class VectorMemory {
     `).all(
       checked.buffer,
       ...params,
-      Math.max(1, Math.min(100, Number(maxNotes) || 5))
+      candidateLimit
     );
     const budget = {
       maxNotes: Math.max(0, Number(maxNotes) || 5),
@@ -631,10 +672,15 @@ export class VectorMemory {
       truncated: false
     };
     const results = [];
+    let filteredOperational = 0;
     for (const row of current) {
-      if (results.length >= budget.maxNotes || budget.usedChars >= budget.maxChars) {
+      if (results.length >= requestedNotes || budget.usedChars >= budget.maxChars) {
         budget.truncated = true;
         break;
+      }
+      if (!isRecallableNotebookNote(row)) {
+        filteredOperational += 1;
+        continue;
       }
       const remaining = budget.maxChars - budget.usedChars;
       const snippet = text(row.body).slice(0, Math.min(budget.maxSnippetChars, remaining));
@@ -677,6 +723,7 @@ export class VectorMemory {
       diagnostics: {
         candidateCount: current.length,
         matchCount: results.length,
+        filteredOperational,
         profileId: this.profileId,
         extensionVersion: this.extension.version
       }

@@ -60,6 +60,28 @@ export function sessionAuditView(source = {}) {
   };
 }
 
+export function sessionSocialAuditView(source = null) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const text = (value, max) => String(value ?? '').slice(0, max);
+  const decisions = new Set(['reply', 'listen', 'wait', 'close', 'invalid']);
+  const decision = String(source.decision || '');
+  return {
+    version: Number(source.version) === 1 ? 1 : 0,
+    interactionId: text(source.interactionId, 120),
+    decision: decisions.has(decision) ? decision : 'invalid',
+    topicId: source.topicId == null ? null : text(source.topicId, 120),
+    targetMessageId: source.targetMessageId == null ? null : text(source.targetMessageId, 120),
+    goal: text(source.goal, 300),
+    novelty: text(source.novelty, 200),
+    sourceMessageIds: Array.isArray(source.sourceMessageIds)
+      ? source.sourceMessageIds.slice(0, 12).map((id) => text(id, 120))
+      : [],
+    proactive: source.proactive === true,
+    triggerKind: text(source.triggerKind, 40),
+    intentId: source.intentId == null ? null : text(source.intentId, 120)
+  };
+}
+
 export class SessionRegistry {
   /**
    * @param {number} keepFiles 保留最近多少个会话记录文件；**0 = 不限制**。
@@ -109,6 +131,7 @@ export class SessionRegistry {
       promptChars: s.promptChars ?? 0,
       rounds: s.rounds ?? 0,
       conversationMode: s.conversationMode ?? 'legacy',
+      socialAudit: sessionSocialAuditView(s.socialAudit),
       threadId: s.threadId ?? null,
       threadState: s.threadState ?? null,
       threadOpenedAt: s.threadOpenedAt ?? 0,

@@ -314,30 +314,50 @@ export class PluginManager {
   buildCompletionEvents(snapshot, {
     accountId = '', sessionId = '', runId = '', chatKey = '', resultClass = '',
     actionSummary = {}, sourceMessageIds = [], completedAt = Date.now(),
-    originKind = 'chat_run', evidenceVersion = 0, conversationEvidence = []
+    originKind = 'chat_run', evidenceVersion = 0, conversationEvidence = [],
+    triggerKind = '', proactive, interactionId = '', topicId = '',
+    originalSourceId = '', delivered
   } = {}) {
     if (!snapshot || snapshot.signal.aborted) return [];
     const rawEvidence = Array.isArray(conversationEvidence) ? conversationEvidence : [];
+    const version = Math.max(2, Number(evidenceVersion || actionSummary.evidenceVersion) || 0);
+    const selectedTriggerKind = String(triggerKind || actionSummary.triggerKind || '').slice(0, 80);
+    const selectedProactive = proactive === true || actionSummary.proactive === true;
+    const selectedInteractionId = String(interactionId || actionSummary.interactionId || '').slice(0, 160);
+    const selectedTopicId = String(topicId || actionSummary.topicId || '').slice(0, 160);
+    const selectedOriginalSourceId = String(
+      originalSourceId || actionSummary.originalSourceId || ''
+    ).slice(0, 160);
+    const selectedDelivered = delivered === true || actionSummary.delivered === true;
     const normalizedEvidence = rawEvidence.map((item) => {
       const rawText = String(item?.text || '').replace(/\s+/g, ' ').trim();
       const clipped = rawText.slice(0, 240);
+      const role = String(item?.role || '').slice(0, 20);
+      const sourceRecordId = String(
+        item?.sourceRecordId || item?.messageId || (version >= 3 ? '' : item?.evidenceId || '')
+      ).slice(0, 160);
       return {
         evidenceId: String(item?.evidenceId || '').slice(0, 160),
         sourceRecordType: String(item?.sourceRecordType || (
-          String(item?.evidenceId || '').split(':', 1)[0] || 'message'
+          (version >= 3 ? '' : String(item?.evidenceId || '').split(':', 1)[0] || 'message')
         )).slice(0, 40),
-        sourceRecordId: String(item?.sourceRecordId || item?.messageId || '').slice(0, 160),
+        sourceRecordId,
         messageId: String(item?.messageId || '').slice(0, 160),
         senderId: String(item?.senderId || '').slice(0, 40),
-        role: String(item?.role || '').slice(0, 20),
-        speaker: String(item?.speaker || item?.role || '').slice(0, 20),
+        role,
+        speaker: String(item?.speaker || role).slice(0, 20),
+        originalSourceId: String(item?.originalSourceId || selectedOriginalSourceId).slice(0, 160),
+        interactionId: String(item?.interactionId || selectedInteractionId).slice(0, 160),
+        topicId: String(item?.topicId || selectedTopicId).slice(0, 160),
         at: Number(item?.at) || 0,
         text: clipped,
         truncated: rawText.length > clipped.length || item?.truncated === true,
-        confirmed: item?.confirmed === true
+        confirmed: item?.confirmed === true,
+        delivered: role === 'assistant' && item?.delivered === true,
+        userConfirmed: role === 'user' && item?.userConfirmed === true
       };
     }).filter((item) => item.evidenceId && item.text);
-    const userEvidence = normalizedEvidence.filter((item) => item.role !== 'assistant').slice(-10);
+    const userEvidence = normalizedEvidence.filter((item) => item.role === 'user').slice(-10);
     const assistantEvidence = normalizedEvidence.filter((item) => item.role === 'assistant').slice(-10);
     const selectedEvidence = [...new Map(
       [...userEvidence, ...assistantEvidence]
@@ -349,6 +369,13 @@ export class PluginManager {
       .map((observer) => ({
         eventId: `${sessionId}:${observer.id}`,
         originKind: String(originKind || 'chat_run'),
+        evidenceVersion: version,
+        triggerKind: selectedTriggerKind,
+        proactive: selectedProactive,
+        interactionId: selectedInteractionId,
+        topicId: selectedTopicId,
+        originalSourceId: selectedOriginalSourceId,
+        delivered: selectedDelivered,
         accountId: String(accountId || ''),
         sessionId: String(sessionId || ''),
         runId: String(runId || ''),
@@ -358,7 +385,13 @@ export class PluginManager {
         resultClass: String(resultClass || ''),
         observerPluginId: observer.ownerPluginId,
         actionSummary: {
-          evidenceVersion: Math.max(2, Number(evidenceVersion) || 0),
+          evidenceVersion: version,
+          triggerKind: selectedTriggerKind,
+          proactive: selectedProactive,
+          interactionId: selectedInteractionId,
+          topicId: selectedTopicId,
+          originalSourceId: selectedOriginalSourceId,
+          delivered: selectedDelivered,
           sentCount: Number(actionSummary.sentCount) || 0,
           finishReason: String(actionSummary.finishReason || '').slice(0, 300),
           outboundAttempted: actionSummary.outboundAttempted === true,

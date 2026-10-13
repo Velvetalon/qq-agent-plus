@@ -170,11 +170,11 @@ export const DEFAULT_CONFIG = {
   runtime: { mode: 'observe', paused: false },
   timeControl: DEFAULT_TIME_CONTROL,
   maxConcurrentRuns: 2,     // 全局同时进行的 agent 运行数
-  // 对话线程试点：默认关闭，可从控制台动态切换，不影响旧触发模式。
+  // 对话引擎：默认保留传统触发，其他模式由管理员显式选择。
   conversation: {
-    mode: 'legacy',                  // legacy | threaded | lifecycle
+    mode: 'legacy',                  // legacy | threaded | lifecycle | social
     unifiedMode: true,               // false 时允许 groupModes 按群覆盖
-    groupModes: {},                  // { [groupId]: legacy | threaded | lifecycle }
+    groupModes: {},                  // { [groupId]: legacy | threaded | lifecycle | social }
     continuationWindowMs: 180000,    // 机器人发言后，同一参与者确定性续接窗口
     threadTtlMs: 1800000,            // 线程空闲多久后关闭
     continuationContextCount: 100,   // threaded 续接唤醒时携带的历史消息条数
@@ -184,7 +184,19 @@ export const DEFAULT_CONFIG = {
     rolloverArmedMs: 600000,         // 活跃线程撞硬上限后，一次性任意消息触发期限
     lifecycleContextCount: 100,      // 生命周期首次运行携带的历史条数
     lifecycleRolloverInputTokens: 32000, // 上次实际输入达到此值时，下一批先换代
-    maxTranscriptChars: 240000       // 生命周期追加式模型上下文硬预算
+    maxTranscriptChars: 240000,      // 生命周期追加式模型上下文硬预算
+    social: {
+      contextLimit: 60,
+      maxPlannerRounds: 3,
+      maxReplyRounds: 6,
+      maxTopics: 8,
+      topicIdleMs: 1800000,
+      intentTtlMs: 21600000,
+      minInitiativeGapMs: 1800000,
+      maxUnansweredInitiatives: 1,
+      replyTargetTtlMs: 180000,
+      maxMessagesPerTurn: 3
+    }
   },
   // 发送保护
   send: {
@@ -631,14 +643,30 @@ export function updateConfig(patch) {
   next.timeControl = normalizeTimeControl(next.timeControl);
   next.dailyMoments.scheduleWindows = normalizeMomentWindows(next.dailyMoments.scheduleWindows);
   if (!['observe', 'active'].includes(next.runtime?.mode)) throw new Error('Invalid runtime mode');
-  if (!['legacy', 'threaded', 'lifecycle'].includes(next.conversation?.mode)) {
+  if (!['legacy', 'threaded', 'lifecycle', 'social'].includes(next.conversation?.mode)) {
     throw new Error('Invalid conversation mode');
   }
   for (const mode of Object.values(next.conversation?.groupModes || {})) {
-    if (!['legacy', 'threaded', 'lifecycle'].includes(mode)) {
+    if (!['legacy', 'threaded', 'lifecycle', 'social'].includes(mode)) {
       throw new Error('Invalid group conversation mode');
     }
   }
+  const social = isPlainObject(next.conversation?.social) ? next.conversation.social : {};
+  const socialInt = (value, min, max, fallback) => Math.min(
+    max, Math.max(min, Number.isFinite(Number(value)) ? Math.round(Number(value)) : fallback)
+  );
+  next.conversation.social = {
+    contextLimit: socialInt(social.contextLimit, 10, 200, DEFAULT_CONFIG.conversation.social.contextLimit),
+    maxPlannerRounds: socialInt(social.maxPlannerRounds, 1, 5, DEFAULT_CONFIG.conversation.social.maxPlannerRounds),
+    maxReplyRounds: socialInt(social.maxReplyRounds, 1, 12, DEFAULT_CONFIG.conversation.social.maxReplyRounds),
+    maxTopics: socialInt(social.maxTopics, 1, 20, DEFAULT_CONFIG.conversation.social.maxTopics),
+    topicIdleMs: socialInt(social.topicIdleMs, 60000, 86400000, DEFAULT_CONFIG.conversation.social.topicIdleMs),
+    intentTtlMs: socialInt(social.intentTtlMs, 60000, 604800000, DEFAULT_CONFIG.conversation.social.intentTtlMs),
+    minInitiativeGapMs: socialInt(social.minInitiativeGapMs, 60000, 604800000, DEFAULT_CONFIG.conversation.social.minInitiativeGapMs),
+    maxUnansweredInitiatives: socialInt(social.maxUnansweredInitiatives, 0, 3, DEFAULT_CONFIG.conversation.social.maxUnansweredInitiatives),
+    replyTargetTtlMs: socialInt(social.replyTargetTtlMs, 10000, 1800000, DEFAULT_CONFIG.conversation.social.replyTargetTtlMs),
+    maxMessagesPerTurn: socialInt(social.maxMessagesPerTurn, 1, 6, DEFAULT_CONFIG.conversation.social.maxMessagesPerTurn)
+  };
   next.api.maxRunTokens = Math.min(
     1000000,
     Math.max(20000, Math.round(Number(next.api.maxRunTokens) || DEFAULT_CONFIG.api.maxRunTokens))
@@ -1026,7 +1054,7 @@ export function conversationConfigForChat(chatKey) {
   const [kind, id] = String(chatKey || '').split(':');
   if (kind !== 'group' || !id) return conversation;
   const mode = conversation.groupModes?.[id];
-  return ['legacy', 'threaded', 'lifecycle'].includes(mode)
+  return ['legacy', 'threaded', 'lifecycle', 'social'].includes(mode)
     ? { ...conversation, mode }
     : conversation;
 }

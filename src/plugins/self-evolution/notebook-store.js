@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../../core/config.js';
+import { classifyNotebookMemory, isRecallableNotebookNote } from './notebook-policy.js';
 import {
   VectorMemory,
   ensureVectorSchema,
@@ -185,6 +186,12 @@ function safeJson(value, fallback = {}) {
   }
 }
 
+function ensureColumn(db, table, name, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (columns.some((column) => column.name === name)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+}
+
 function sourceView(value) {
   const source = value && typeof value === 'object' ? value : {};
   return {
@@ -194,6 +201,10 @@ function sourceView(value) {
     sessionId: String(source.sessionId || ''),
     runId: String(source.runId || ''),
     toolCallId: String(source.toolCallId || ''),
+    interactionId: String(source.interactionId || ''),
+    topicId: String(source.topicId || ''),
+    originalSourceId: String(source.originalSourceId || ''),
+    triggerKind: String(source.triggerKind || ''),
     actor: String(source.actor || '')
   };
 }
@@ -201,6 +212,12 @@ function sourceView(value) {
 function noteView(row) {
   if (!row) return null;
   const tagsValue = parseJson(row.tags_json, []);
+  const source = sourceView(parseJson(row.source_json, {}));
+  const memory = classifyNotebookMemory(row.body, {
+    source,
+    storedType: row.note_type,
+    storedChannel: row.channel
+  });
   return {
     id: String(row.id),
     accountId: String(row.account_id),
@@ -209,19 +226,29 @@ function noteView(row) {
     body: String(row.body || ''),
     content: String(row.body || ''),
     tags: Array.isArray(tagsValue) ? tagsValue.map(String) : [],
+    type: memory.type,
+    channel: memory.channel,
+    recallable: memory.recallable,
+    policyReason: memory.reason,
     revision: Number(row.revision) || 0,
     status: String(row.status || 'active'),
     createdAt: Number(row.created_at) || 0,
     updatedAt: Number(row.updated_at) || 0,
     archivedAt: Number(row.archived_at) || 0,
     operationId: String(row.operation_id || ''),
-    source: sourceView(parseJson(row.source_json, {}))
+    source
   };
 }
 
 function versionView(row) {
   if (!row) return null;
   const tagsValue = parseJson(row.tags_json, []);
+  const source = sourceView(parseJson(row.source_json, {}));
+  const memory = classifyNotebookMemory(row.body, {
+    source,
+    storedType: row.note_type,
+    storedChannel: row.channel
+  });
   return {
     noteId: String(row.note_id),
     accountId: String(row.account_id),
@@ -230,10 +257,14 @@ function versionView(row) {
     body: String(row.body || ''),
     content: String(row.body || ''),
     tags: Array.isArray(tagsValue) ? tagsValue.map(String) : [],
+    type: memory.type,
+    channel: memory.channel,
+    recallable: memory.recallable,
+    policyReason: memory.reason,
     revision: Number(row.revision) || 0,
     status: String(row.status || 'active'),
     operationId: String(row.operation_id || ''),
-    source: sourceView(parseJson(row.source_json, {})),
+    source,
     createdAt: Number(row.created_at) || 0
   };
 }
@@ -316,6 +347,8 @@ export class NotebookStore {
           chat_key TEXT NOT NULL DEFAULT '',
           body TEXT NOT NULL,
           tags_json TEXT NOT NULL DEFAULT '[]',
+          note_type TEXT NOT NULL DEFAULT 'experience',
+          channel TEXT NOT NULL DEFAULT 'memory',
           revision INTEGER NOT NULL,
           status TEXT NOT NULL CHECK(status IN ('active','archived')),
           created_at INTEGER NOT NULL,
@@ -334,6 +367,8 @@ export class NotebookStore {
           chat_key TEXT NOT NULL DEFAULT '',
           body TEXT NOT NULL,
           tags_json TEXT NOT NULL DEFAULT '[]',
+          note_type TEXT NOT NULL DEFAULT 'experience',
+          channel TEXT NOT NULL DEFAULT 'memory',
           status TEXT NOT NULL,
           operation_id TEXT NOT NULL,
           source_json TEXT NOT NULL DEFAULT '{}',
@@ -363,6 +398,12 @@ export class NotebookStore {
         CREATE INDEX IF NOT EXISTS notebook_operations_run
           ON notebook_operations(account_id, run_id, created_at);
       `);
+      ensureColumn(this.db, 'notebook_notes', 'note_type', "TEXT NOT NULL DEFAULT 'experience'");
+      ensureColumn(this.db, 'notebook_notes', 'channel', "TEXT NOT NULL DEFAULT 'memory'");
+      ensureColumn(this.db, 'notebook_versions', 'note_type', "TEXT NOT NULL DEFAULT 'experience'");
+      ensureColumn(this.db, 'notebook_versions', 'channel', "TEXT NOT NULL DEFAULT 'memory'");
+      this.db.exec(`CREATE INDEX IF NOT EXISTS notebook_notes_memory_channel
+        ON notebook_notes(account_id,channel,status,scope,chat_key,updated_at DESC);`);
       ensureVectorSchema(this.db);
     } else {
       this.db.exec('PRAGMA busy_timeout=5000;');
@@ -550,6 +591,10 @@ export class NotebookStore {
       sessionId: optionalText(source.sessionId, 'source.sessionId', 160),
       runId: optionalText(source.runId, 'source.runId', 160),
       toolCallId: optionalText(source.toolCallId, 'source.toolCallId', 160),
+      interactionId: optionalText(source.interactionId, 'source.interactionId', 160),
+      topicId: optionalText(source.topicId, 'source.topicId', 160),
+      originalSourceId: optionalText(source.originalSourceId, 'source.originalSourceId', 160),
+      triggerKind: optionalText(source.triggerKind, 'source.triggerKind', 80),
       actor: optionalText(source.actor, 'source.actor', 160)
     };
   }
@@ -780,11 +825,14 @@ export class NotebookStore {
     }
     const noteBody = body(content !== undefined ? content : rawBody, this.limits.maxBodyChars);
     const noteTags = tags(rawTags, this.limits);
+    const memory = classifyNotebookMemory(noteBody, { source: sourceViewValue });
     const request = {
       scope: scope(rawScope),
       chatKey: String(rawChatKey || ''),
       body: noteBody,
-      tags: noteTags
+      tags: noteTags,
+      type: memory.type,
+      channel: memory.channel
     };
     return this.#write('append', {
       account,
@@ -812,9 +860,9 @@ export class NotebookStore {
         const id = `note_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
         db.prepare(`
           INSERT INTO notebook_notes (
-            id,account_id,scope,chat_key,body,tags_json,revision,status,
+            id,account_id,scope,chat_key,body,tags_json,note_type,channel,revision,status,
             created_at,updated_at,operation_id,source_json
-          ) VALUES (?,?,?,?,?,?,1,'active',?,?,?,?)
+          ) VALUES (?,?,?,?,?,?,?,?,1,'active',?,?,?,?)
         `).run(
           id,
           namespace,
@@ -822,6 +870,8 @@ export class NotebookStore {
           noteChatKey,
           noteBody,
           safeJson(noteTags, []),
+          memory.type,
+          memory.channel,
           createdAt,
           createdAt,
           operationId,
@@ -829,9 +879,9 @@ export class NotebookStore {
         );
         db.prepare(`
           INSERT INTO notebook_versions (
-            note_id,revision,account_id,scope,chat_key,body,tags_json,status,
+            note_id,revision,account_id,scope,chat_key,body,tags_json,note_type,channel,status,
             operation_id,source_json,created_at
-          ) VALUES (?,?,?,?,?,?,?,'active',?,?,?)
+          ) VALUES (?,?,?,?,?,?,?,?,?,'active',?,?,?)
         `).run(
           id,
           1,
@@ -840,6 +890,8 @@ export class NotebookStore {
           noteChatKey,
           noteBody,
           safeJson(noteTags, []),
+          memory.type,
+          memory.channel,
           operationId,
           safeJson(normalizedSource),
           createdAt
@@ -925,14 +977,17 @@ export class NotebookStore {
         const finalTags = nextTags === undefined
           ? (Array.isArray(parseJson(current.tags_json, [])) ? parseJson(current.tags_json, []) : [])
           : nextTags;
+        const memory = classifyNotebookMemory(finalBody, { source: normalizedSource });
         const nextRevision = actual + 1;
         const changed = db.prepare(`
-          UPDATE notebook_notes SET body=?,tags_json=?,revision=?,updated_at=?,
+          UPDATE notebook_notes SET body=?,tags_json=?,note_type=?,channel=?,revision=?,updated_at=?,
             operation_id=?,source_json=?
           WHERE id=? AND account_id=? AND revision=? AND status='active'
         `).run(
           finalBody,
           safeJson(finalTags, []),
+          memory.type,
+          memory.channel,
           nextRevision,
           createdAt,
           operationId,
@@ -952,9 +1007,9 @@ export class NotebookStore {
         }
         db.prepare(`
           INSERT INTO notebook_versions (
-            note_id,revision,account_id,scope,chat_key,body,tags_json,status,
+            note_id,revision,account_id,scope,chat_key,body,tags_json,note_type,channel,status,
             operation_id,source_json,created_at
-          ) VALUES (?,?,?,?,?,?,?,'active',?,?,?)
+          ) VALUES (?,?,?,?,?,?,?,?,?,'active',?,?,?)
         `).run(
           id,
           nextRevision,
@@ -963,6 +1018,8 @@ export class NotebookStore {
           current.chat_key,
           finalBody,
           safeJson(finalTags, []),
+          memory.type,
+          memory.channel,
           operationId,
           safeJson(normalizedSource),
           createdAt
@@ -1051,9 +1108,9 @@ export class NotebookStore {
         }
         db.prepare(`
           INSERT INTO notebook_versions (
-            note_id,revision,account_id,scope,chat_key,body,tags_json,status,
+            note_id,revision,account_id,scope,chat_key,body,tags_json,note_type,channel,status,
             operation_id,source_json,created_at
-          ) VALUES (?,?,?,?,?,?,?,'archived',?,?,?)
+          ) VALUES (?,?,?,?,?,?,?,?,?,'archived',?,?,?)
         `).run(
           id,
           nextRevision,
@@ -1062,6 +1119,8 @@ export class NotebookStore {
           current.chat_key,
           current.body,
           current.tags_json,
+          current.note_type || 'experience',
+          current.channel || 'memory',
           operationId,
           safeJson(normalizedSource),
           createdAt
@@ -1205,16 +1264,30 @@ export class NotebookStore {
     }
     const max = Math.min(this.limits.maxSearchLimit, Math.max(1, Number(limit) || 20));
     const skip = Math.max(0, Math.min(5000, Number(offset) || 0));
-    const rows = db.prepare(`
+    const pageQuery = db.prepare(`
       SELECT * FROM notebook_notes
       WHERE ${filters.join(' AND ')}
       ORDER BY updated_at DESC, id DESC
       LIMIT ? OFFSET ?
-    `).all(...params, max, skip);
+    `);
     const requestedTags = rawTags === undefined ? [] : tags(rawTags, this.limits);
-    const notes = rows
-      .map(noteView)
-      .filter((note) => requestedTags.every((tag) => note.tags.includes(tag)));
+    const target = skip + max;
+    const scanPage = 200;
+    const visible = [];
+    let scanned = 0;
+    while (visible.length < target && scanned < 10000) {
+      const rows = pageQuery.all(...params, scanPage, scanned);
+      if (!rows.length) break;
+      for (const row of rows) {
+        const note = noteView(row);
+        if (!isRecallableNotebookNote(note)
+          || !requestedTags.every((tag) => note.tags.includes(tag))) continue;
+        visible.push(note);
+      }
+      scanned += rows.length;
+      if (rows.length < scanPage) break;
+    }
+    const notes = visible.slice(skip, target);
     return {
       notes,
       count: notes.length,
@@ -1277,6 +1350,23 @@ export class NotebookStore {
       result: parseJson(row.result_json, {}),
       createdAt: Number(row.created_at) || 0
     }));
+  }
+
+  listForCleanup({ accountId: rawAccount, limit = 100, offset = 0, includeArchived = false } = {}) {
+    const db = this.#requireDb();
+    const account = accountId(rawAccount);
+    const max = Math.min(500, Math.max(1, Number(limit) || 100));
+    const skip = Math.max(0, Math.min(100000, Number(offset) || 0));
+    const statusFilter = includeArchived === true ? '' : "AND status='active'";
+    return db.prepare(`
+      SELECT * FROM notebook_notes
+      WHERE account_id=? ${statusFilter}
+      ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?
+    `).all(account, max, skip).map((row) => {
+      const note = noteView(row);
+      const { body: _body, content: _content, tags: _tags, ...metadata } = note;
+      return metadata;
+    });
   }
 
   counts({ accountId: rawAccount } = {}) {

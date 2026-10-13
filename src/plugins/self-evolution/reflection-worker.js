@@ -404,7 +404,7 @@ export class ReflectionWorker {
       job,
       owner: this.owner,
       generation: this.generation,
-      output,
+      output: raw,
       mode: selectedMode,
       basePersonaHash,
       expectedProfileRevision: profileRevision,
@@ -491,13 +491,36 @@ export class ReflectionWorker {
       notes = [];
       retrievalDiagnostics = { mode: 'unavailable', reason: 'retrieval-failed' };
     }
+    const traitEvidencePool = Array.isArray(evidence.traitEvidencePool)
+      ? evidence.traitEvidencePool
+        .filter((item) => (
+          Number(item?.evidenceVersion) >= 3
+          && item?.role === 'user'
+          && item?.sourceRecordType === 'message'
+          && item?.chatKey === job.chatKey
+          && item?.accountId === job.accountId
+          && item?.sourceRef
+          && item?.interactionId
+          && item?.originalSourceId
+        ))
+        .slice(-12)
+        .map((item) => ({
+          sourceRef: String(item.sourceRef),
+          sourceMessageId: String(item.originalSourceId),
+          interactionId: String(item.interactionId),
+          topicId: String(item.topicId || ''),
+          role: 'user',
+          text: String(item.text || '').slice(0, 240)
+        }))
+      : [];
     return {
       conversationEvidence: Array.isArray(evidence.conversationEvidence)
         ? evidence.conversationEvidence
         : [],
+      traitEvidencePool,
       preferenceEvidence: Array.isArray(evidence.conversationEvidence)
         ? evidence.conversationEvidence
-          .filter((item) => item?.userEvidence === true || item?.role === 'user')
+          .filter((item) => item?.userEvidence === true && item?.role === 'user')
           .slice(-8)
         : [],
       executionState: evidence.executionOutcome || evidence.actionSummary || {},
@@ -533,7 +556,7 @@ export class ReflectionWorker {
         tags: Array.isArray(note.tags) ? note.tags.slice(0, 12) : []
       })),
       diagnostics: {
-        evidenceVersion: Number(evidence.evidenceVersion) || 2,
+        evidenceVersion: Number(evidence.evidenceVersion) || 0,
         retrieval: retrievalDiagnostics,
         evidenceIds: Array.isArray(evidence.evidenceIds) ? evidence.evidenceIds : [],
         omittedEvidenceIds: Array.isArray(evidence.omittedEvidenceIds)

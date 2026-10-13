@@ -97,11 +97,61 @@ function currentRunId(hostCtx) {
 }
 
 function boundSendOptions(hostCtx, options = {}) {
+  const safeOptions = { ...(options && typeof options === 'object' ? options : {}) };
+  delete safeOptions.beforeSend;
+  delete safeOptions.deliveryGuard;
   return {
-    ...(options && typeof options === 'object' ? options : {}),
+    ...safeOptions,
     runId: currentRunId(hostCtx),
-    signal: hostCtx?.signal || null
+    signal: hostCtx?.signal || null,
+    ...(typeof hostCtx?.deliveryGuard === 'function'
+      ? { beforeSend: hostCtx.deliveryGuard }
+      : {})
   };
+}
+
+function lastHostMessageId(store, chatKey) {
+  const recent = store?.recent?.(chatKey, { limit: 1 }) || [];
+  return Number(recent.at(-1)?.id) || 0;
+}
+
+function recordSocialDelivery(hostCtx, type, result, beforeId, texts = []) {
+  const session = hostCtx?.session;
+  if (!session?.socialAudit || !Array.isArray(session.socialDelivered)) return;
+  const store = hostCtx?.store;
+  const chatKey = String(hostCtx?.chatKey || '');
+  const returned = type === 'text'
+    ? (Array.isArray(result?.sent) ? result.sent : [])
+    : [{ messageId: result?.message_id ?? result?.messageId ?? null, text: texts[0] || '' }];
+  const recent = store?.recent?.(chatKey, { limit: 50 }) || [];
+  const candidates = recent.filter((entry) => entry.self && Number(entry.id) > beforeId);
+  const used = new Set(session.socialDelivered.map((entry) => String(entry.messageId)));
+  for (let index = 0; index < returned.length; index += 1) {
+    const sent = returned[index] || {};
+    const platformId = sent.messageId ?? sent.message_id ?? null;
+    let entry = platformId == null ? null : store?.findByMid?.(chatKey, platformId);
+    if (!entry) {
+      entry = candidates.find((item) => !used.has(String(item.id))
+        && (!sent.text || String(item.text || '') === String(sent.text)));
+    }
+    if (!entry) entry = candidates.find((item) => !used.has(String(item.id)));
+    if (!entry || used.has(String(entry.id))) continue;
+    used.add(String(entry.id));
+    session.socialDelivered.push({
+      messageId: String(entry.id),
+      platformMessageId: platformId == null ? String(entry.mid || '') : String(platformId),
+      text: String(sent.text || entry.text || texts[index] || '').slice(0, 500),
+      at: Number(entry.ts) || Date.now(),
+      eventKind: String(entry.eventKind || type)
+    });
+  }
+}
+
+async function withSocialDelivery(hostCtx, type, action, texts = []) {
+  const beforeId = lastHostMessageId(hostCtx?.store, String(hostCtx?.chatKey || ''));
+  const result = await action();
+  recordSocialDelivery(hostCtx, type, result, beforeId, texts);
+  return result;
 }
 
 function senderFacade(hostCtx) {
@@ -110,19 +160,27 @@ function senderFacade(hostCtx) {
   return Object.freeze({
     sendTextBatch(_chatKey, messages, options) {
       if (typeof sender?.sendTextBatch !== 'function') throw new TypeError('sender.sendTextBatch unavailable');
-      return sender.sendTextBatch(chatKey, messages, boundSendOptions(hostCtx, options));
+      return withSocialDelivery(hostCtx, 'text',
+        () => sender.sendTextBatch(chatKey, messages, boundSendOptions(hostCtx, options)),
+        Array.isArray(messages) ? messages : [messages]);
     },
     sendSticker(_chatKey, sticker, options) {
       if (typeof sender?.sendSticker !== 'function') throw new TypeError('sender.sendSticker unavailable');
-      return sender.sendSticker(chatKey, sticker, boundSendOptions(hostCtx, options));
+      return withSocialDelivery(hostCtx, 'sticker',
+        () => sender.sendSticker(chatKey, sticker, boundSendOptions(hostCtx, options)),
+        [sticker?.desc || sticker?.localNote || sticker?.id || '[表情包]']);
     },
     sendFace(_chatKey, face, options) {
       if (typeof sender?.sendFace !== 'function') throw new TypeError('sender.sendFace unavailable');
-      return sender.sendFace(chatKey, face, boundSendOptions(hostCtx, options));
+      return withSocialDelivery(hostCtx, 'face',
+        () => sender.sendFace(chatKey, face, boundSendOptions(hostCtx, options)),
+        [options?.text || face?.name || '[表情]']);
     },
     poke(_chatKey, targetUserId, options) {
       if (typeof sender?.poke !== 'function') throw new TypeError('sender.poke unavailable');
-      return sender.poke(chatKey, targetUserId, boundSendOptions(hostCtx, options));
+      return withSocialDelivery(hostCtx, 'poke',
+        () => sender.poke(chatKey, targetUserId, boundSendOptions(hostCtx, options)),
+        ['[拍一拍]']);
     }
   });
 }
@@ -289,7 +347,10 @@ export function createRuntimeControlContext(hostCtx = {}) {
 
 export function createToolCallbackContext(tool, hostCtx = {}) {
   const ownerPluginId = String(tool?.ownerPluginId || '');
-  if (ownerPluginId === 'legacy-tools') return hostCtx;
+  if (ownerPluginId === 'legacy-tools') {
+    const { deliveryGuard, ...legacyContext } = hostCtx;
+    return legacyContext;
+  }
   const toolName = String(tool?.name || '');
   if (ownerPluginId === 'messaging' && MESSAGING_TOOLS.has(toolName)) {
     return createMessagingToolContext(hostCtx);
