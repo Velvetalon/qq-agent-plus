@@ -1,5 +1,14 @@
 # 当前工作交接入口
 
+## 最新：2026-10-16 配置兴趣入口与主链恢复验收
+
+先读 [本轮交付记录](schedule/2026-10-16-social-interest-closure.md) 和
+[91 项验收对照](../docs/verification/social-acceptance-20261016.md)。
+产品源码 `a864379d93f1a1fd7df99c355f7796719a0e5848`：来源/预算/一次性机会、
+撤销与恢复及真实管理页面已实现；Node 22 全量 **718 PASS / 0 FAIL / 0 SKIP**。
+后续仅追加重启 partial/unknown 与普通回复安静 tick 的完整应用测试，已通过。
+仍是草稿 PR；Social 其他组合验收不冒充完成，服务器仍 USER_PAUSED。
+
 ## 最新：2026-10-16 本地修复检查点，服务器操作暂停
 
 接手先读 [本地开发闭环记录](schedule/2026-10-16-local-development-closure.md)。
