@@ -16,6 +16,7 @@ import { StickerManager } from '../onebot/sticker-manager.js';
 import { SendQueue } from '../onebot/sender.js';
 import { SessionRegistry, personaLabelOfPrompt, sessionAuditView, sessionSocialAuditView } from '../core/sessions.js';
 import { Orchestrator } from '../core/orchestrator.js';
+import { SocialInterestStore } from '../conversation/interests.js';
 import { DailyMomentsManager } from '../features/daily-moments.js';
 import { QzoneInteractionManager } from '../features/qzone-interactions.js';
 import { listModels, chatCompletion, resolveApiKey, cachedTokensOfUsage } from '../llm/llm.js';
@@ -3374,8 +3375,40 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           enabled: status?.enabled === true,
           config: conversation.social,
           scene: status?.snapshot ?? null,
-          intents: Array.isArray(status?.intents) ? status.intents.slice(0, 50) : []
+          intents: Array.isArray(status?.intents) ? status.intents.slice(0, 50) : [],
+          interests: status?.interests ?? null
         });
+      }
+
+      if (['/api/conversation/social/interests', '/api/conversation/social/opportunities'].includes(pathname) && method === 'POST') {
+        if (!authorizeWrite(req)) return json(res, 401, { error: '未授权写入' });
+        const body = await readJsonBody(req, 64000);
+        const scope = parseSocialChatKey(body.chatKey);
+        if (!scope) return json(res, 400, { error: 'chatKey 格式错误' });
+        if (!allowed(scope.kind, scope.id, cfgNow)) return json(res, 403, { error: '会话不在允许范围内' });
+        const account = accountNamespace();
+        if (account.source !== 'selfId') return json(res, 409, { error: '无法确认宿主账号' });
+        if (body.accountId != null && String(body.accountId) !== account.accountId) return json(res, 403, { error: '账号范围不匹配' });
+        if (body.confirm !== true) return json(res, 400, { error: '请明确确认此配置或探索机会' });
+        const ownedScope = { accountId: account.accountId, chatKey: scope.chatKey };
+        try {
+          if (pathname.endsWith('/interests')) {
+            const interests = new SocialInterestStore({ db: store.db }).save({ ...ownedScope,
+              expectedRevision: body.expectedRevision, config: body.config });
+            emit('social-update', { chatKey: scope.chatKey });
+            return json(res, 200, { ok: true, interests });
+          }
+          if (conversationConfigForChat(scope.chatKey).mode !== 'social') return json(res, 409, { error: '先为此会话选择社交模式' });
+          const state = orchestrator.getSocialState(scope.chatKey);
+          const intent = state.requestInterestOpportunity({ ...ownedScope, sourceId: body.sourceId,
+            sourceRevision: body.sourceRevision, topicId: body.topicId, goal: body.goal,
+            dueAt: body.dueAt, expiresAt: body.expiresAt });
+          emit('social-update', { chatKey: scope.chatKey, intentId: intent.id });
+          return json(res, 200, { ok: true, intent });
+        } catch (error) {
+          if (error?.code === 'STALE_REVISION') return json(res, 409, { error: error.message, code: error.code });
+          return sendStoreError(res, error, 'SOCIAL_INTEREST_FAILED');
+        }
       }
 
       const socialIntentCancel = /^\/api\/conversation\/social\/intents\/([^/]+)\/cancel$/.exec(pathname);

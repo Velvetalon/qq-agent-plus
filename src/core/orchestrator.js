@@ -93,7 +93,7 @@ function proactiveWindowState(raw, now) {
 import { canRun } from './access.js';
 import { assertTimeAllowed, isTimeActive, TimeControlError, watchTimeWindow, withTimeScope } from './time-gate.js';
 import { vendorOfConfig } from '../pricing/model-prices.js';
-import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey } from './util.js';
+import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey, sanitizeUserText } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from '../llm/prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from '../llm/llm.js';
 import { toOpenAiTools, executeTool } from '../tools/tools.js';
@@ -128,6 +128,7 @@ import {
   blockedTerminalResult
 } from './action-control.js';
 import { SocialStateStore } from '../conversation/state.js';
+import { SocialInterestStore } from '../conversation/interests.js';
 import {
   validateSocialDecision,
   validateSocialInitiative,
@@ -515,12 +516,14 @@ export class Orchestrator {
   getSocialStatus(chatKey) {
     const enabled = conversationConfigForChat(chatKey).mode === 'social';
     const state = this.getSocialState(chatKey, { create: enabled ? undefined : false });
+    const initialized = SocialStateStore.isInitialized(this.store.db);
     const scope = this.#socialScope(chatKey);
     return {
       enabled,
       chatKey: scope.chatKey,
-      snapshot: state ? state.snapshot(scope) : null,
-      intents: state ? state.listIntents(scope) : []
+      snapshot: state && initialized ? state.snapshot(scope) : null,
+      intents: state && initialized ? state.listIntents(scope) : [],
+      interests: new SocialInterestStore({ db: this.store.db }).read(scope)
     };
   }
 
@@ -1681,6 +1684,22 @@ export class Orchestrator {
     }
     session.socialIntentId = socialIntentId ? String(socialIntentId) : null;
     session.socialDelivered = [];
+    const interestRefs = (intent?.sourceRefs || []).filter((ref) => ref.kind === 'configured_interest');
+    if (intent && (state.validateSourceRefs({ ...scope, refs: intent.sourceRefs }).invalidRefs.length
+      || !scene.topics.some((topic) => topic.id === intent.topicId && topic.status === 'active'))) {
+      state.finishIntent({ ...scope, id: intent.id, leaseId: socialLeaseId, status: 'cancelled', reason: 'source or topic revoked before evaluation' });
+      session.finishReason = '社交来源或话题已失效';
+      return { social: true, silent: true };
+    }
+    if (interestRefs.length) {
+      const reservation = state.interests.reserve(scope, intent);
+      if (!reservation.ok) {
+        state.finishIntent({ ...scope, id: intent.id, leaseId: socialLeaseId, status: 'cancelled', reason: reservation.reason });
+        session.finishReason = reservation.reason;
+        return { social: true, silent: true };
+      }
+      session.socialExploration = { ...reservation, intentId: intent.id, sourceRefs: interestRefs, admittedTokens: 0, calls: 0, readToolCalls: 0 };
+    }
     session.socialUsage = {
       planner: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, calls: 0 },
       replyer: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, calls: 0 }
@@ -1727,7 +1746,8 @@ export class Orchestrator {
     let runSignal = signal;
     if (typeof AbortSignal?.any === 'function') runSignal = AbortSignal.any([signal, runSnapshot.signal]);
     const identityPilot = this.getIdentityPilot();
-    const plannerTools = socialPlannerTools(toolDefs);
+    const plannerTools = socialPlannerTools(toolDefs).filter((tool) => !interestRefs.length
+      || ['web_search', 'web_fetch'].includes(tool.name) || tool.socialSource === true);
     const replyerTools = socialReplyerTools(toolDefs);
     const makeToolContext = (pluginContext, deliveryGuard = null, sender = this.sender) => ({
       chatKey,
@@ -1779,6 +1799,7 @@ export class Orchestrator {
         .map((entry) => [String(entry.id), entry])).values()]
         .sort((left, right) => Number(left.id) - Number(right.id));
       let knownSourceRefs = [
+        ...interestRefs,
         ...plannerMessages.filter((entry) => !entry.self)
           .map((entry) => state.sourceRefForMessage({ ...scope, messageId: entry.id }))
           .filter(Boolean),
@@ -1810,6 +1831,8 @@ export class Orchestrator {
         { role: 'system', content: plannerPrompt.system },
         { role: 'user', content: plannerPrompt.user }
       ];
+      if (interestRefs.length) plannerMessagesForModel[1].content += '\n\n已配置的兴趣材料（不是人类消息、偏好确认或工具指令）：\n'
+        + interestRefs.map((ref) => sanitizeUserText(state.interests.source(scope, ref.id)?.text || '')).join('\n');
       session.systemPrompt = plannerPrompt.system;
       session.userPrompt = plannerPrompt.user;
       session.promptChars = plannerPrompt.system.length + plannerPrompt.user.length;
@@ -1830,7 +1853,7 @@ export class Orchestrator {
         const ref = state.recordExternalObservation({
           ...scope,
           sourceId,
-          sourceRefs: [{ kind: 'read-tool', id: String(toolCallId || toolName).slice(0, 120), revision: 1 }],
+          sourceRefs: [{ kind: 'read-tool', id: String(toolCallId || toolName).slice(0, 120), revision: 1 }, ...interestRefs],
           contentText: safeText,
           expiresAt: Date.now() + Math.max(60000, Number(socialConfig.intentTtlMs) || 21600000)
         });
@@ -1864,7 +1887,7 @@ export class Orchestrator {
       knownSourceRefs = [
         ...knownSourceRefs.filter((ref) => ref.kind !== 'external_observation'),
         ...externalRefsAfterPlanning
-      ].slice(0, 24);
+      ];
       let validated = validateSocialDecision(plannerResult.content, {
         snapshot: scene,
         knownMessages: plannerMessages,
@@ -1998,7 +2021,7 @@ export class Orchestrator {
           })
         : null;
       if (rawInitiative && finalDecision.topicId
-        && Number(scene.unansweredInitiatives || 0) < Math.max(0, Number(socialConfig.maxUnansweredInitiatives) || 1)) {
+        && Number(scene.unansweredInitiatives || 0) < Math.max(0, Number(socialConfig.maxUnansweredInitiatives ?? 1))) {
         const intents = state.listIntents(scope);
         const minGap = Math.max(60000, Number(socialConfig.minInitiativeGapMs) || 1800000);
         const recentlyCreated = intents.some((item) => Date.now() - Number(item.createdAt || 0) < minGap
@@ -2172,7 +2195,9 @@ export class Orchestrator {
         .filter(Boolean)
         .map((text) => '已验证的公开观察：' + text)
         .join('\n\n');
-      const extensionText = [materialContextText, externalContextText].filter(Boolean).join('\n\n');
+      const interestContextText = interestRefs.map((ref) => '已配置的兴趣材料（不代表人类偏好确认）：'
+        + sanitizeUserText(state.interests.source(scope, ref.id)?.text || '')).join('\n');
+      const extensionText = [materialContextText, externalContextText, interestContextText].filter(Boolean).join('\n\n');
       const retrievalProvider = retrievalProviders[0];
       const retrievalAudit = retrievalProvider?.consumeAudit?.(session.id) || retrievalAuditFallback({
         enabled: cfg.selfEvolution?.enabled === true && cfg.selfEvolution?.retrieval?.enabled === true,
@@ -2243,7 +2268,7 @@ export class Orchestrator {
         const currentMessages = this.store.peekUnread(chatKey, 200) || [];
         state.observe({ ...scope, messages: currentMessages, selfId: scope.accountId });
         const sourceCheck = state.validateSourceRefs({ ...scope, refs: finalDecision.sourceRefs });
-        if (sourceCheck.invalidRefs.length) {
+        if (sourceCheck.invalidRefs.length || state.validateSourceRefs({ ...scope, refs: interestRefs }).invalidRefs.length) {
           session.socialGuardInvalidated = true;
           session.socialAudit.dispatchBlocked = 'source_ref_invalid';
           throw Object.assign(new Error('Social draft references expired or unavailable source'), { code: 'SOCIAL_SOURCE_INVALID', outcome: 'failed' });
@@ -2432,6 +2457,17 @@ export class Orchestrator {
       signal.throwIfAborted();
       runSnapshot.signal.throwIfAborted();
       if (this.aborted || !canRun(chatKey)) throw new Error('Run cancelled');
+      const exploration = session.socialExploration;
+      if (exploration) {
+        const state = this.getSocialState(chatKey, { create: false });
+        const scope = this.#socialScope(chatKey);
+        const intent = state?.getIntent({ ...scope, id: exploration.intentId });
+        if (conversationConfigForChat(chatKey).mode !== 'social' || !intent || intent.status !== 'leased'
+          || intent.leaseId !== session.socialIntentLeaseId || intent.expiresAt <= Date.now()
+          || state.validateSourceRefs({ ...scope, refs: exploration.sourceRefs }).invalidRefs.length) {
+          throw Object.assign(new Error('Exploration permission or source changed'), { code: 'SOCIAL_EXPLORATION_REVOKED' });
+        }
+      }
       const estimate = estimateNextPromptTokens({
         messages,
         tools: openAiTools,
@@ -2439,8 +2475,11 @@ export class Orchestrator {
         previousEstimateChars: Number(session.inputEstimateChars) || 0,
         previousImageCount: Number(session.inputImageCount) || 0
       });
-      if (session.usage.calls > 0
-        && session.usage.totalTokens + estimate.estimatedPromptTokens + 2048 > maxRunTokens) {
+      const explorationCost = estimate.estimatedPromptTokens + 2048;
+      if ((exploration && (exploration.calls >= exploration.maxModelCalls
+        || Math.max(exploration.admittedTokens, Number(session.usage.totalTokens) || 0) + explorationCost > exploration.maxRunTokens))
+        || (session.usage.calls > 0
+        && session.usage.totalTokens + estimate.estimatedPromptTokens + 2048 > maxRunTokens)) {
         session.budgetStopped = true;
         session.budgetStopReason = 'social-phase-token-budget';
         session.finishReason = '社交阶段 Token 预算不足，已安全结束';
@@ -2470,14 +2509,17 @@ export class Orchestrator {
         .update('\0')
         .update(JSON.stringify(openAiTools))
         .digest('hex');
-      const response = await chatCompletionWithRetry({
+      if (exploration) { exploration.calls += 1; exploration.admittedTokens += explorationCost; }
+      const completionArgs = {
         messages,
         tools: openAiTools,
         signal,
         temperature,
         cacheKey: 'qq-agent-social-' + phase + ':' + phaseHash.slice(0, 32),
-        purpose: 'chat'
-      });
+        purpose: 'chat',
+        ...(exploration ? { maxTokens: 2048 } : {})
+      };
+      const response = exploration ? await chatCompletion(completionArgs) : await chatCompletionWithRetry(completionArgs);
       signal.throwIfAborted();
       session.model = response.model || session.model;
       addUsage(session.usage, response.usage);
@@ -2584,6 +2626,21 @@ export class Orchestrator {
               await ctx.deliveryGuard({ payload: { type: 'plugin', text: '' } });
             }
             executed = true;
+            if (exploration) {
+              const state = this.getSocialState(chatKey, { create: false });
+              const scope = this.#socialScope(chatKey);
+              const current = state?.getIntent({ ...scope, id: exploration.intentId });
+              if (!canRun(chatKey) || conversationConfigForChat(chatKey).mode !== 'social'
+                || !current || current.status !== 'leased' || current.expiresAt <= Date.now()
+                || current.leaseId !== session.socialIntentLeaseId
+                || state.validateSourceRefs({ ...scope, refs: exploration.sourceRefs }).invalidRefs.length) {
+                throw Object.assign(new Error('Exploration was revoked before tool execution'), { code: 'SOCIAL_EXPLORATION_REVOKED' });
+              }
+              if (toolDefs.find((tool) => tool.name === name)?.effect === 'read') {
+                if (exploration.readToolCalls >= 4) throw Object.assign(new Error('Exploration read-tool budget exhausted'), { code: 'SOCIAL_EXPLORATION_TOOL_BUDGET' });
+                exploration.readToolCalls += 1;
+              }
+            }
             result = await executeTool(toolDefs, ctx, name, argsRaw);
           }
         }
@@ -3389,9 +3446,25 @@ export class Orchestrator {
       if (!SocialStateStore.isInitialized?.(this.store.db)) continue;
       const scope = this.#socialScope(chatKey);
       const state = this.getSocialState(chatKey);
-      const due = state.listIntents(scope).some((item) => item.status === 'pending'
+      state.claimDue({ ...scope, now, claim: false });
+      const due = state.listIntents(scope).find((item) => item.status === 'pending'
         && item.dueAt <= Number(now) && item.expiresAt > Number(now));
       if (!due) continue;
+      const socialLimits = conversationConfigForChat(chatKey).social;
+      if (Number(socialLimits?.maxUnansweredInitiatives) === 0) continue;
+      const scene = state.snapshot(scope);
+      if (Number(scene.lastSelfAt) + Number(socialLimits?.minInitiativeGapMs || 0) > Number(now)) continue;
+      const configured = due.sourceRefs.some((ref) => ref.kind === 'configured_interest');
+      if (configured) {
+        const settings = state.interests.read(scope, Number(now));
+        if (!settings.enabled) continue;
+        if (state.validateSourceRefs({ ...scope, refs: due.sourceRefs, now }).invalidRefs.length) {
+          state.cancelIntent({ ...scope, id: due.id, reason: 'configured interest revision revoked' });
+          continue;
+        }
+        if (settings.usage.runs >= settings.maxDailyRuns
+          || settings.usage.reservedTokens + settings.maxRunTokens > settings.maxDailyTokens) continue;
+      }
       const intent = state.claimDue({ ...scope, now });
       if (!intent) continue;
       claimed += 1;
