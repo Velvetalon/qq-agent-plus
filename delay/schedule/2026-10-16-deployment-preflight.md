@@ -1,5 +1,10 @@
 # Deployment preflight and bounded Notebook repair
 
+**Later user instruction:** all target-server connection retries, authentication,
+deployment and replacement are paused until explicit user confirmation, even if
+connectivity recovers. The resume design below is historical preparation, not
+permission to resume. Continue project-local development and isolated validation.
+
 Date: 2026-10-16 UTC. Project: Velvetalon/qq-agent-plus only.
 Environment display name: Dot (legacy configuration label AlnaslEngine); no
 environment settings were changed. This is a deployment-attempt handoff, not a
