@@ -12,6 +12,8 @@ function safeConfig(config = {}) {
     endpoint: normalized.endpoint,
     model: normalized.model,
     dimension: normalized.dimension,
+    maxDistance: normalized.maxDistance,
+    maxQueryChars: normalized.maxQueryChars,
     allowPrivate: normalized.allowPrivate,
     allowQuery: normalized.allowQuery,
     allowAnonymous: normalized.allowAnonymous,

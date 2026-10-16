@@ -272,3 +272,96 @@ test('expired leases become held and explicit cancellation is auditable', () => 
     db.close();
   }
 });
+
+test('A-E06/A-S06 identical native ids stay isolated and reopen observation is idempotent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-scene-scope-'));
+  const file = path.join(root, 'state.sqlite');
+  let db = new DatabaseSync(file);
+  try {
+    let state = new SocialStateStore({ db, now: () => BASE });
+    const scopes = [{ accountId: 'a', chatKey: 'group:1' }, { accountId: 'b', chatKey: 'group:1' }, { accountId: 'a', chatKey: 'group:2' }, { accountId: 'a', chatKey: 'private:1' }];
+    const before = scopes.map((scope, index) => state.observe({ ...scope, messages: [incoming('1', 'alice', BASE, 'scope-' + index)] }));
+    const refs = scopes.map((scope) => state.sourceRefForMessage({ ...scope, messageId: '1' }));
+    for (let index = 0; index < scopes.length; index += 1) {
+      assert.equal(state.validateSourceRefs({ ...scopes[index], refs: refs.filter((_ref, other) => other !== index) }).invalidRefs.length, 3);
+      assert.equal(state.topicMessages({ ...scopes[index], topicId: before[index].topics[0].id })[0].text, 'scope-' + index);
+    }
+    db.close(); db = new DatabaseSync(file); state = new SocialStateStore({ db, now: () => BASE });
+    scopes.forEach((scope, index) => {
+      const after = state.observe({ ...scope, messages: [incoming('1', 'mallory', BASE + 100, 'rewritten')] });
+      assert.deepEqual(after, before[index]);
+    });
+  } finally { db.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('A-S07/A-S08 capacity retains pending and held topics while close affects only its target', () => {
+  let now = BASE;
+  const { db, store } = makeStore({ now: () => now, maxTopics: 2 });
+  const scope = { accountId: ACCOUNT, chatKey: CHAT };
+  try {
+    const scene = store.observe({ ...scope, messages: [incoming('1', 'alice', now, 'Deployment question'), incoming('2', 'bob', now + 1, 'Movie question')] });
+    const deployment = scene.topics.find((topic) => topic.messageIds.includes('1'));
+    const movie = scene.topics.find((topic) => topic.messageIds.includes('2'));
+    const intent = store.addIntent({ ...scope, topicId: deployment.id, sourceMessageIds: ['1'], goal: 'Discuss the new deployment result', dueAt: now + 1000, expiresAt: now + 60000 });
+    store.recordOutcome({ ...scope, topicId: movie.id, action: 'close', sent: [], outcome: 'silent', runId: 'close-movie' });
+    assert.equal(store.snapshot(scope).topics.find((topic) => topic.id === deployment.id).status, 'active');
+    now += 1000;
+    store.claimDue({ ...scope, now, leaseMs: 1000 }); now += 1001;
+    store.claimDue({ ...scope, now, claim: false });
+    assert.equal(store.getIntent({ ...scope, id: intent.id }).status, 'held');
+    store.observe({ ...scope, messages: [incoming('3', 'carol', now, 'An independent lunch question')] });
+    assert.ok(store.snapshot(scope).topics.some((topic) => topic.id === deployment.id));
+    assert.equal(store.topicMessages({ ...scope, topicId: deployment.id })[0].text, 'Deployment question');
+    assert.ok(store.snapshot(scope).topics.some((topic) => topic.status === 'active' && topic.messageIds.includes('3')));
+  } finally { db.close(); }
+});
+
+test('A-I07/A-I08 self output and unrelated human activity do not reset unanswered initiative budget', () => {
+  let now = BASE;
+  const { db, store } = makeStore({ now: () => now });
+  const scope = { accountId: ACCOUNT, chatKey: CHAT };
+  try {
+    const scene = store.observe({ ...scope, messages: [incoming('1', 'alice', now, 'Deployment followup'), incoming('2', 'bob', now + 1, 'Movie discussion')] });
+    const topicId = scene.topics.find((topic) => topic.messageIds.includes('1')).id;
+    const draft = { ...scope, topicId, sourceMessageIds: ['1'], goal: 'Ask about the deployment result', dueAt: now + 1000, expiresAt: now + 60000 };
+    const intent = store.addIntent(draft);
+    assert.equal(store.addIntent({ ...draft, goal: '  ASK about the deployment result! ' }).id, intent.id);
+    now += 1000;
+    const lease = store.claimDue({ ...scope, now });
+    store.recordOutcome({ ...scope, topicId, action: 'share', sent: ['Any new result?'], runId: 'sent-initiative', initiativeId: intent.id, intentLeaseId: lease.leaseId, outcome: 'sent' });
+    now += 100;
+    store.observe({ ...scope, messages: [incoming('3', 'bot', now, 'Another assistant comment', { self: true, reply: { messageId: 'mid-1' } })] });
+    now += 100;
+    store.observe({ ...scope, messages: [incoming('4', 'bob', now, 'The movie was good', { reply: { messageId: 'mid-2' } })] });
+    assert.equal(store.snapshot(scope).unansweredInitiatives, 1);
+    assert.throws(() => store.addIntent({ ...draft, dueAt: now + 1000, goal: 'Please discuss the rollout outcome' }), { code: 'INITIATIVE_LIMIT' });
+    now += 100;
+    store.observe({ ...scope, messages: [incoming('5', 'alice', now, 'The deployment worked', { reply: { messageId: 'mid-1' } })] });
+    assert.equal(store.snapshot(scope).unansweredInitiatives, 0);
+  } finally { db.close(); }
+});
+
+test('A-D04 host mute is lazy, scoped, persistent, expires and ignores older notices', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-social-mute-'));
+  const file = path.join(root, 'state.sqlite');
+  let db = new DatabaseSync(file), now = BASE;
+  const scope = { accountId: ACCOUNT, chatKey: CHAT };
+  try {
+    let state = new SocialStateStore({ db, now: () => now });
+    assert.equal(state.muteStatus(scope).muted, false);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE name LIKE 'social_%'").get().n, 0);
+    state.observeMute({ ...scope, eventAt: now, mutedUntil: now + 60000 });
+    assert.equal(state.muteStatus(scope).muted, true);
+    assert.equal(state.muteStatus({ ...scope, accountId: 'another' }).muted, false);
+    assert.equal(state.muteStatus({ ...scope, chatKey: 'group:43' }).muted, false);
+    db.close(); db = new DatabaseSync(file); state = new SocialStateStore({ db, now: () => now });
+    assert.equal(state.muteStatus(scope).muted, true);
+    state.observeMute({ ...scope, eventAt: now - 1000, mutedUntil: 0 });
+    assert.equal(state.muteStatus(scope).muted, true);
+    now += 60001; assert.equal(state.muteStatus(scope).muted, false);
+    state.observeMute({ ...scope, eventAt: now, mutedUntil: now + 1000 });
+    state.observeMute({ ...scope, eventAt: now + 1, mutedUntil: 0 });
+    assert.equal(state.muteStatus(scope).muted, false);
+    assert.throws(() => state.observeMute({ ...scope, eventAt: NaN, mutedUntil: 0 }), { code: 'INVALID_MUTE' });
+  } finally { db.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});

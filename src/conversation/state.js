@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { SocialInterestStore } from './interests.js';
 
 const MAX_MESSAGES_PER_TOPIC = 200;
 const MAX_INTENT_SOURCES = 8;
@@ -73,6 +74,7 @@ export class SocialStateStore {
     if (!db || typeof db.exec !== 'function' || typeof db.prepare !== 'function') throw new TypeError('SocialStateStore requires the host SQLite db');
     this.#db = db;
     this.#now = typeof now === 'function' ? now : Date.now;
+    this.interests = new SocialInterestStore({ db, now: this.#now });
     this.#maxTopics = Math.max(1, Math.min(32, Math.floor(Number(maxTopics) || 8)));
   }
 
@@ -80,6 +82,24 @@ export class SocialStateStore {
     if (!db || typeof db.prepare !== 'function') throw new TypeError('isInitialized requires the host SQLite db');
     const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'social_%'").all().map((row) => String(row.name)));
     return ['social_scope_state', 'social_topics', 'social_messages', 'social_intents', 'social_outcomes'].every((name) => tables.has(name));
+  }
+
+  muteStatus(scope, now = this.#time()) {
+    const { accountId, chatKey } = scopeOf(scope);
+    const exists = this.#db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='social_mutes'").get();
+    const row = exists ? this.#db.prepare('SELECT event_at,muted_until FROM social_mutes WHERE account_id=? AND chat_key=?').get(accountId, chatKey) : null;
+    return { muted: Number(row?.muted_until || 0) > now, mutedUntil: Number(row?.muted_until || 0), eventAt: Number(row?.event_at || 0) };
+  }
+
+  observeMute({ accountId, chatKey, eventAt, mutedUntil }) {
+    const scope = scopeOf({ accountId, chatKey });
+    if (!/^group:\d+$/.test(scope.chatKey) || !Number.isSafeInteger(eventAt) || eventAt <= 0
+      || !Number.isSafeInteger(mutedUntil) || mutedUntil < 0) throw fail('INVALID_MUTE', 'Invalid host mute notice');
+    this.#db.exec('CREATE TABLE IF NOT EXISTS social_mutes (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,event_at INTEGER NOT NULL,muted_until INTEGER NOT NULL,PRIMARY KEY(account_id,chat_key))');
+    this.#db.prepare(`INSERT INTO social_mutes VALUES (?,?,?,?) ON CONFLICT(account_id,chat_key)
+      DO UPDATE SET event_at=excluded.event_at,muted_until=excluded.muted_until
+      WHERE excluded.event_at>=social_mutes.event_at`).run(scope.accountId, scope.chatKey, eventAt, mutedUntil);
+    return this.muteStatus(scope);
   }
 
   #time(value) {
@@ -299,7 +319,7 @@ export class SocialStateStore {
     const human = this.#db.prepare('SELECT message_id,ts FROM social_messages WHERE account_id=? AND chat_key=? AND self=0 ORDER BY ts DESC,rowid DESC LIMIT 1').get(scope.accountId, scope.chatKey);
     const selfTopic = this.#db.prepare('SELECT MAX(last_self_at) AS at FROM social_topics WHERE account_id=? AND chat_key=?').get(scope.accountId, scope.chatKey);
     const selfMessage = this.#db.prepare('SELECT MAX(ts) AS at FROM social_messages WHERE account_id=? AND chat_key=? AND self=1').get(scope.accountId, scope.chatKey);
-    const unanswered = Number(this.#db.prepare("SELECT COUNT(*) AS n FROM social_intents WHERE account_id=? AND chat_key=? AND (status IN ('pending','leased') OR (status='completed' AND answered_at IS NULL))").get(scope.accountId, scope.chatKey)?.n || 0);
+    const unanswered = Number(this.#db.prepare("SELECT COUNT(*) AS n FROM social_intents WHERE account_id=? AND chat_key=? AND (status IN ('pending','leased') OR (status='completed' AND answered_at IS NULL AND expires_at>?))").get(scope.accountId, scope.chatKey, this.#time())?.n || 0);
     return { revision: this.#revision(scope), topics: topics.map((row) => this.#topic(scope, row)), lastHumanId: human ? String(human.message_id) : null, lastHumanAt: Number(human?.ts) || 0, lastSelfAt: Math.max(Number(selfTopic?.at) || 0, Number(selfMessage?.at) || 0), unansweredInitiatives: unanswered };
   }
 
@@ -565,16 +585,22 @@ export class SocialStateStore {
 
   validateSourceRefs({ accountId, chatKey, refs = [], now } = {}) {
     const scope = scopeOf({ accountId, chatKey }), at = this.#time(now);
+    if (!Array.isArray(refs) || refs.length > MAX_INTENT_SOURCES) {
+      return { valid: [], invalidRefs: [{ reason: 'invalid_source_ref_list' }] };
+    }
     this.#ensure();
     const valid = [], invalidRefs = [];
-    for (const ref of Array.isArray(refs) ? refs.slice(0, 8) : []) {
-      const external = ref?.kind === 'external_observation'
-        ? this.#db.prepare(`SELECT source_id FROM social_external_observations
+    for (const ref of refs) {
+      let external = ref?.kind === 'external_observation'
+        ? this.#db.prepare(`SELECT source_id,source_refs FROM social_external_observations
             WHERE account_id=? AND chat_key=? AND source_id=? AND expires_at>?`)
           .get(scope.accountId, scope.chatKey, String(ref.id || ''), at)
         : null;
+      if (external && json(external.source_refs, []).some((parent) => parent?.kind === 'configured_interest'
+        && stableJson(this.interests.ref(scope, parent.id)) !== stableJson(parent))) external = null;
       const current = ref?.kind === 'message'
         ? this.sourceRefForMessage({ ...scope, messageId: ref.id })
+        : ref?.kind === 'configured_interest' ? this.interests.ref(scope, ref.id)
         : external
           ? { kind: 'external_observation', id: String(ref.id), revision: 1, scope, visibility: 'chat', policyVersion: 'social-source-v1' }
           : null;
@@ -622,11 +648,17 @@ export class SocialStateStore {
 
   addIntent({ accountId, chatKey, topicId, sourceMessageIds = [], sourceRefs = [], goal, dueAt, expiresAt } = {}) {
     const scope = scopeOf({ accountId, chatKey });
+    if (!Array.isArray(sourceMessageIds) || sourceMessageIds.length > MAX_INTENT_SOURCES
+      || sourceMessageIds.some((value) => !['string', 'number'].includes(typeof value) || !id(value))
+      || !Array.isArray(sourceRefs) || sourceRefs.length > MAX_INTENT_SOURCES
+      || sourceRefs.some((ref) => !ref || typeof ref !== 'object' || Array.isArray(ref))) {
+      throw fail('INVALID_SOURCES', 'initiative sources must be complete bounded lists');
+    }
     return this.#tx(() => {
       const topic = id(topicId);
       if (!topic || !this.#topicRow(scope, topic)) throw fail('UNKNOWN_TOPIC', 'initiative topic is not in this account/chat');
       const sources = strings(sourceMessageIds, MAX_INTENT_SOURCES);
-      const refs = (Array.isArray(sourceRefs) ? sourceRefs : []).filter((ref) => ref && typeof ref === 'object').slice(0, 8);
+      const refs = sourceRefs;
       const checkedRefs = this.validateSourceRefs({ ...scope, refs });
       if (checkedRefs.invalidRefs.length) throw fail('INVALID_SOURCES', 'initiative source references are not current or visible');
       for (const ref of checkedRefs.valid) {
@@ -646,7 +678,7 @@ export class SocialStateStore {
       const goalValue = clean(goal, 300);
       if (goalValue.length < 4 || /\b(?:send|post|publish|poke)\s+(?:(?:a|the)\s+)?(?:message|reply|notification)\b|\b(?:run|execute|invoke)\b[^.!?]{0,30}\b(?:tool|command|script|api)\b|\b(?:delete|write to|edit file|change setting|auto(?:matic)?[- ]retry|schedule another)\b|调用(?:工具|接口)|执行(?:命令|脚本)|删除(?:文件|数据)|自动重试/i.test(goalValue)) throw fail('INVALID_GOAL', 'initiative goal must be a bounded conversational goal, not an operation');
       const now = this.#time(), due = Number(dueAt), expiry = Number(expiresAt);
-      if (!Number.isFinite(due) || !Number.isFinite(expiry) || due <= now || expiry <= due || expiry - now > MAX_INTENT_LIFETIME) throw fail('INVALID_DATES', 'initiative needs future due and expiry times within 30 days');
+      if (!Number.isSafeInteger(due) || !Number.isSafeInteger(expiry) || due <= now || expiry <= due || expiry - now > MAX_INTENT_LIFETIME) throw fail('INVALID_DATES', 'initiative needs future due and expiry times within 30 days');
       const firstSource = sources.length ? this.#message(scope, sources[0]) : null;
       const sourceInteraction = firstSource?.interaction_id
         ? this.#db.prepare('SELECT causal_root_id FROM social_interactions WHERE account_id=? AND chat_key=? AND interaction_id=?')
@@ -658,7 +690,7 @@ export class SocialStateStore {
       const semantic = hash(JSON.stringify([causalRootId, sources.slice().sort(), refs.map((ref) => [ref.kind, ref.id, ref.revision]).sort(), goalNorm(goalValue)]));
       const existing = this.#db.prepare('SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND semantic_key=?').get(scope.accountId, scope.chatKey, semantic);
       if (existing) return this.#intent(existing);
-      const active = this.#db.prepare("SELECT id FROM social_intents WHERE account_id=? AND chat_key=? AND (status IN ('pending','leased') OR (status='completed' AND answered_at IS NULL)) LIMIT 1").get(scope.accountId, scope.chatKey);
+      const active = this.#db.prepare("SELECT id FROM social_intents WHERE account_id=? AND chat_key=? AND (status IN ('pending','leased') OR (status='completed' AND answered_at IS NULL AND expires_at>?)) LIMIT 1").get(scope.accountId, scope.chatKey, now);
       if (active) throw fail('INITIATIVE_LIMIT', 'one unanswered initiative is allowed per account/chat');
       const intentId = crypto.randomUUID();
       this.#db.prepare("INSERT INTO social_intents(id,account_id,chat_key,topic_id,source_message_ids,source_refs,causal_root_id,goal,semantic_key,due_at,expires_at,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)").run(intentId, scope.accountId, scope.chatKey, topic, JSON.stringify(sources), JSON.stringify(refs), causalRootId, goalValue, semantic, Math.round(due), Math.round(expiry), now, now);
@@ -669,7 +701,18 @@ export class SocialStateStore {
     });
   }
 
-  claimDue({ accountId, chatKey, now, leaseMs = 180000 } = {}) {
+  requestInterestOpportunity({ accountId, chatKey, sourceId, sourceRevision, topicId, goal, dueAt, expiresAt }) {
+    const scope = scopeOf({ accountId, chatKey });
+    this.#ensure();
+    const ref = this.interests.ref(scope, sourceId);
+    if (!ref || ref.revision !== sourceRevision) throw fail('INVALID_SOURCES', 'Interest source is disabled, stale or outside this scope');
+    const topic = this.#topicRow(scope, String(topicId || ''));
+    if (!topic || topic.status !== 'active' || !topic.last_human_id) throw fail('UNKNOWN_TOPIC', 'Choose an active host-observed shared topic');
+    this.claimDue({ ...scope, claim: false });
+    return this.addIntent({ ...scope, topicId, sourceRefs: [ref], goal, dueAt, expiresAt });
+  }
+
+  claimDue({ accountId, chatKey, now, leaseMs = 180000, claim = true } = {}) {
     const scope = scopeOf({ accountId, chatKey });
     return this.#tx(() => {
       const at = this.#time(now), lease = Math.max(1000, Math.min(5 * 60 * 1000, Math.floor(Number(leaseMs) || 180000)));
@@ -677,6 +720,7 @@ export class SocialStateStore {
       for (const row of expired) this.#transition(scope, row, 'expired', 'initiative expired before claim', at);
       const leases = this.#db.prepare("SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND status='leased' AND lease_until<=?").all(scope.accountId, scope.chatKey, at);
       for (const row of leases) this.#transition(scope, row, 'held', 'lease expired with delivery outcome unknown; not replayed', at);
+      if (!claim) { if (expired.length || leases.length) this.#bump(scope); return null; }
       const due = this.#db.prepare("SELECT * FROM social_intents WHERE account_id=? AND chat_key=? AND status='pending' AND due_at<=? AND expires_at>? ORDER BY due_at,created_at LIMIT 1").get(scope.accountId, scope.chatKey, at, at);
       if (!due) { if (expired.length || leases.length) this.#bump(scope); return null; }
       if (!this.#topicRow(scope, due.topic_id)) { this.#transition(scope, due, 'held', 'initiative topic is no longer available', at); this.#bump(scope); return null; }

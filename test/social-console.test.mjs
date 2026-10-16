@@ -43,6 +43,13 @@ test('social mode config and console state routes are scoped, bounded, and non-c
     topicIdleMs: 60000, intentTtlMs: 604800000, minInitiativeGapMs: 60000,
     maxUnansweredInitiatives: 3, replyTargetTtlMs: 10000, maxMessagesPerTurn: 6
   });
+  for (const invalid of [NaN, Infinity, -Infinity, 'not-a-number', null, {}, []]) {
+    const invalidPatch = Object.fromEntries(Object.keys(DEFAULT_CONFIG.conversation.social).map((key) => [key, invalid]));
+    const normalized = updateConfig({ conversation: { social: invalidPatch } }).conversation.social;
+    for (const value of Object.values(normalized)) assert.ok(Number.isSafeInteger(value) && value >= 0, JSON.stringify(normalized));
+    assert.ok(normalized.maxPlannerRounds <= 5 && normalized.maxReplyRounds <= 8);
+    assert.ok(normalized.intentTtlMs <= 604800000);
+  }
   const scoped = updateConfig({ conversation: {
     mode: 'lifecycle', unifiedMode: false, groupModes: { __replace__: { '10001': 'social' } }
   } });

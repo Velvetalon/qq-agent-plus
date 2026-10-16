@@ -230,3 +230,24 @@ test('one source, a forged reference, and global scope cannot become an adoptabl
     store.close();
   }
 });
+
+test('A-E04/A-L05 derived summaries, forwarded records and repeated roots cannot manufacture independent support', () => {
+  const store = storeFor('derived-and-replayed');
+  try {
+    for (const originalSourceType of ['summary', 'forward', 'notebook']) {
+      const result = store.enqueueObservation(completionEvent({ sessionId: 'derived-' + originalSourceType, originalSourceType }));
+      assert.equal(result.job.evidence.traitEvidencePool.length, 0);
+      assert.equal(result.job.evidence.traitGate.eligible, false);
+      assert.ok(result.job.evidence.conversationEvidence.every((entry) => !entry.userEvidence));
+    }
+    const original = completionEvent({ sessionId: 'original', rootId: 'one-root', interactionId: 'one-interaction' });
+    assert.equal(store.enqueueObservation(original).created, true);
+    assert.equal(store.enqueueObservation(original).created, false);
+    for (let index = 0; index < 3; index += 1) {
+      const result = store.enqueueObservation(completionEvent({ sessionId: 'split-' + index, rootId: 'one-root', interactionId: 'one-interaction' }));
+      assert.equal(result.job.evidence.traitGate.eligible, false);
+      assert.equal(new Set(result.job.evidence.traitEvidencePool.map((entry) => entry.originalSourceId)).size, 1);
+    }
+    assert.equal(store.getLearnedSelfRevision({ accountId: 'memory-v1-account' }), 0);
+  } finally { store.close(); }
+});

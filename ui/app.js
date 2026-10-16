@@ -2310,8 +2310,10 @@ function renderSocialSessionPanel(s) {
     <section class="social-session-panel" aria-label="社交会话审计与待办">
       <div class="social-session-head">
         <div><strong>社交会话</strong><small>${esc(stateText)} · ${esc(sceneText)}</small></div>
+        <button type="button" class="btn btn-small" data-social-interests>兴趣与探索</button>
         <button type="button" class="icon-btn" data-social-refresh title="刷新社交状态" aria-label="刷新社交状态">↻</button>
       </div>
+      ${status?.mute?.muted ? `<p class="empty-hint">宿主账号在群内被禁言，暂停社交评估与发送；预计解除 ${esc(fmtTime(status.mute.mutedUntil))}</p>` : ''}
       ${audit ? `<dl class="social-audit-grid">
         <div><dt>规划决定</dt><dd>${esc(decisions[audit.decision] || audit.decision || '-')}</dd></div>
         <div><dt>实际动作</dt><dd>${esc(actionText)} · ${esc(audit.deliveryState || 'not_attempted')}</dd></div>
@@ -2379,6 +2381,104 @@ function promptSocialCancelReason() {
     });
     overlay.querySelector('#social-cancel-reason').focus();
   });
+}
+
+function renderSocialInterestSource(source) {
+  return `<fieldset class="social-interest-source" data-interest-id="${esc(source.id)}">
+    <legend>兴趣来源</legend><label><input type="checkbox" data-interest-enabled ${source.enabled ? 'checked' : ''}>启用此来源</label>
+    <div class="field"><label>名称<input data-interest-title maxlength="100" value="${esc(source.title || '')}" required></label></div>
+    <div class="field"><label>明确配置的兴趣材料<textarea data-interest-text maxlength="1600" required>${esc(source.text || '')}</textarea></label></div>
+    <small>这是管理员配置的材料，不作为群友偏好确认。停用会保留历史并阻止旧材料继续发送。</small></fieldset>`;
+}
+
+function renderSocialInterestEditor(data) {
+  const config = data.interests;
+  const sourceOptions = config.sources.filter((item) => item.enabled).map((item) => `<option value="${esc(item.id)}">${esc(item.title)}</option>`).join('');
+  const topicOptions = (data.scene?.topics || []).filter((item) => item.status === 'active').map((item) => `<option value="${esc(item.id)}">${esc(item.topic || item.id)}</option>`).join('');
+  return `<div class="social-interest-editor">
+    <p>只影响当前会话。开启配置不会自动探索；每个机会须单独安排，届时可能使用模型和只读工具，并可能分享消息。</p>
+    <p>今日已预留 ${esc(config.usage.runs)} 次 / ${esc(config.usage.reservedTokens)} Token（UTC 日；预留不因失败退还）。</p>
+    <label><input type="checkbox" data-interest-master ${config.enabled ? 'checked' : ''}>允许执行已安排的探索机会</label>
+    <div class="field-row">
+      <label>每日次数<input type="number" data-interest-daily-runs min="0" max="10" value="${config.maxDailyRuns}"></label>
+      <label>每日 Token 预留上限<input type="number" data-interest-daily-tokens min="0" max="1000000" value="${config.maxDailyTokens}"></label>
+      <label>单次 Token 额度<input type="number" data-interest-run-tokens min="2000" max="160000" value="${config.maxRunTokens}"></label>
+      <label>单次模型调用上限<input type="number" data-interest-calls min="1" max="12" value="${config.maxModelCalls}"></label>
+    </div><small>Token 按输入估算与输出上限准入，不等同于供应商精确计费上限。</small>
+    <div data-interest-sources>${config.sources.map(renderSocialInterestSource).join('')}</div>
+    <button type="button" class="btn" data-interest-add>添加兴趣来源</button>
+    <label class="field"><input type="checkbox" data-interest-confirm>我确认保存此配置或安排这一次机会</label>
+    <button type="button" class="btn" data-interest-save>保存来源与预算</button>
+    <hr><h3>安排一次探索机会</h3><p>使用已保存的来源与已观察到的话题；没有新机会时零调用。暂停后可重新开启继续等待，取消后不会重放。</p>
+    <div class="field-row"><label>已保存来源<select data-interest-source>${sourceOptions}</select></label>
+    <label>共同话题<select data-interest-topic>${topicOptions}</select></label></div>
+    <div class="field"><label>具体交流目标<input data-interest-goal maxlength="180" placeholder="例如：讨论刚发布的天文发现"></label></div>
+    <div class="field-row"><label>多久后评估（分钟）<input type="number" data-interest-delay min="1" max="10080" value="1"></label>
+    <label>有效期（分钟）<input type="number" data-interest-ttl min="2" max="43200" value="60"></label></div>
+    <button type="button" class="btn" data-interest-schedule ${!data.enabled || !config.enabled || !sourceOptions || !topicOptions ? 'disabled' : ''}>安排一次机会</button>
+    <p>${data.enabled ? '' : '先保存此会话的社交模式，才能安排机会。'}${topicOptions ? '' : '尚无可用共同话题，请等待真实聊天形成话题。'}</p>
+    <div>${(data.intents || []).filter((item) => ['pending', 'leased'].includes(item.status)).map((item) => `<div class="social-intent-row"><span>${esc(item.goal)} · ${esc(item.status)}</span><button type="button" class="btn" data-interest-cancel="${esc(item.id)}">取消机会</button></div>`).join('')}</div>
+    <p data-interest-result role="status" aria-live="polite"></p></div>`;
+}
+
+function bindSocialInterestEditor(overlay, chatKey, data, reload) {
+  const find = (selector) => overlay.querySelector(selector);
+  const run = async (button, action, confirmed = true) => {
+    if (confirmed && !find('[data-interest-confirm]').checked) { find('[data-interest-result]').textContent = '请勾选确认后再提交。'; return; }
+    button.disabled = true;
+    try { await action(); await reload(); }
+    catch (error) { find('[data-interest-result]').textContent = `未保存：${error.message}。版本冲突时请关闭并重新打开，当前输入未覆盖。`; button.disabled = false; }
+  };
+  find('[data-interest-add]').addEventListener('click', () => {
+    if (overlay.querySelectorAll('[data-interest-id]').length >= 16) { find('[data-interest-result]').textContent = '最多保留 16 个来源，请修改已有来源。'; return; }
+    find('[data-interest-sources]').insertAdjacentHTML('beforeend', renderSocialInterestSource({ id: crypto.randomUUID(), enabled: true }));
+  });
+  const save = find('[data-interest-save]');
+  save.addEventListener('click', () => run(save, () => api('/api/conversation/social/interests', {
+    method: 'POST', body: JSON.stringify({ chatKey, confirm: true, expectedRevision: data.interests.revision, config: {
+      enabled: find('[data-interest-master]').checked,
+      maxDailyRuns: Number(find('[data-interest-daily-runs]').value),
+      maxDailyTokens: Number(find('[data-interest-daily-tokens]').value),
+      maxRunTokens: Number(find('[data-interest-run-tokens]').value),
+      maxModelCalls: Number(find('[data-interest-calls]').value),
+      sources: [...overlay.querySelectorAll('[data-interest-id]')].map((row) => ({
+        id: row.dataset.interestId, enabled: row.querySelector('[data-interest-enabled]').checked,
+        title: row.querySelector('[data-interest-title]').value, text: row.querySelector('[data-interest-text]').value
+      }))
+    } })
+  })));
+  const schedule = find('[data-interest-schedule]');
+  schedule.addEventListener('click', () => run(schedule, () => {
+    const selected = data.interests.sources.find((item) => item.id === find('[data-interest-source]').value);
+    if (!selected) throw new Error('请选择已保存的来源');
+    const now = Date.now();
+    return api('/api/conversation/social/opportunities', { method: 'POST', body: JSON.stringify({
+      chatKey, confirm: true, sourceId: selected.id, sourceRevision: selected.revision,
+      topicId: find('[data-interest-topic]').value, goal: find('[data-interest-goal]').value,
+      dueAt: now + Number(find('[data-interest-delay]').value) * 60000,
+      expiresAt: now + Number(find('[data-interest-ttl]').value) * 60000
+    }) });
+  }));
+  overlay.querySelectorAll('[data-interest-cancel]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const reason = await promptSocialCancelReason();
+      if (reason) await run(button, () => api(`/api/conversation/social/intents/${encodeURIComponent(button.dataset.interestCancel)}/cancel`, {
+        method: 'POST', body: JSON.stringify({ chatKey, reason })
+      }), false);
+    });
+  });
+}
+
+async function openSocialInterestEditor(chatKey) {
+  try {
+    const data = await api(`/api/conversation/social?chatKey=${encodeURIComponent(chatKey)}`);
+    const overlay = modelModalShell({ head: `兴趣与探索 · ${chatKey}`, body: renderSocialInterestEditor(data) });
+    bindSocialInterestEditor(overlay, chatKey, data, async () => {
+      closeModelModal(overlay);
+      loadSocialSessionStatus(chatKey, { force: true });
+      await openSocialInterestEditor(chatKey);
+    });
+  } catch (error) { alert(`读取兴趣配置失败：${error.message}`); }
 }
 
 /** 运行审计面板：停用/旧会话也要显示默认值，不做"有才画"的条件渲染。 */
@@ -2603,6 +2703,7 @@ function renderSessionDetail(s, {
   });
   detail.querySelector('[data-social-refresh]')?.addEventListener('click', () =>
     loadSocialSessionStatus(s.chatKey, { force: true }));
+  detail.querySelector('[data-social-interests]')?.addEventListener('click', () => openSocialInterestEditor(s.chatKey));
   detail.querySelectorAll('[data-social-cancel]').forEach((button) => {
     button.addEventListener('click', async () => {
       const reason = await promptSocialCancelReason();
@@ -8747,10 +8848,13 @@ function renderConversationModePanels(conversation = {}) {
           <div class="conversation-mode-heading">
             <div>
               <strong>社交会话</strong>
-              <span>规划参与决定与回复；待办必须关联真实消息来源</span>
+              <span>规划参与决定与回复；待办必须关联已验证来源</span>
             </div>
             <span class="mode-state-token">独立话题</span>
           </div>
+          <div class="field-row"><label>会话类型<select id="social-interest-kind"><option value="group">群聊</option><option value="private">私聊</option></select></label>
+          <label>群号或 QQ 号<input id="social-interest-chat" inputmode="numeric" pattern="[0-9]+"></label>
+          <button type="button" class="btn" id="social-interest-open">管理兴趣与探索机会</button></div>
           <div class="conversation-mode-flow" aria-label="社交会话流程">
             <span>消息</span><i></i><span>规划</span><i></i><span>回复 / 等待 / 结束</span>
           </div>
@@ -9376,6 +9480,11 @@ function bindSettingsEvents(c) {
 
   // ── 对话模式：分段切换器只展示当前模式相关参数 ──
   const conversationModeInput = $('#cfg-conversation-mode');
+  $('#social-interest-open')?.addEventListener('click', () => {
+    const chatId = $('#social-interest-chat').value.trim();
+    if (!/^\d+$/.test(chatId)) { alert('请输入有效的群号或 QQ 号'); return; }
+    openSocialInterestEditor(`${$('#social-interest-kind').value}:${chatId}`);
+  });
   const conversationModeShell = $('#conversation-mode-shell');
   const conversationModeHint = $('#conversation-trigger-hint');
   const triggerHints = {

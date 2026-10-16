@@ -1,3 +1,4 @@
+import { fixtureEmbeddingConfig, fixtureEmbeddingClient, indexFixtureNotes } from './helpers/notebook-vector-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1393,7 +1394,11 @@ test('reflection prompt specifies the canonical nested proposal schema', () => {
 
 test('reflection worker sends bounded conversation, current profile, and Notebook input', async () => {
   const { store, dataDir } = fixture();
-  const notebook = new NotebookStore({ dataDir });
+  let queryObserved = '';
+  const notebook = new NotebookStore({ dataDir, embeddingConfig: fixtureEmbeddingConfig,
+    embeddingClient: { ...fixtureEmbeddingClient, embedQuery: async ({ query }) => {
+      queryObserved = query; return [1, 0];
+    } } });
   const base = persona();
   notebook.append({
     accountId: ACCOUNT_ID,
@@ -1404,6 +1409,7 @@ test('reflection worker sends bounded conversation, current profile, and Noteboo
     currentChatKey: 'group:100',
     idempotencyKey: 'seed-note'
   });
+  await indexFixtureNotes(notebook);
   let observedPrompt = '';
   const worker = startWorker(store, async ({ prompt }) => {
     observedPrompt = prompt;
@@ -1413,18 +1419,23 @@ test('reflection worker sends bounded conversation, current profile, and Noteboo
     store.enqueueObservation(completionEvent('session-input', {
       actionSummary: {
         ...completionEvent('session-input').actionSummary,
-        conversationEvidence: [{
+        conversationEvidence: [...Array.from({ length: 5 }, (_, index) => ({
+          text: 'O'.repeat(240), messageId: 'older-' + index, evidenceId: 'message:older-' + index,
+          senderId: 'user-1', role: 'user', at: 999, confirmed: true
+        })), {
           evidenceId: 'message:m1',
           messageId: 'm1',
           senderId: 'user-1',
           role: 'user',
           at: 1000,
-          text: '我最近喜欢摄影',
+          text: '我最近喜欢摄影 CURRENT_TARGET',
           confirmed: true
         }]
       }
     }));
     await runQueued(worker, store, { mode: 'bounded_auto', basePersona: base });
+    assert.match(queryObserved, /CURRENT_TARGET/);
+    assert.ok(queryObserved.length <= 1200);
     assert.match(observedPrompt, /我最近喜欢摄影/);
     assert.match(observedPrompt, /用户偏好摄影/);
     assert.match(observedPrompt, /ReflectionInput/);

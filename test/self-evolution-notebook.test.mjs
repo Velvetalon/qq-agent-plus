@@ -140,7 +140,7 @@ test('enabled plugin exposes persistent tool callbacks through the P2 manager', 
       snapshot.tools,
       context,
       'notebook_search',
-      JSON.stringify({ query: 'callback' })
+      JSON.stringify({ noteId: appendResult.note.id })
     );
     const searchResult = JSON.parse(searched.content);
     assert.equal(searchResult.notes.length, 1);

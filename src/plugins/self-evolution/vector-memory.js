@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { embeddingProfileId } from './embedding-client.js';
+import { embeddingProfileId, normalizeEmbeddingConfig } from './embedding-client.js';
 import { classifyNotebookMemory, isRecallableNotebookNote } from './notebook-policy.js';
 
 let sqliteVec = null;
@@ -566,8 +566,21 @@ export class VectorMemory {
     maxSnippetChars = 600,
     signal = null
   } = {}) {
+    signal?.throwIfAborted();
     const status = this.status();
-    const normalizedQuery = text(query).trim();
+    const profileId = this.profileId, client = this.embeddingClient;
+    const queryConfig = normalizeEmbeddingConfig(this.config);
+    const { maxDistance, maxQueryChars } = queryConfig;
+    const queryStateChanged = () => {
+      const current = normalizeEmbeddingConfig(this.config);
+      return profileId !== this.profileId || client !== this.embeddingClient
+        || ['enabled', 'allowQuery', 'allowPrivate', 'maxDistance', 'maxQueryChars']
+          .some((key) => current[key] !== queryConfig[key]);
+    };
+    const changedResult = () => ({ results: [], contextBlocks: [], degradationReason: 'profile-changed',
+      degradationReasons: ['profile-changed'], diagnostics: { candidateCount: 0, matchCount: 0 } });
+    const rawQuery = text(query).trim();
+    const normalizedQuery = rawQuery.slice(-maxQueryChars);
     if (!normalizedQuery) {
       return {
         results: [],
@@ -588,48 +601,6 @@ export class VectorMemory {
         diagnostics: { candidateCount: 0, matchCount: 0 }
       };
     }
-    const readyCandidate = this.db.prepare(`
-      SELECT 1 AS present
-      FROM notebook_notes n
-      JOIN notebook_embeddings e
-        ON e.account_id=n.account_id AND e.note_id=n.id AND e.note_revision=n.revision
-      WHERE n.account_id=? AND n.status='active' AND e.status='ready' AND e.profile_id=?
-        AND (n.scope='global' OR (n.scope='chat' AND n.chat_key=?))
-      LIMIT 1
-    `).get(text(accountId), this.profileId, text(chatKey));
-    if (!readyCandidate) {
-      return {
-        results: [],
-        contextBlocks: [],
-        degradationReason: 'index-not-ready',
-        degradationReasons: ['index-not-ready'],
-        budget: { maxNotes, maxChars, maxSnippetChars, usedNotes: 0, usedChars: 0, truncated: false },
-        diagnostics: { candidateCount: 0, matchCount: 0, profileId: this.profileId }
-      };
-    }
-    if (typeof this.embeddingClient.authorizeQuery === 'function'
-      && !(await this.embeddingClient.authorizeQuery())) {
-      return {
-        results: [],
-        contextBlocks: [],
-        degradationReason: 'external-disallowed',
-        degradationReasons: ['external-disallowed'],
-        budget: { maxNotes, maxChars, maxSnippetChars, usedNotes: 0, usedChars: 0, truncated: false },
-        diagnostics: { candidateCount: 0, matchCount: 0 }
-      };
-    }
-    const vector = await this.embeddingClient.embedQuery({ query: normalizedQuery, signal });
-    const checked = validateEmbeddingVector(vector, this.config.dimension);
-    if (!checked.ok) {
-      return {
-        results: [],
-        contextBlocks: [],
-        degradationReason: checked.reason,
-        degradationReasons: [checked.reason],
-        budget: { maxNotes, maxChars, maxSnippetChars, usedNotes: 0, usedChars: 0, truncated: false },
-        diagnostics: { candidateCount: 0, matchCount: 0 }
-      };
-    }
     const filters = [
       "n.account_id=?",
       "n.status='active'",
@@ -644,8 +615,53 @@ export class VectorMemory {
       filters.push("n.scope='chat'");
     }
     for (const tag of (Array.isArray(tags) ? tags : [])) {
-      filters.push("n.tags_json LIKE ? ESCAPE '\\'");
-      params.push(`%${text(tag).replace(/[\\%_]/g, (value) => `\\${value}`)}%`);
+      filters.push("EXISTS (SELECT 1 FROM json_each(n.tags_json) tag WHERE tag.value=?)");
+      params.push(text(tag));
+    }
+    const readyCandidate = this.db.prepare(`
+      SELECT 1 AS present
+      FROM notebook_notes n
+      JOIN notebook_embeddings e
+        ON e.account_id=n.account_id AND e.note_id=n.id AND e.note_revision=n.revision
+      WHERE ${filters.join(' AND ')}
+      LIMIT 1
+    `).get(...params);
+    if (!readyCandidate) {
+      return {
+        results: [],
+        contextBlocks: [],
+        degradationReason: 'index-not-ready',
+        degradationReasons: ['index-not-ready'],
+        budget: { maxNotes, maxChars, maxSnippetChars, usedNotes: 0, usedChars: 0, truncated: false },
+        diagnostics: { candidateCount: 0, matchCount: 0, profileId: this.profileId }
+      };
+    }
+    if (typeof client.authorizeQuery === 'function'
+      && !(await client.authorizeQuery())) {
+      return {
+        results: [],
+        contextBlocks: [],
+        degradationReason: 'external-disallowed',
+        degradationReasons: ['external-disallowed'],
+        budget: { maxNotes, maxChars, maxSnippetChars, usedNotes: 0, usedChars: 0, truncated: false },
+        diagnostics: { candidateCount: 0, matchCount: 0 }
+      };
+    }
+    signal?.throwIfAborted();
+    if (queryStateChanged()) return changedResult();
+    const vector = await client.embedQuery({ query: normalizedQuery, signal });
+    signal?.throwIfAborted();
+    if (queryStateChanged()) return changedResult();
+    const checked = validateEmbeddingVector(vector, this.config.dimension);
+    if (!checked.ok) {
+      return {
+        results: [],
+        contextBlocks: [],
+        degradationReason: checked.reason,
+        degradationReasons: [checked.reason],
+        budget: { maxNotes, maxChars, maxSnippetChars, usedNotes: 0, usedChars: 0, truncated: false },
+        diagnostics: { candidateCount: 0, matchCount: 0 }
+      };
     }
     const requestedNotes = Math.max(1, Math.min(100, Number(maxNotes) || 5));
     const candidateLimit = Math.min(1000, Math.max(requestedNotes, requestedNotes * 20));
@@ -686,11 +702,15 @@ export class VectorMemory {
       const snippet = text(row.body).slice(0, Math.min(budget.maxSnippetChars, remaining));
       if (!snippet) continue;
       const distance = Number(row.distance);
-      if (!Number.isFinite(distance) || distance >= 1) continue;
+      if (!Number.isFinite(distance) || distance >= maxDistance) continue;
       const item = {
         noteId: text(row.id),
         revision: Number(row.revision) || 0,
         noteRevision: Number(row.note_revision) || 0,
+        scope: text(row.scope),
+        chatKey: text(row.chat_key),
+        tags: JSON.parse(row.tags_json || '[]'),
+        isTruncated: snippet.length < text(row.body).length,
         snippet,
         distance,
         score: Math.max(0, 1 - distance),
@@ -710,9 +730,7 @@ export class VectorMemory {
       results,
       hits: results,
       contextBlocks: results.map((item) => ({
-        noteId: item.noteId,
-        revision: item.revision,
-        snippet: item.snippet,
+        ...item,
         rankingSource: 'sqlite-vec',
         budget: item.budget,
         degradationReason: null
@@ -724,6 +742,10 @@ export class VectorMemory {
         candidateCount: current.length,
         matchCount: results.length,
         filteredOperational,
+        maxDistance,
+        queryChars: normalizedQuery.length,
+        queryTruncated: rawQuery.length > normalizedQuery.length,
+        thresholdCalibrated: false,
         profileId: this.profileId,
         extensionVersion: this.extension.version
       }

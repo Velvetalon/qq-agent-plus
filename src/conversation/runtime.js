@@ -49,6 +49,9 @@ export function validateSocialDecision(content, {
   const topicId = parsed.topicId == null || parsed.topicId === '' ? null : String(parsed.topicId);
   if (topicId && !topicIds.has(topicId)) return { ok: false, reason: 'unknown_topic' };
 
+  if (parsed.sourceMessageIds != null && !Array.isArray(parsed.sourceMessageIds)) {
+    return { ok: false, reason: 'invalid_sources' };
+  }
   const rawSourceIds = Array.isArray(parsed.sourceMessageIds) ? parsed.sourceMessageIds : [];
   if (rawSourceIds.length > 8) return { ok: false, reason: 'too_many_sources' };
   const sourceMessageIds = [...new Set(rawSourceIds.map(String))];
@@ -65,6 +68,7 @@ export function validateSocialDecision(content, {
     if (!target || target.self) return { ok: false, reason: 'unknown_target' };
     if (!sourceMessageIds.includes(targetMessageId)) sourceMessageIds.push(targetMessageId);
   }
+  if (sourceMessageIds.length > 8) return { ok: false, reason: 'too_many_sources' };
   if (['reply', 'react'].includes(action) && (!targetMessageIds.length || !sourceMessageIds.length)) {
     return { ok: false, reason: 'missing_reply_target' };
   }
@@ -124,10 +128,14 @@ export function validateSocialInitiative(raw, {
   maxSourceMessageIds = 4
 } = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (raw.sourceMessageIds != null && !Array.isArray(raw.sourceMessageIds)) return null;
+  if (raw.sourceRefs != null && !Array.isArray(raw.sourceRefs)) return null;
+  if (!Number.isSafeInteger(maxSourceMessageIds) || maxSourceMessageIds < 1 || maxSourceMessageIds > 8) return null;
+  if ((raw.sourceMessageIds || []).length > maxSourceMessageIds || (raw.sourceRefs || []).length > 8) return null;
   const allowedSources = new Set((humanMessageIds || []).map(String));
   const sourceMessageIds = [...new Set((Array.isArray(raw.sourceMessageIds)
     ? raw.sourceMessageIds
-    : []).map(String))].slice(0, maxSourceMessageIds);
+    : []).map(String))];
   const goal = cleanText(raw.goal, 180);
   const knownRefs = new Set((Array.isArray(knownSourceRefs) ? knownSourceRefs : []).map(stableJson));
   const sourceRefs = [...new Map((Array.isArray(raw.sourceRefs) ? raw.sourceRefs : [])

@@ -43,6 +43,9 @@ export function normalizeEmbeddingConfig(config = {}) {
     endpoint: normalizeEndpoint(selected),
     model: text(selected.model).trim(),
     dimension: positiveInt(selected.dimension),
+    maxQueryChars: Math.min(16000, Math.max(64, positiveInt(selected.maxQueryChars, 4000))),
+    maxDistance: typeof selected.maxDistance === 'number' && Number.isFinite(selected.maxDistance)
+      ? Math.max(0, Math.min(2, selected.maxDistance)) : 1,
     apiKey: text(selected.apiKey || selected.key).trim(),
     apiKeyRef: text(selected.apiKeyRef).trim(),
     allowAnonymous: selected.allowAnonymous === true,

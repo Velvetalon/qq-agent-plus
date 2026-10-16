@@ -3070,3 +3070,12 @@ dialog { margin: auto; max-height: 88vh; }
   line-height: 1.5;
 }
 .preference-candidates .btn { white-space: nowrap; }
+/* Scoped Social interest management remains usable inside narrow modals. */
+.social-interest-editor { min-width: 0; overflow-wrap: anywhere; }
+.social-interest-editor .field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.social-interest-editor .field-row > label { flex: 1 1 180px; min-width: 0; }
+.social-interest-editor input:not([type="checkbox"]),
+.social-interest-editor select, .social-interest-editor textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.social-interest-editor textarea { min-height: 90px; resize: vertical; }
+.social-interest-source { min-width: 0; margin: 14px 0; padding: 12px; border: 1px solid var(--border, #666); border-radius: 8px; }
+.social-interest-editor [data-interest-result] { white-space: pre-wrap; }

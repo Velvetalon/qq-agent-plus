@@ -1,3 +1,5 @@
+> 2026-10-16 最新：见 [全部任务卡收口矩阵](../../delay/schedule/2026-10-16-task-card-closure.md)。F4已修复，750项通过；本文件以下保留历史时点结果，真实模型/平台/生产仍未运行。
+
 # Social Engine Local Verification Checkpoint
 
 Date: 2026-10-14, Asia/Hong_Kong.

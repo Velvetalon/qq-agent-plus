@@ -362,15 +362,14 @@ function blankSource(src) {
     const next = i + 1 < length ? src[i + 1] : '';
     if (char === '/' && next === '/') {
       const end = src.indexOf('\n', i);
+      emit(' '.repeat((end < 0 ? length : end) - i));
       i = end < 0 ? length : end;
       continue;
     }
     if (char === '/' && next === '*') {
       let end = src.indexOf('*/', i + 2);
       end = end < 0 ? length : end + 2;
-      let newlines = 0;
-      for (let k = i; k < end; k += 1) if (src[k] === '\n') newlines += 1;
-      emit('\n'.repeat(newlines));
+      emit(src.slice(i, end).replace(/[^\r\n]/g, ' '));
       i = end;
       continue;
     }
@@ -409,7 +408,7 @@ function blankSource(src) {
         j += 1;
       }
       // 保留引号本身：否则 import ... from '...' 的引号也会被抹掉，import 解析会落空。
-      if (j - i >= 2) emit(src[i] + ' '.repeat(j - i - 2) + src[j - 1]);
+      if (j - i >= 2) emit(src[i] + src.slice(i + 1, j - 1).replace(/[^\r\n]/g, ' ') + src[j - 1]);
       else emit(' '.repeat(Math.max(0, j - i)));
       last = quote;
       i = j;
@@ -426,12 +425,90 @@ function declaredNames(src) {
   const names = new Set();
   for (const match of src.matchAll(/\b(?:function|class)\s+([A-Za-z_$][\w$]*)/g)) names.add(match[1]);
   for (const match of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) names.add(match[1]);
-  for (const match of src.matchAll(/^\s*(?:static\s+|async\s+|get\s+|set\s+|#)*([A-Za-z_$][\w$]*)\s*\(/gm)) names.add(match[1]);
   for (const match of src.matchAll(/\bimport\s+([\s\S]*?)\s+from\s*['"]/g)) {
     for (const identifier of match[1].matchAll(/[A-Za-z_$][\w$]*/g)) names.add(identifier[0]);
   }
   for (const match of src.matchAll(/^\s*import\s+([A-Za-z_$][\w$]*)\s+from/gm)) names.add(match[1]);
+  collectBindingNames(src, names);
   return names;
+}
+
+// File-level declaration heuristic, not scope/type analysis. Only binding
+// positions count: property keys and names inside default expressions do not.
+function collectBindingNames(src, names) {
+  const tokens = src.match(/[A-Za-z_$][\w$]*|=>|\.\.\.|[^\s]/g) || [];
+  const pairs = new Map();
+  const stack = [];
+  const closes = { ')': '(', ']': '[', '}': '{' };
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (['(', '[', '{'].includes(tokens[i])) stack.push(i);
+    else if (closes[tokens[i]] && tokens[stack.at(-1)] === closes[tokens[i]]) {
+      const open = stack.pop();
+      pairs.set(open, i);
+      pairs.set(i, open);
+    }
+  }
+  const identifier = (value) => /^[A-Za-z_$][\w$]*$/.test(value || '');
+  const findTop = (start, end, wanted) => {
+    for (let i = start; i < end; i += 1) {
+      if (wanted.includes(tokens[i])) return i;
+      if (pairs.get(i) > i) i = pairs.get(i);
+    }
+    return end;
+  };
+  const binding = (start, end) => {
+    if (tokens[start] === '...') start += 1;
+    end = findTop(start, end, ['=']);
+    if (start >= end) return;
+    if (identifier(tokens[start]) && start + 1 === end) {
+      names.add(tokens[start]);
+      return;
+    }
+    const kind = tokens[start];
+    if (!['{', '['].includes(kind) || pairs.get(start) !== end - 1) return;
+    for (let item = start + 1; item < end - 1;) {
+      const stop = findTop(item, end - 1, [',']);
+      const colon = kind === '{' ? findTop(item, stop, [':']) : stop;
+      binding(colon < stop ? colon + 1 : item, stop);
+      item = stop + 1;
+    }
+  };
+  const parameters = (open, close) => {
+    for (let item = open + 1; item < close;) {
+      const stop = findTop(item, close, [',']);
+      binding(item, stop);
+      item = stop + 1;
+    }
+  };
+  const control = new Set(['if', 'for', 'while', 'switch', 'with']);
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (tokens[i] === '=>') {
+      if (tokens[i - 1] === ')' && pairs.has(i - 1)) parameters(pairs.get(i - 1), i - 1);
+      else if (identifier(tokens[i - 1])) names.add(tokens[i - 1]);
+    }
+    // Function declarations/expressions, methods and catch bindings all have
+    // a parameter list followed by a body. Control-flow conditions do not.
+    if (tokens[i] === '(' && pairs.has(i)) {
+      const close = pairs.get(i);
+      const previous = tokens[i - 1];
+      if (tokens[close + 1] === '{' && !control.has(previous)
+        && (identifier(previous) || previous === ']' || previous === '*')) {
+        if (identifier(previous)) names.add(previous);
+        parameters(i, close);
+      }
+    }
+    if (['const', 'let', 'var'].includes(tokens[i])) {
+      let start = i + 1;
+      while (start < tokens.length) {
+        const end = findTop(start, tokens.length, ['=', ',', ';', ')', 'in', 'of']);
+        binding(start, end);
+        const next = tokens[end] === '='
+          ? findTop(end + 1, tokens.length, [',', ';', ')', 'in', 'of']) : end;
+        if (tokens[next] !== ',') break;
+        start = next + 1;
+      }
+    }
+  }
 }
 
 function makeLineCounter(src) {
