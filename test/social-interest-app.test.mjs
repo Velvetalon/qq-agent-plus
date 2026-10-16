@@ -207,4 +207,79 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
   await runBoundary('read tool batch budget', { maxModelCalls: 12, maxRunTokens: 160000 }, () => response({ tool_calls:
     Array.from({ length: 5 }, (_, index) => ({ id: 'budget-read-' + index, type: 'function', function: { name: 'public_read', arguments: '{}' } }))
   }), 1, 4);
+
+  // A-H04: one uninterrupted production trajectory, including app recreation.
+  clock += 1800000;
+  settings = (await status()).body.interests;
+  settings = (await save(settings, { maxRunTokens: 40000, maxModelCalls: 4,
+    sources: [{ ...settings.sources[0], text: '共同关注重启后验证的独立资料。' }] })).body.interests;
+  const recovered = await opportunity(settings, 'Discuss the independent post restart observation');
+  assert.equal(recovered.status, 200);
+  await app.stop(); app = null; await open();
+  assert.equal((await status()).body.intents.find((item) => item.id === recovered.body.intent.id).status, 'pending');
+  interestRef = app.orchestrator.getSocialState('group:1').interests.ref({ accountId: '888', chatKey: 'group:1' }, 'astronomy');
+  let attempted = 0;
+  app.onebot.sendText = async () => {
+    attempted += 1;
+    if (attempted === 1) return { message_id: 20001 };
+    throw new Error('socket hang up'); // the peer might have accepted the second part
+  };
+  phase = 0; clock += 1001;
+  onModel = () => phase === 2 ? response({ tool_calls: [{ id: 'partial-interest', type: 'function',
+    function: { name: 'send_message', arguments: JSON.stringify({ messages: ['Confirmed public observation.', 'Potentially delivered detail.'] }) } }] }) : null;
+  const beforePartial = modelCalls;
+  await app.orchestrator.runSocialIntentTick(); onModel = null;
+  assert.equal(modelCalls - beforePartial, 3);
+  assert.equal(attempted, 2);
+  assert.equal((await status()).body.intents.find((item) => item.id === recovered.body.intent.id).status, 'held');
+  assert.equal(completions.at(-1).deliveryState, 'partial');
+  const partialSession = app.sessions.get(completions.at(-1).sessionId);
+  assert.equal(partialSession.socialAudit.delivered, true);
+  const effects = app.store.listRunEffects(partialSession.leaseId);
+  // completeRun releases confirmed outbox rows, retaining their chat archive.
+  assert.ok(partialSession.outbound.effects.some((effect) => effect.state === 'sent'));
+  assert.ok(app.store.recent('group:1').some((entry) => entry.self && entry.text === 'Confirmed public observation.'));
+  assert.ok(effects.some((effect) => effect.state === 'unknown'));
+  await app.stop(); app = null; await open();
+  clock += 180000;
+  await app.orchestrator.runSocialIntentTick();
+  assert.equal(modelCalls - beforePartial, 3, 'unknown remainder is not replayed after another restart');
+  assert.equal((await status()).body.intents.find((item) => item.id === recovered.body.intent.id).status, 'held');
+  assert.ok(app.store.recent('group:1').some((entry) => entry.self && entry.text === 'Confirmed public observation.'));
+
+  // A-H03: quiet ticks remain local; a genuinely new human event still runs.
+  mode = 'listen';
+  await app.onebot.onEvent({ post_type: 'message', message_type: 'group', self_id: 888, group_id: 1,
+    user_id: 42, message_id: 102, time: Math.floor(clock / 1000), sender: { user_id: 42, nickname: 'synthetic-member' },
+    message: 'A new related astronomy question.', raw_message: 'A new related astronomy question.' });
+  sourceId = String(app.store.recent('group:1', { limit: 1 })[0].id);
+  await app.orchestrator.wake('group:1');
+  assert.equal(modelCalls - beforePartial, 4);
+  assert.equal(app.store.unreadCount('group:1'), 0);
+  await app.orchestrator.runSocialIntentTick();
+  assert.equal(modelCalls - beforePartial, 4, 'a silent completed response does not create a follow-up loop');
+  let replyPhase = 0;
+  onModel = () => {
+    replyPhase += 1;
+    if (replyPhase === 1) return response({ content: JSON.stringify({ action: 'reply', topicId,
+      sourceMessageIds: [sourceId], targetMessageIds: [sourceId], sourceRefs: [], goal: 'Answer the current astronomy question', novelty: 'Adds relevant information', initiative: null }) });
+    if (replyPhase === 2) return response({ tool_calls: [{ id: 'ordinary-reply', type: 'function',
+      function: { name: 'send_message', arguments: JSON.stringify({ messages: 'A direct answer to the astronomy question.' }) } }] });
+    return response({ content: 'done' });
+  };
+  const incoming = async (mid) => {
+    await app.onebot.onEvent({ post_type: 'message', message_type: 'group', self_id: 888, group_id: 1,
+      user_id: 42, message_id: mid, time: Math.floor(clock / 1000), sender: { user_id: 42, nickname: 'synthetic-member' },
+      message: 'Please clarify this astronomy observation.', raw_message: 'Please clarify this astronomy observation.' });
+    sourceId = String(app.store.recent('group:1', { limit: 1 })[0].id);
+  };
+  const beforeReplySends = sends;
+  await incoming(103); await app.orchestrator.wake('group:1'); onModel = null;
+  assert.equal(sends, beforeReplySends + 1, JSON.stringify(app.sessions.listSummaries(2)));
+  const afterReplyCalls = modelCalls;
+  await app.orchestrator.runSocialIntentTick();
+  assert.equal(modelCalls, afterReplyCalls, 'ordinary reply with no response does not self-wake');
+  await incoming(104); await app.orchestrator.wake('group:1');
+  assert.equal(modelCalls, afterReplyCalls + 1, 'new related human input still reaches the planner');
+  assert.equal(app.store.unreadCount('group:1'), 0);
 });
