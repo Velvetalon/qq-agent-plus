@@ -31,6 +31,29 @@ profile in SQLite before ordering by `vec_distance_cosine()`. The same service
 is used by automatic context retrieval, the semantic Notebook tool, and
 reflection-related note input.
 
+## Query contract
+
+Automatic context, `notebook_search` with a nonempty query, and Reflection all
+use ready vectors. Disabled/unconfigured embedding, missing indexes, cancellation
+or provider failure never select lexical matches or the latest eight notes.
+Ordinary scoped listing (`notebook_search` without query) and precise current
+reads (`notebook_search` with `noteId`) remain available without embedding.
+Exact reads return complete content and revision; semantic hits return snippets,
+`isTruncated`, scope, chatKey, exact tags, distance and `rankingSource`.
+
+Tags are exact values; scope and tags constrain ready candidates before a query
+request. Search never consumes document indexing jobs. Cancellation and late
+results from replaced profiles/clients are rejected. Reflection may continue
+without old notes and records the degradation reason.
+
+Embedding configuration accepts `maxQueryChars` (64–16000, default 4000) to bound
+query text while retaining its latest end, and `maxDistance` (0–2, default 1) as
+an exclusive cosine-distance cutoff. These are query policies, not vector
+identity; changing them does not rebuild notes. Set the character bound to fit
+the approved provider's actual input budget, accounting for configured prefixes.
+The default distance is **not calibrated semantic accuracy**. Diagnostics report
+the bound/truncation and threshold; actual model calibration is LIVE_NOT_RUN.
+
 ## Rollback
 
 Disable retrieval/reflection or remove the embedding configuration. Existing

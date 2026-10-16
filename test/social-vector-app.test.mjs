@@ -30,6 +30,7 @@ test('A-H05 real app vector consumers reject archived memory in queued and subse
   updateConfig(cfg);
   const originalFetch = globalThis.fetch;
   let app, sourceId, phase = 0, sends = 0, embeddingCalls = 0, archiveQueued = false, muteQueued = false, note, silentEpisode = false;
+  let embeddingFailure = false;
   const requests = [], reflections = [], toolResults = [], replyPrompts = [];
   const marker = 'SYNTHETIC_OBSERVATORY_EPISODE';
   const response = (message) => Response.json({ choices: [{ message }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } });
@@ -39,6 +40,7 @@ test('A-H05 real app vector consumers reject archived memory in queued and subse
     const body = options?.body ? JSON.parse(options.body) : null;
     if (host === 'vector-embedding.invalid') {
       embeddingCalls += 1;
+      if (embeddingFailure) return Response.json({ error: 'synthetic provider unavailable' }, { status: 503 });
       const inputs = Array.isArray(body.input) ? body.input : [body.input];
       return Response.json({ data: inputs.map((_input, index) => ({ index, embedding: [1, 0] })), usage: { total_tokens: 2 } });
     }
@@ -61,7 +63,7 @@ test('A-H05 real app vector consumers reject archived memory in queued and subse
     if (phase === 1) return response({ tool_calls: [{ id: 'search-' + sourceId, type: 'function', function: { name: 'notebook_search', arguments: JSON.stringify({ query: 'observatory', limit: 5 }) } }] });
     if (phase === 2) {
       const result = body.messages.findLast((item) => item.role === 'tool');
-      toolResults.push(JSON.parse(result.content));
+      try { toolResults.push(JSON.parse(result.content)); } catch { toolResults.push({ error: result.content }); }
       return response({ content: JSON.stringify({ action: 'reply', topicId: null, topic: 'observatory', sourceMessageIds: [sourceId], targetMessageIds: [sourceId], sourceRefs: [], goal: 'Answer the observatory question', novelty: 'Explain the observation', initiative: null }) });
     }
     if (phase === 3) {
@@ -84,8 +86,8 @@ test('A-H05 real app vector consumers reject archived memory in queued and subse
   app.onebot.sendText = async () => ({ message_id: ++sends + 10000 });
   await app.start();
   const registration = (id) => app.orchestrator.pluginManager.registry.getRegistrations().find((entry) => entry.plugin.id === id).plugin;
-  const notebook = registration('self-evolution').getStore();
-  const worker = registration('self-evolution-reflection').getWorker();
+  let notebook = registration('self-evolution').getStore();
+  let worker = registration('self-evolution-reflection').getWorker();
   note = notebook.append({ accountId: '888', scope: 'chat', chatKey: 'group:1', currentChatKey: 'group:1',
     content: 'We discussed an observatory visit. ' + marker, tags: ['experience'],
     source: { kind: 'chat', accountId: '888', chatKey: 'group:1', sessionId: 'synthetic-seed', runId: 'synthetic-seed' }, idempotencyKey: 'seed-episode' }).note;
@@ -203,4 +205,48 @@ test('A-H05 real app vector consumers reject archived memory in queued and subse
   assert.equal(forwardedEvidence.sourceRecordType, 'forward');
   assert.equal(forwardedEvidence.userEvidence, false);
   assert.ok(!reflectionInput.traitEvidencePool.some((entry) => entry.sourceRef === forwardedEvidence.sourceRef));
+  // F4: disabling embedding must not silently select lexical/recent memories.
+  const beforeDisabled = embeddingCalls;
+  const disabledResponse = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-console-token': cfg.server.token, connection: 'close' },
+    body: JSON.stringify({ selfEvolution: { retrieval: { embedding: { enabled: false } } } })
+  });
+  assert.equal(disabledResponse.status, 200, await disabledResponse.text());
+  notebook = registration('self-evolution').getStore();
+  worker = registration('self-evolution-reflection').getWorker();
+  silentEpisode = false;
+  await run(108);
+  const disabledTool = toolResults.at(-1);
+  const disabledReflection = JSON.parse(reflections.at(-1).split('\nReflectionInput: ')[1]);
+  assert.deepEqual({ tool: disabledTool.notes.length, reflection: disabledReflection.notebook.length,
+    automatic: replyPrompts.at(-1).includes('SILENT_EPISODE') }, { tool: 0, reflection: 0, automatic: false });
+  assert.ok(disabledTool.degradationReason);
+  assert.ok(disabledReflection.diagnostics.retrieval.reason);
+  assert.equal(embeddingCalls, beforeDisabled);
+  const reconfigure = async (embedding) => {
+    const response = await fetch(`http://127.0.0.1:${port}/api/config`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-console-token': cfg.server.token, connection: 'close' },
+      body: JSON.stringify({ selfEvolution: { retrieval: { embedding } } })
+    });
+    assert.equal(response.status, 200, await response.text());
+    notebook = registration('self-evolution').getStore(); worker = registration('self-evolution-reflection').getWorker();
+  };
+  await reconfigure({ enabled: true, allowQuery: false });
+  await notebook.processEmbeddingQueue();
+  const beforeDenied = embeddingCalls;
+  await run(109);
+  assert.equal(toolResults.at(-1).degradationReason, 'external-disallowed');
+  let input = JSON.parse(reflections.at(-1).split('\nReflectionInput: ')[1]);
+  assert.deepEqual(input.notebook, []); assert.equal(input.diagnostics.retrieval.reason, 'external-disallowed');
+  assert.ok(!replyPrompts.at(-1).includes('SILENT_EPISODE'));
+  assert.equal(embeddingCalls, beforeDenied);
+  await reconfigure({ allowQuery: true });
+  await notebook.processEmbeddingQueue(); embeddingFailure = true;
+  await run(110);
+  assert.ok(toolResults.at(-1).error);
+  input = JSON.parse(reflections.at(-1).split('\nReflectionInput: ')[1]);
+  assert.deepEqual(input.notebook, []); assert.equal(input.diagnostics.retrieval.reason, 'retrieval-failed');
+  assert.ok(!replyPrompts.at(-1).includes('SILENT_EPISODE'));
+
+
 });

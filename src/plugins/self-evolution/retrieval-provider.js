@@ -1,9 +1,5 @@
 import { DATA_DIR } from '../../core/config.js';
 import {
-  createMemoryIndexAdapter,
-  RetrievalService
-} from '../../features/retrieval.js';
-import {
   NotebookStore,
   notebookDatabasePath
 } from './notebook-store.js';
@@ -134,7 +130,6 @@ function cloned(value) {
  */
 export class SelfEvolutionRetrievalProvider {
   #audits = new Map();
-  #services = new Map();
 
   constructor({
     getStore = null,
@@ -227,16 +222,13 @@ export class SelfEvolutionRetrievalProvider {
         return { blocks: [], audit, diagnostics: { reason: audit.reason } };
       }
 
-      const adapterCanIndex = !this.embeddingAdapter
-        || typeof this.embeddingAdapter.embedNote === 'function';
-      const embeddingRequested = selected.embedding?.enabled === true && adapterCanIndex;
-      if (embeddingRequested && typeof notebook.setEmbeddingServices === 'function') {
+      if (typeof notebook.setEmbeddingServices === 'function') {
         notebook.setEmbeddingServices({
           config: selected.embedding,
           embeddingClient: this.embeddingAdapter || notebook.embeddingClient
         });
       }
-      if (embeddingRequested && typeof notebook.semanticSearch === 'function') {
+      if (typeof notebook.semanticSearch === 'function') {
         const result = await notebook.semanticSearch({
           accountId,
           chatKey,
@@ -282,6 +274,11 @@ export class SelfEvolutionRetrievalProvider {
             materialRefs: [materialRef],
             noteId: meta.noteId,
             revision: meta.revision,
+            scope: block.scope,
+            chatKey: block.chatKey,
+            tags: block.tags,
+            distance: block.distance,
+            isTruncated: block.isTruncated === true || snippet.length < text(block.snippet).length,
             snippet,
             rankingSource: meta.rankingSource,
             budget: meta.budget,
@@ -314,106 +311,7 @@ export class SelfEvolutionRetrievalProvider {
         return { blocks, audit, diagnostics: audit.diagnostics };
       }
 
-      // NotebookStore performs the authoritative account/scope/status
-      // filtering. RetrievalService repeats visibility checks before ranking.
-      const pageSize = Math.max(1, Number(notebook.limits?.maxSearchLimit) || 100);
-      const notes = [];
-      for (let offset = 0; offset < 1000; offset += pageSize) {
-        const visible = notebook.search({
-          accountId,
-          currentChatKey: chatKey,
-          query: '',
-          limit: pageSize,
-          offset,
-          includeArchived: false,
-          admin: false
-        });
-        const page = Array.isArray(visible?.notes) ? visible.notes : [];
-        notes.push(...page);
-        if (page.length < pageSize) break;
-      }
-      const service = this.#serviceFor(selected, notes);
-      const result = await service.search({
-        query,
-        accountId,
-        chatKey,
-        maxNotes: selected.maxNotes,
-        maxChars: selected.maxChars,
-        maxSnippetChars: selected.maxSnippetChars,
-        now: this.now(),
-        signal: services?.signal || runContext?.signal || null
-      });
-      let usedChars = 0;
-      const blocks = [];
-      for (const block of (result.contextBlocks || [])) {
-        const materialRef = currentMaterialRef(notebook, {
-          accountId,
-          chatKey,
-          noteId: text(block.noteId),
-          revision: block.revision
-        });
-        if (!materialRef) continue;
-        const meta = {
-          noteId: text(block.noteId),
-          revision: block.revision ?? null,
-          scope: materialRef.scope,
-          visibility: materialRef.visibility,
-          policyVersion: materialRef.policyVersion,
-          materialRef,
-          rankingSource: text(block.rankingSource || 'lexical'),
-          chars: text(block.snippet).length,
-          budget: block.budget || null,
-          degradationReason: block.degradationReason || null
-        };
-        const prefix = `【过去保存的信息】\n${HISTORICAL_WARNING}\n- `;
-        const remaining = Math.max(0, selected.maxChars - usedChars - prefix.length);
-        if (remaining <= 0) break;
-        const snippet = text(block.snippet).slice(0, remaining);
-        if (!snippet) continue;
-        const rendered = {
-          id: `${this.id}:${meta.noteId}:${meta.revision}`,
-          title: '历史 Notebook 参考',
-          text: `${prefix}${snippet}`.trim(),
-          sourceRefs: [`notebook:${meta.noteId}@${meta.revision}`, sourceRef(meta)],
-          materialRefs: [materialRef],
-          noteId: meta.noteId,
-          revision: meta.revision,
-          snippet,
-          rankingSource: meta.rankingSource,
-          budget: meta.budget,
-          degradationReason: meta.degradationReason
-        };
-        usedChars += text(rendered.text).length;
-        blocks.push(rendered);
-      }
-      audit = {
-        ...audit,
-        reason: blocks.length > 0
-          ? ''
-          : (Number(result.diagnostics?.matchCount) === 0 ? 'no-matches' : (result.degradationReason || 'degraded')),
-        hitNoteIds: blocks.map((block) => text(block.sourceRefs?.[0]).replace(/^notebook:/, '').split('@')[0]),
-        hits: blocks.map((block) => {
-          const meta = parseSourceRef(block.sourceRefs);
-          return {
-            noteId: meta?.noteId || '',
-            revision: meta?.revision ?? block.revision ?? null,
-            rankingSource: meta?.rankingSource || 'lexical',
-            snippetChars: Number(meta?.chars) || 0
-          };
-        }),
-        injectedChars: blocks.reduce((total, block) => total + text(block.text).length, 0),
-        budget: result.budget,
-        degradationReasons: result.degradationReasons || [],
-        zeroHit: blocks.length === 0,
-        diagnostics: {
-          ...(result.diagnostics || {}),
-          filtered: result.filtered || {},
-          candidateCount: Number(result.diagnostics?.candidateCount) || notes.length,
-          matchCount: Number(result.diagnostics?.matchCount) || blocks.length
-        }
-      };
-      this.#rememberAudit(runContext, audit);
-      return { blocks, audit, diagnostics: audit.diagnostics };
+      throw new Error('semantic-retrieval-unavailable');
     } catch (error) {
       audit = {
         ...audit,
@@ -438,39 +336,6 @@ export class SelfEvolutionRetrievalProvider {
     if (sessionId) this.#audits.set(sessionId, cloned(audit));
   }
 
-  #serviceFor(selected, notes) {
-    const embedding = selected.embedding && typeof selected.embedding === 'object'
-      ? selected.embedding
-      : {};
-    const key = JSON.stringify({
-      enabled: embedding.enabled === true,
-      provider: text(embedding.provider),
-      model: text(embedding.model),
-      dimension: Number(embedding.dimension) || 0,
-      allowPrivate: embedding.allowPrivate === true,
-      allowQuery: embedding.allowQuery === true
-    });
-    let entry = this.#services.get(key);
-    if (!entry) {
-      const index = createMemoryIndexAdapter(notes);
-      entry = {
-        index,
-        service: new RetrievalService({
-          index,
-          embeddingAdapter: this.embeddingAdapter,
-          embedding,
-          now: this.now,
-          maxNotes: selected.maxNotes,
-          maxChars: selected.maxChars,
-          maxSnippetChars: selected.maxSnippetChars
-        })
-      };
-      this.#services.set(key, entry);
-    } else {
-      entry.index.replace(notes);
-    }
-    return entry.service;
-  }
 }
 
 export function createSelfEvolutionRetrievalProvider(options = {}) {

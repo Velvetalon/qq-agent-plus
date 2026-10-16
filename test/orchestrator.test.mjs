@@ -1,3 +1,4 @@
+import { fixtureEmbeddingConfig, fixtureEmbeddingClient, indexFixtureNotes } from './helpers/notebook-vector-fixture.mjs';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import fs from 'node:fs';
@@ -198,10 +199,10 @@ describe('Orchestrator', () => {
     const dataDir = fs.mkdtempSync(path.join(root, 'retrieval-run-'));
     cfg.selfEvolution = {
       enabled: true,
-      retrieval: { enabled: false }
+      retrieval: { enabled: false, embedding: fixtureEmbeddingConfig }
     };
     setRuntimeConfig(cfg);
-    const plugin = createSelfEvolutionPlugin({ dataDir });
+    const plugin = createSelfEvolutionPlugin({ dataDir, embeddingClient: fixtureEmbeddingClient });
     const retrievalPlugin = createSelfEvolutionRetrievalPlugin({
       dataDir,
       getStore: () => plugin.getStore()
@@ -243,6 +244,7 @@ describe('Orchestrator', () => {
       idempotencyKey: 'orchestrator-retrieval-note',
       currentChatKey: 'group:1'
     });
+    await indexFixtureNotes(notebook);
     cfg.selfEvolution.retrieval.enabled = true;
     setRuntimeConfig(cfg);
     append(2, 'Alice');
@@ -1190,12 +1192,12 @@ describe('Orchestrator', () => {
     cfg.conversation.groupModes = { 1: 'lifecycle' };
     cfg.selfEvolution = {
       enabled: true,
-      retrieval: { enabled: true }
+      retrieval: { enabled: true, embedding: fixtureEmbeddingConfig }
     };
     cfg.store.contextTier = 1;
     cfg.store.randomPercent = 0;
     const retrievalDataDir = fs.mkdtempSync(path.join(root, 'lifecycle-retrieval-'));
-    const retrievalPlugin = createSelfEvolutionPlugin({ dataDir: retrievalDataDir });
+    const retrievalPlugin = createSelfEvolutionPlugin({ dataDir: retrievalDataDir, embeddingClient: fixtureEmbeddingClient });
     const retrievalContextPlugin = createSelfEvolutionRetrievalPlugin({
       dataDir: retrievalDataDir,
       getStore: () => retrievalPlugin.getStore()
@@ -1267,6 +1269,7 @@ describe('Orchestrator', () => {
       idempotencyKey: 'lifecycle-retrieval-note',
       currentChatKey: 'group:1'
     });
+    await indexFixtureNotes(retrievalPlugin.getStore());
     append(2, 'Alice', '99');
     await runner.wake('group:1');
 

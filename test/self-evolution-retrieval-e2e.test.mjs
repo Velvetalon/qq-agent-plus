@@ -1,3 +1,4 @@
+import { fixtureEmbeddingConfig, fixtureEmbeddingClient, indexFixtureNotes } from './helpers/notebook-vector-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -38,6 +39,7 @@ function fixture(t) {
     enabled: true,
     retrieval: {
       enabled: true,
+      embedding: fixtureEmbeddingConfig,
       maxNotes: 5,
       maxChars: 2400,
       maxSnippetChars: 600
@@ -78,7 +80,7 @@ function fixture(t) {
       getGroupInfo: async () => ({ group_name: 'closure-group' })
     }
   });
-  const plugin = createSelfEvolutionPlugin({ dataDir });
+  const plugin = createSelfEvolutionPlugin({ dataDir, embeddingClient: fixtureEmbeddingClient });
   const retrievalPlugin = createSelfEvolutionRetrievalPlugin({
     dataDir,
     getStore: () => plugin.getStore()
@@ -165,6 +167,7 @@ test('Notebook survives close/reopen and reaches a real Orchestrator model reque
       currentChatKey: 'group:100',
       idempotencyKey: 'closure-irrelevant'
     });
+    await indexFixtureNotes(notebook);
     await runner.stopPlugins();
     await runner.startPlugins();
     assert.notEqual(plugin.getStore(), notebook);
@@ -219,6 +222,7 @@ test('Notebook survives close/reopen and reaches a real Orchestrator model reque
       currentChatKey: 'group:100',
       idempotencyKey: 'closure-revision'
     });
+    await indexFixtureNotes(reopened);
     const oldQuery = await provider.provide({
       ...context,
       sessionId: 'old-query',

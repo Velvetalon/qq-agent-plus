@@ -26,6 +26,22 @@ import { NOTEBOOK_POLICY_VERSION } from '../src/plugins/self-evolution/notebook-
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-p2-retrieval-'));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
+
+// Synthetic vectors verify pipeline/scoping only, not semantic understanding.
+const vectorConfig = { enabled: true, provider: 'fixture', model: 'fixture-4d', dimension: 4, allowQuery: true, allowPrivate: true };
+function vector(value) {
+  const text = String(value);
+  if (/unrelated|无关/.test(text)) return [-1, 0, 0, 0];
+  if (/old/.test(text)) return [0, 1, 0, 0];
+  if (/new/.test(text)) return [0, 0, 0, 1];
+  if (/摄影/.test(text)) return [0, 0, 1, 0];
+  return [1, 0, 0, 0];
+}
+const vectorClient = { isConfigured: () => true, authorizeNote: async () => true, authorizeQuery: async () => true,
+  embedNote: async ({ text }) => vector(text), embedQuery: async ({ query }) => vector(query) };
+function vectorStore(options) { return new NotebookStore({ ...options, embeddingConfig: vectorConfig, embeddingClient: vectorClient }); }
+async function index(store) { while ((await store.processEmbeddingQueue({ limit: 200 })).processed) {} }
+
 let sequence = 0;
 function dataDir(label = 'case') {
   return path.join(root, `${label}-${++sequence}`);
@@ -46,7 +62,7 @@ function config(overrides = {}) {
   return {
     selfEvolution: {
       enabled: true,
-      retrieval: { enabled: true },
+      retrieval: { enabled: true, embedding: vectorConfig },
       ...overrides
     }
   };
@@ -120,7 +136,7 @@ test('fully disabled self-evolution has no database or provider side effects', a
 test('append, close, reopen, and retrieve returns one current-account chat block', async () => {
   const dir = dataDir('reopen');
   const filename = notebookDatabasePath(dir);
-  const store = new NotebookStore({ dataDir: dir, filename });
+  const store = vectorStore({ dataDir: dir, filename });
   const created = store.append({
     accountId: 'bot-a',
     scope: 'chat',
@@ -130,9 +146,10 @@ test('append, close, reopen, and retrieve returns one current-account chat block
     idempotencyKey: 'append-one',
     currentChatKey: 'group:1'
   });
+  await index(store);
   store.close();
 
-  const provider = createSelfEvolutionRetrievalProvider({ dataDir: dir, filename });
+  const provider = createSelfEvolutionRetrievalProvider({ dataDir: dir, filename, embeddingAdapter: vectorClient });
   const result = await provide(provider, { query: 'Alice' });
   assert.equal(result.blocks.length, 1);
   assert.equal(result.blocks[0].noteId, created.note.id);
@@ -146,7 +163,7 @@ test('append, close, reopen, and retrieve returns one current-account chat block
 
 test('irrelevant notes, account namespaces, and chat scopes do not leak into recall', async () => {
   const dir = dataDir('scope');
-  const store = new NotebookStore({
+  const store = vectorStore({
     dataDir: dir,
     limits: { maxWritesPerRun: 200, maxSearchLimit: 100 }
   });
@@ -185,6 +202,7 @@ test('irrelevant notes, account namespaces, and chat scopes do not leak into rec
     currentChatKey: 'group:1'
   });
 
+  await index(store);
   const provider = createSelfEvolutionRetrievalProvider({ store });
   const one = await provide(provider, {
     accountId: 'bot-a',
@@ -219,7 +237,7 @@ test('irrelevant notes, account namespaces, and chat scopes do not leak into rec
 
 test('archive and revisions invalidate later recall', async () => {
   const dir = dataDir('revision');
-  const store = new NotebookStore({ dataDir: dir });
+  const store = vectorStore({ dataDir: dir });
   const created = store.append({
     accountId: 'bot-a',
     scope: 'chat',
@@ -229,6 +247,7 @@ test('archive and revisions invalidate later recall', async () => {
     idempotencyKey: 'revision-append',
     currentChatKey: 'group:1'
   });
+  await index(store);
   const provider = createSelfEvolutionRetrievalProvider({ store });
   assert.equal((await provide(provider, { query: 'old' })).blocks.length, 1);
   const updated = store.update({
@@ -240,6 +259,7 @@ test('archive and revisions invalidate later recall', async () => {
     currentChatKey: 'group:1',
     idempotencyKey: 'revision-update'
   });
+  await index(store);
   const current = await provide(provider, { query: 'new' });
   assert.equal(current.blocks[0].revision, updated.revision);
   assert.equal((await provide(provider, { query: 'old' })).blocks.length, 0);
@@ -255,9 +275,9 @@ test('archive and revisions invalidate later recall', async () => {
   store.close();
 });
 
-test('retrieval pages visible notes so an older relevant note remains a candidate', async () => {
+test('ready vector retrieval includes an older relevant note beyond the first list page', async () => {
   const dir = dataDir('paged-candidates');
-  const store = new NotebookStore({
+  const store = vectorStore({
     dataDir: dir,
     limits: { maxWritesPerRun: 200, maxSearchLimit: 100 }
   });
@@ -279,6 +299,7 @@ test('retrieval pages visible notes so an older relevant note remains a candidat
       currentChatKey: 'group:1'
     });
   }
+  await index(store);
   const provider = createSelfEvolutionRetrievalProvider({ store });
   const result = await provide(provider, {
     accountId: 'bot-a',
@@ -289,7 +310,7 @@ test('retrieval pages visible notes so an older relevant note remains a candidat
   store.close();
 });
 
-test('embedding disabled or failed keeps lexical recall and avoids repeated external calls', async () => {
+test('embedding disabled or unready returns zero recall without lexical fallback', async () => {
   let disabledCalls = 0;
   const disabledDir = dataDir('embedding-disabled');
   const disabledStore = new NotebookStore({ dataDir: disabledDir });
@@ -317,7 +338,8 @@ test('embedding disabled or failed keeps lexical recall and avoids repeated exte
       embedding: { enabled: false, provider: 'p', model: 'm', dimension: 2 }
     }
   }));
-  assert.equal(disabled.blocks.length, 1);
+  assert.equal(disabled.blocks.length, 0);
+  assert.ok(disabled.audit.reason);
   assert.equal(disabledCalls, 0);
   disabledStore.close();
 
@@ -352,8 +374,8 @@ test('embedding disabled or failed keeps lexical recall and avoids repeated exte
       embedding: { enabled: true, provider: 'p', model: 'm', dimension: 2 }
     }
   });
-  assert.equal((await provide(failedProvider, { query: 'lexical' }, failedConfig)).blocks.length, 1);
-  assert.equal((await provide(failedProvider, { query: 'lexical' }, failedConfig)).blocks.length, 1);
-  assert.equal(failedCalls, 1);
+  assert.equal((await provide(failedProvider, { query: 'lexical' }, failedConfig)).blocks.length, 0);
+  assert.equal((await provide(failedProvider, { query: 'lexical' }, failedConfig)).blocks.length, 0);
+  assert.equal(failedCalls, 0, 'no ready candidates means no remote query');
   failedStore.close();
 });

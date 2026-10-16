@@ -120,7 +120,8 @@ function makeTools(getStore) {
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '可选关键词；不填则列出可见 Notebook' },
+          query: { type: 'string', description: '语义查询，仅搜索当前 ready 向量；不可用时返回原因和零条。不填则普通列表' },
+          noteId: { type: 'string', description: '精确读取完整当前正文与 revision，不调用 embedding；更新旧笔记前使用' },
           tags: { type: 'array', items: { type: 'string' }, description: '可选标签过滤' },
           scope: { type: 'string', enum: ['global', 'chat'], description: '可选；chat 只能指向当前会话' },
           limit: { type: 'integer', minimum: 1, maximum: 100, description: '最多返回条数，默认 20' }
@@ -137,42 +138,24 @@ function makeTools(getStore) {
         if (!store) return errorResult(new NotebookError('NOTEBOOK_DISABLED', 'self-evolution Notebook 当前未启用'));
         try {
           const source = toolSource(ctx);
-          const vectorStatus = store.embeddingStatus?.() || {};
-          const vectorEnabled = vectorStatus.configured === true
-            || store.embeddingConfig?.enabled === true;
-          const result = args.query
-            ? vectorEnabled
-              ? await store.semanticSearch({
-                accountId: source.accountId,
-                currentChatKey: source.chatKey,
-                chatKey: source.chatKey,
-                query: args.query,
-                scope: args.scope,
-                tags: args.tags,
-                maxNotes: args.limit,
-                maxChars: 2400,
-                maxSnippetChars: 600
+          ctx.signal?.throwIfAborted();
+          if (args.noteId) {
+            if (args.query || args.scope || args.tags?.length) throw new NotebookError('NOTEBOOK_INVALID_ARGUMENT', 'noteId 精确读取不能同时指定 query/scope/tags');
+            const note = store.get({ accountId: source.accountId, currentChatKey: source.chatKey,
+              noteId: args.noteId, includeArchived: false, admin: false });
+            return ok({ notes: note ? [{ ...note, noteId: note.id, isTruncated: false }] : [], mode: 'exact' });
+          }
+          const result = String(args.query || '').trim()
+            ? await store.semanticSearch({
+                accountId: source.accountId, currentChatKey: source.chatKey, chatKey: source.chatKey,
+                query: args.query, scope: args.scope, tags: args.tags, maxNotes: args.limit,
+                maxChars: 2400, maxSnippetChars: 600, signal: ctx.signal
               })
-              : store.search({
-                  accountId: source.accountId,
-                  currentChatKey: source.chatKey,
-                  scope: args.scope,
-                  query: args.query,
-                  tags: args.tags,
-                  limit: args.limit,
-                  includeArchived: false,
-                  admin: false
-                })
             : store.search({
-                accountId: source.accountId,
-                currentChatKey: source.chatKey,
-                scope: args.scope,
-                query: args.query,
-                tags: args.tags,
-                limit: args.limit,
-                includeArchived: false,
-                admin: false
+                accountId: source.accountId, currentChatKey: source.chatKey, scope: args.scope,
+                query: '', tags: args.tags, limit: args.limit, includeArchived: false, admin: false
               });
+          ctx.signal?.throwIfAborted();
           return ok(result);
         } catch (error) {
           return errorResult(error);

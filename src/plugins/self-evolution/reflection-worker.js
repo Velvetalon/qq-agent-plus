@@ -454,7 +454,7 @@ export class ReflectionWorker {
       currentProfile = null;
     }
     let notes = [];
-    let retrievalDiagnostics = { mode: 'list', reason: null };
+    let retrievalDiagnostics = { mode: 'unavailable', reason: 'notebook-unavailable' };
     try {
       const query = Array.isArray(evidence.conversationEvidence)
         ? evidence.conversationEvidence
@@ -464,8 +464,7 @@ export class ReflectionWorker {
           .join('\n')
           .slice(0, 1200)
         : '';
-      if (query && typeof notebook?.semanticSearch === 'function'
-        && notebook.embeddingStatus?.().configured === true) {
+      if (typeof notebook?.semanticSearch === 'function') {
         const semantic = await notebook.semanticSearch({
           accountId: job.accountId,
           chatKey: job.chatKey,
@@ -481,15 +480,6 @@ export class ReflectionWorker {
           mode: 'sqlite-vec',
           reason: semantic?.degradationReason || null
         };
-      } else {
-        notes = notebook?.search?.({
-        accountId: job.accountId,
-        currentChatKey: job.chatKey,
-        query: '',
-        limit: 8,
-        includeArchived: false,
-        admin: false
-        })?.notes || [];
       }
     } catch {
       notes = [];
@@ -574,12 +564,16 @@ export class ReflectionWorker {
           }
         : null,
       notebook: notes.slice(0, 8).map((note) => ({
-        id: String(note.id || ''),
+        id: String(note.noteId || note.id || ''),
         noteId: String(note.noteId || note.id || ''),
         revision: Number(note.revision ?? note.noteRevision) || 0,
         scope: String(note.scope || ''),
         chatKey: String(note.chatKey || ''),
-        content: String(note.content || note.snippet || '').slice(0, 400),
+        snippet: String(note.snippet || '').slice(0, 400),
+        content: String(note.snippet || '').slice(0, 400),
+        isTruncated: note.isTruncated === true || String(note.snippet || '').length > 400,
+        distance: note.distance,
+        rankingSource: note.rankingSource,
         tags: Array.isArray(note.tags) ? note.tags.slice(0, 12) : []
       })),
       diagnostics: {
