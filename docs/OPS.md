@@ -28,7 +28,7 @@ npm run ops -- <子命令>
 | `audit` | `ops/audit-server.sh` | 服务、代码与数据体检：systemd user 服务/定时器、启动补丁链可执行性、全量 js 语法、未定义调用扫描、关键补丁标记、config.json 关键项（密钥只报告有/无）、sqlite 完整性、控制台与协议端运行态、最近日志、主机资源 | 部署后验收；出现问题时用于定位 |
 | `audit-host` | `ops/audit-host.sh` | 主机只读体检：失败单元、内存/磁盘/journald、Docker 容器与重启次数、监听端口、SSH 安全、防火墙、定时任务、可升级包、TLS 证书到期、备份现状 | 接手机器后的检查、例行巡检 |
 | `backup` | `ops/backup-qq-agent-data.sh` | 停止服务数秒 → tar.gz 打包数据目录 → 启动服务 → 仅保留最近 N 份；任何失败路径都会重新启动服务 | 每周定时执行（配合 `.timer`）；重大变更前手动执行 |
-| `scan` | `ops/scan-undefined-calls.py` + `ops/check-undefined-calls.sh` | 将注释/字符串/正则/模板串抹白后，查找「已调用但本文件既未定义也未 import」的函数名；只记录、不阻断（退出码恒为 0） | 修改 `src/*.js` 后；也可挂载到服务 `ExecStartPost` |
+| `scan` | `ops/scan-undefined-calls.py` + `ops/check-undefined-calls.sh` | 将注释/字符串/正则/模板串抹白后，查找「已调用但本文件既未定义也未 import」的函数名；默认只记录，`--strict` 在发现可疑调用时退出 1 | 修改 `src/` 后；也可挂载到服务 `ExecStartPost` |
 | `watch-send` | `ops/watch-send.py` | 监视 outbox 表的 rowid 水位线：基线之后新增 failed 行报 SEND_FAIL，新增成功行报 SEND_OK；同时检查是否再次出现未定义函数事故 | 修复发送链路后的线上验证 |
 | `watch-login` | `ops/watch-login.py` | 每 15 秒轮询协议端 HTTP 端口，直至 QQ 登录成功，随后打印登录信息 / 控制台状态 / 最近日志 | 重启协议端容器或掉线重登后确认恢复 |
 | `guard` | `ops/guard-process-explosion.sh` | 用户进程数超过阈值时清理失控的 bash/grep/tr/sh/sleep 进程树并记录现场（仅 Linux） | 配合 `process-guard.timer` 每 10 分钟执行 |
@@ -50,6 +50,7 @@ node src/ops.js audit --app=. --data=./data
 # 未定义调用扫描：默认带项目已知误报忽略表；传空 --ignore= 可看原始结果
 node src/ops.js scan
 node src/ops.js scan --ignore=
+node src/ops.js scan --strict  # CI 门禁：可疑调用会导致非零退出
 node src/ops.js scan --log="$HOME/qq-agent-undefined-calls.log"   # 有可疑调用时追加记录
 
 # 备份（先预演，再执行；N 默认取 QQ_AGENT_KEEP=4）
@@ -132,7 +133,7 @@ node src/ops.js install-timers --confirm
 
 | 子命令 | 退出码 |
 | --- | --- |
-| `scan` | 恒为 0（只记录、不阻断） |
+| `scan` | 默认 0（只记录）；`--strict` 发现可疑调用时为 1 |
 | `watch-send` | 0 = 工具层成功发出消息；1 = 发送失败或再次出现未定义函数；2 = 超时 |
 | `watch-login` | 0 = 已登录；1 = 超时或缺少令牌 |
 | `backup` / `deploy` / `install-timers` | 0 = 成功；1 = 参数或执行失败（缺少 `--confirm` 亦返回 1） |
@@ -166,6 +167,11 @@ scp user@host:/data/qq-agent/data/messages.sqlite ./messages.sqlite
 控制台。
 
 ## 旧 ops/ 迁移对照
+
+扫描器是文件级启发式检查：识别函数/方法参数、解构绑定和 import，
+不会将解构属性名或默认值表达式中的名称当作声明。它不是完整的词法作用域、
+类型或执行路径分析；模板插值和动态代码也不在检查范围内。扫描通过不能替代
+语法检查、单元测试和主链验收，新增回调不应通过扩大忽略名单来消除告警。
 
 - 命令对应关系见上方子命令一览表；所有默认路径与变量名保持不变；
 - 已知差异：
