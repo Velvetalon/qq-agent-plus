@@ -140,8 +140,8 @@ try {
     message: 'Please explain this astronomy observation.', raw_message: 'Please explain this astronomy observation.' });
   const sourceId = String(app.store.recent('group:1', { limit: 1 })[0].id);
   scriptedModel = () => Response.json({ choices: [{ message: syntheticChatCalls === 1
-    ? { content: JSON.stringify({ action: 'reply', topicId: null, topic: 'Astronomy', targetMessageIds: [sourceId], sourceMessageIds: [sourceId], sourceRefs: [], goal: 'Explain the observation', novelty: 'A new explanation' }) }
-    : { tool_calls: [{ id: 'ui-delivery', type: 'function', function: { name: 'send_message', arguments: JSON.stringify({ messages: 'A queued synthetic answer.' }) } }] }
+    ? { reasoning_content: 'SYNTHETIC_PRIVATE_REASONING', content: JSON.stringify({ action: 'reply', topicId: null, topic: 'Astronomy', targetMessageIds: [sourceId], sourceMessageIds: [sourceId], sourceRefs: [], goal: 'Explain the observation', novelty: 'A new explanation' }) }
+    : { reasoning_content: 'SYNTHETIC_PRIVATE_REASONING', tool_calls: [{ id: 'ui-delivery', type: 'function', function: { name: 'send_message', arguments: JSON.stringify({ messages: 'A queued synthetic answer.' }) } }] }
   }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } });
   const enqueue = app.sender.sendTextBatch.bind(app.sender);
   app.sender.sendTextBatch = (...args) => { cfg.conversation.mode = 'legacy'; updateConfig(cfg); return enqueue(...args); };
@@ -153,6 +153,7 @@ try {
   const sessionResponse = await originalFetch(`http://127.0.0.1:${port}/api/sessions/${session.id}`, { headers: { 'x-console-token': cfg.server.token } });
   const sessionText = await sessionResponse.text();
   assert.ok(!sessionText.includes('SYNTHETIC_MODEL_SECRET'));
+  assert.ok(!sessionText.includes('SYNTHETIC_PRIVATE_REASONING'));
   assert.ok(!sessionText.includes(cfg.server.token));
   await send('Page.navigate', { url: `http://127.0.0.1:${port}` });
   await until(`!!document.querySelector('.tab[data-tab="sessions"]')`);
@@ -172,6 +173,7 @@ try {
   app = createApp({ log: () => {} }); bindProtocolBoundary();
   assert.equal(await app.start(), port);
   assert.equal(app.sessions.get(session.id).socialAudit.delivered, false);
+  assert.ok(!JSON.stringify(app.sessions.get(session.id)).includes('SYNTHETIC_PRIVATE_REASONING'));
   await send('Page.navigate', { url: `http://127.0.0.1:${port}` });
   await until(`!!document.querySelector('.tab[data-tab="sessions"]')`);
   await evaluate(`document.querySelector('.tab[data-tab="sessions"]').click()`);

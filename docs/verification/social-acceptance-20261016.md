@@ -1,11 +1,12 @@
 # Social 91 项验收对照：2026-10-16 本地续作
 
-候选源码/测试 `2899a54`（精确 SHA 与全量门禁见本轮交接）。原始审计
+候选源码/测试 `6ae135a9dff17eb309b3ec4989faaa063834e7b2`（精确 SHA 与全量门禁见本轮交接）。原始审计
 `fb705fc0d54e040949812cea8d68305ce87b2f20` 保留不改；审计分支不是产品版本。
 以下 PASS 只指明确列出的本地契约，不将 mock 模型的选择当作真实语义效果。
 本轮补齐生产装配、发送、向量三消费者、拆批根来源与浏览器重启连续证据。
-真实模型/QQ 为 LIVE_NOT_RUN；服务器为 USER_PAUSED。仍有较早 F4 词法召回
-策略差异，详见交接；此表不宣告 Social 整体完成或可部署。
+真实模型/QQ 为 LIVE_NOT_RUN；服务器为 USER_PAUSED。F4 词法回退差异本轮已修复，三入口仅 ready 向量；
+全量750项通过。全部阶段与最小解锁条件见 [最新交接](../../delay/schedule/2026-10-16-task-card-closure.md)。
+此表不宣告 Social 整体完成或可部署。
 测试文件均位于 `test/`，浏览器位于 `test/browser/social-interests.mjs`。
 
 | ID | 场景 | 当前结果 | 本次证据 | 限制或仍需核实的契约 |
@@ -80,8 +81,8 @@
 | A-C02 | 新模式参数缺失/非法/极端值 | PASS（本地） | social-console：缺省/极端值，以及 NaN/±Infinity/string/null/object/array 均归一为有界非负整数 | 配置归一化与真实 API；不穷举所有 JavaScript 对象 |
 | A-C03 | 功能从未使用或已关闭时GET状态 | PASS（本地） | social-console 与 interest-app：未用GET不建表；修复social已选但未建表时500 | 使用宿主临时数据库 |
 | A-C04 | 取消既有意图、缺账号、跨chat ID、URL token写入 | PASS（本地） | social-console：取消鉴权/缺账号/跨会话/URL token；interest-app：配置写入作用域和确认 | 真实管理员凭据未使用 |
-| A-C05 | Planner决定回复但guard放弃或投递失败 | PASS（本地） | 真实 Chromium：实际 guarded session 的完整 HTTP 无合成凭据，页面区分 reply 计划/未发送及 guard 原因；management-ui 候选证据/转义 | 检查合成机密标记及页面契约；不宣称证明任意未来模型文本绝不含秘密 |
-| A-C06 | 会话详情、材料来源、候选证据和待办 | PASS（本地） | 真实 Chromium：实际 guarded session 的完整 HTTP 无合成凭据，页面区分 reply 计划/未发送及 guard 原因；management-ui 候选证据/转义 | 检查合成机密标记及页面契约；不宣称证明任意未来模型文本绝不含秘密 |
+| A-C05 | Planner决定回复但guard放弃或投递失败 | PASS（本地） | 真实 Chromium：实际 guarded session 的完整 HTTP 无合成凭据，页面区分 reply 计划/未发送及 guard 原因；实际模型reasoning合成标记不进入HTTP/重启会话；management-ui 候选证据/转义 | 检查合成机密标记及页面契约；不宣称证明任意未来模型文本绝不含秘密 |
+| A-C06 | 会话详情、材料来源、候选证据和待办 | PASS（本地） | 真实 Chromium：实际 guarded session 的完整 HTTP 无合成凭据，页面区分 reply 计划/未发送及 guard 原因；实际模型reasoning合成标记不进入HTTP/重启会话；management-ui 候选证据/转义 | 检查合成机密标记及页面契约；不宣称证明任意未来模型文本绝不含秘密 |
 | A-C07 | 切模式、重启、旧会话浏览、桌面/窄屏 | PASS（本地） | 真实 Chromium：模式回退 → app stop/start → 同一历史 session 重新打开，1440/390px；原兴趣保存/确认/冲突/取消仍通过 | 隔离数据与浏览器 profile；其他无关页面不纳入 Social 验收 |
 | A-H01 | 旧库副本 -> 配置加载 -> createApp -> 状态读取 -> 显式选择social | PASS（本地） | social-app-integration 真实createApp，旧合成库迁移/重启/回退 | 不替代生产迁移验证 |
 | A-H02 | 真实入站 -> lease -> Scene -> Planner -> Context -> Replyer -> sender边界 -> Completion v3 -> ack | PASS（本地） | social-runtime 与 interest-app 真实入站/SQLite/Manager/Orchestrator/Sender/ack | 模型/协议边界模拟 |
