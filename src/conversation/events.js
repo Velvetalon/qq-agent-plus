@@ -9,14 +9,15 @@ export function buildSocialCompletionEvent({
   const audit = session?.socialAudit || {};
   const roots = new Set();
   const evidence = (Array.isArray(triggerEntries) ? triggerEntries : []).slice(-20).map((entry) => {
+    const forwarded = entry?.eventKind === 'forward';
     const interaction = !entry?.self
       ? state?.interactionForMessage?.({ ...scope, messageId: entry.id })
       : null;
-    const originalSourceId = String(interaction?.causalRootId || entry.id || '');
+    const originalSourceId = forwarded ? '' : String(interaction?.causalRootId || entry.id || '');
     if (originalSourceId) roots.add(originalSourceId);
     return {
       evidenceId: `message:${entry.id}`,
-      sourceRecordType: 'message',
+      sourceRecordType: forwarded ? 'forward' : 'message',
       sourceRecordId: String(entry.id || ''),
       messageId: String(entry.id || ''),
       platformMessageId: entry.mid == null ? '' : String(entry.mid),
@@ -36,7 +37,8 @@ export function buildSocialCompletionEvent({
   const sourceInteraction = identityMessageId
     ? state?.interactionForMessage?.({ ...scope, messageId: identityMessageId })
     : null;
-  if (sourceInteraction?.causalRootId) roots.add(String(sourceInteraction.causalRootId));
+  const identityEntry = (triggerEntries || []).find((entry) => String(entry.id) === String(identityMessageId));
+  if (sourceInteraction?.causalRootId && identityEntry?.eventKind !== 'forward') roots.add(String(sourceInteraction.causalRootId));
   for (const [index, entry] of (session?.socialDelivered || []).slice(-8).entries()) {
     evidence.push({
       evidenceId: `outbound:${session.id}:${index}`,

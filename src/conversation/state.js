@@ -84,6 +84,24 @@ export class SocialStateStore {
     return ['social_scope_state', 'social_topics', 'social_messages', 'social_intents', 'social_outcomes'].every((name) => tables.has(name));
   }
 
+  muteStatus(scope, now = this.#time()) {
+    const { accountId, chatKey } = scopeOf(scope);
+    const exists = this.#db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='social_mutes'").get();
+    const row = exists ? this.#db.prepare('SELECT event_at,muted_until FROM social_mutes WHERE account_id=? AND chat_key=?').get(accountId, chatKey) : null;
+    return { muted: Number(row?.muted_until || 0) > now, mutedUntil: Number(row?.muted_until || 0), eventAt: Number(row?.event_at || 0) };
+  }
+
+  observeMute({ accountId, chatKey, eventAt, mutedUntil }) {
+    const scope = scopeOf({ accountId, chatKey });
+    if (!/^group:\d+$/.test(scope.chatKey) || !Number.isSafeInteger(eventAt) || eventAt <= 0
+      || !Number.isSafeInteger(mutedUntil) || mutedUntil < 0) throw fail('INVALID_MUTE', 'Invalid host mute notice');
+    this.#db.exec('CREATE TABLE IF NOT EXISTS social_mutes (account_id TEXT NOT NULL,chat_key TEXT NOT NULL,event_at INTEGER NOT NULL,muted_until INTEGER NOT NULL,PRIMARY KEY(account_id,chat_key))');
+    this.#db.prepare(`INSERT INTO social_mutes VALUES (?,?,?,?) ON CONFLICT(account_id,chat_key)
+      DO UPDATE SET event_at=excluded.event_at,muted_until=excluded.muted_until
+      WHERE excluded.event_at>=social_mutes.event_at`).run(scope.accountId, scope.chatKey, eventAt, mutedUntil);
+    return this.muteStatus(scope);
+  }
+
   #time(value) {
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) return Math.round(n);

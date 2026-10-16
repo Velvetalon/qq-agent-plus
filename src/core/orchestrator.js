@@ -90,7 +90,7 @@ function proactiveWindowState(raw, now) {
 }
 
 
-import { canRun } from './access.js';
+import { canRun, chatAllowed } from './access.js';
 import { assertTimeAllowed, isTimeActive, TimeControlError, watchTimeWindow, withTimeScope } from './time-gate.js';
 import { vendorOfConfig } from '../pricing/model-prices.js';
 import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey, sanitizeUserText } from './util.js';
@@ -475,6 +475,10 @@ export class Orchestrator {
   }
 
   #chatRuntimeDecision(chatKey) {
+    if (conversationConfigForChat(chatKey).mode === 'social'
+      && this.getSocialState(chatKey)?.muteStatus(this.#socialScope(chatKey)).muted) {
+      return { allowed: false, mode: 'social', effectiveState: 'blocked', reason: '宿主账号当前在群内被禁言' };
+    }
     const meta = this.store.getChatMeta(chatKey);
     const pilot = this.getIncidentPilot();
     if (pilot?.active) return pilot.chatDecision(chatKey, meta);
@@ -523,8 +527,28 @@ export class Orchestrator {
       chatKey: scope.chatKey,
       snapshot: state && initialized ? state.snapshot(scope) : null,
       intents: state && initialized ? state.listIntents(scope) : [],
-      interests: new SocialInterestStore({ db: this.store.db }).read(scope)
+      interests: new SocialInterestStore({ db: this.store.db }).read(scope),
+      mute: (state || new SocialStateStore({ db: this.store.db })).muteStatus(scope)
     };
+  }
+
+  observeSocialMute(event) {
+    const accountId = String(this.onebot.selfId || '');
+    const chatKey = `group:${event?.group_id}`;
+    if (!accountId || String(event?.self_id) !== accountId || String(event?.user_id) !== accountId
+      || !/^group:\d+$/.test(chatKey)
+      || !['ban', 'lift_ban'].includes(event?.sub_type)) return false;
+    const state = this.socialState || new SocialStateStore({ db: this.store.db });
+    if (!(chatAllowed(chatKey) && conversationConfigForChat(chatKey).mode === 'social')
+      && !state.muteStatus({ accountId, chatKey }).eventAt) return false;
+    const eventAt = Number(event.time) * 1000, duration = Number(event.duration);
+    if (!Number.isSafeInteger(eventAt) || eventAt <= 0 || eventAt > Date.now() + 60000
+      || !Number.isSafeInteger(duration) || duration < 0) return false;
+    const mutedUntil = event.sub_type === 'lift_ban' ? 0 : eventAt + duration * 1000;
+    if (!Number.isSafeInteger(mutedUntil)) return false;
+    state.observeMute({ accountId, chatKey, eventAt, mutedUntil });
+    this.emit('social-update', { chatKey });
+    return true;
   }
 
   enforceChatControl(chatKey) {
@@ -2456,7 +2480,7 @@ export class Orchestrator {
     for (let round = 0; round < maxRounds; round += 1) {
       signal.throwIfAborted();
       runSnapshot.signal.throwIfAborted();
-      if (this.aborted || !canRun(chatKey)) throw new Error('Run cancelled');
+      if (this.aborted || !canRun(chatKey) || !this.#chatRuntimeDecision(chatKey).allowed) throw new Error('Run cancelled');
       const exploration = session.socialExploration;
       if (exploration) {
         const state = this.getSocialState(chatKey, { create: false });
@@ -2625,6 +2649,7 @@ export class Orchestrator {
               && typeof ctx.deliveryGuard === 'function') {
               await ctx.deliveryGuard({ payload: { type: 'plugin', text: '' } });
             }
+            if (!this.#chatRuntimeDecision(chatKey).allowed) throw new Error('Social permission changed before tool execution');
             executed = true;
             if (exploration) {
               const state = this.getSocialState(chatKey, { create: false });

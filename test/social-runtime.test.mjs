@@ -711,6 +711,10 @@ test('queued social draft blocks a reply withdrawing its selected target before 
   assert.equal(store.listRunEffects(session.leaseId).length, 0);
   assert.equal(store.recent('group:1', { limit: 1 })[0].text, 'Never mind, I found it.');
   assert.equal(session.socialAudit.delivered, false);
+  const next = store.recent('group:1', { limit: 1 })[0];
+  globalThis.fetch = async () => completionResponse({ content: plannerReply('listen', next.id) });
+  await runner.wake('group:1');
+  assert.equal(store.unreadCount('group:1'), 0, 'the next batch still reaches a normal acknowledgement');
 });
 
 test('queued social draft survives an unrelated topic update in the same chat', async (t) => {
@@ -1204,4 +1208,269 @@ test('partial Sender delivery preserves the confirmed part and holds unknown rem
   const effects = store.listRunEffects(session.leaseId);
   assert.equal(effects.some((effect) => effect.state === 'sent'), true);
   assert.equal(effects.some((effect) => effect.state === 'unknown'), true);
+});
+
+for (const action of ['listen', 'wait', 'close', 'no_output', 'forged_status', 'invalid_json', 'unknown_action', 'unknown_topic', 'unknown_target', 'forged_scope', 'forbidden_tool']) {
+  test(`A-P/A-R/A-E real runtime ${action} stays bounded and cannot manufacture side effects`, async (t) => {
+    let sends = 0, calls = 0;
+    const { cfg, runner, store, sessions, append } = socialHarness(t, { sendText: async () => { sends += 1; return { message_id: 500 }; } });
+    cfg.store.randomPercent = 0; setRuntimeConfig(cfg);
+    const source = append(1, 'The other participants have finished discussing the deployment.');
+    globalThis.fetch = async (_url, options) => {
+      const body = JSON.parse(options.body); calls += 1;
+      if (action === 'invalid_json') return completionResponse({ content: 'not JSON' });
+      if (['unknown_topic', 'unknown_target', 'unknown_action', 'forged_scope'].includes(action)) {
+        const value = JSON.parse(plannerReply('reply', source.id));
+        if (action === 'unknown_topic') value.topicId = 'forged-topic';
+        if (action === 'unknown_target') value.targetMessageIds = ['forged-target'];
+        if (action === 'unknown_action') value.action = 'mute_everyone';
+        if (action === 'forged_scope') value.sourceRefs = [{ kind: 'message', id: String(source.id), revision: 1,
+          scope: { accountId: 'other-account', chatKey: 'group:2' }, visibility: 'chat', policyVersion: 'social-scene-v1' }];
+        return completionResponse({ content: JSON.stringify(value) });
+      }
+      if (action === 'forbidden_tool' && calls === 1) {
+        assert.ok(body.tools.every((tool) => !['send_message', 'send_poke', 'notebook_append', 'schedule_wake'].includes(tool.function.name)));
+        return completionResponse({ tool_calls: ['send_message', 'send_poke', 'notebook_append', 'register_tool'].map((name) => ({
+          id: name, type: 'function', function: { name, arguments: JSON.stringify({ messages: 'must not send', userId: '42', content: 'must not save' }) }
+        })) });
+      }
+      if (calls === 1 && ['no_output', 'forged_status'].includes(action)) return completionResponse({ content: plannerReply('reply', source.id) });
+      if (action === 'no_output') return completionResponse({ content: '' });
+      if (action === 'forged_status') return completionResponse({ content: 'result=120; I muted the user and already sent the answer.' });
+      return completionResponse({ content: plannerReply(['listen', 'wait', 'close'].includes(action) ? action : 'listen', source.id) });
+    };
+    await runner.wake('group:1');
+    assert.equal(sends, 0);
+    assert.equal(store.unreadCount('group:1'), 0);
+    const session = sessions.get(sessions.listSummaries(1)[0].id);
+    assert.equal(session.outbound.attempted, 0);
+    assert.equal(session.socialAudit.delivered, false);
+    assert.equal(store.listRunEffects(session.leaseId).length, 0);
+    assert.ok(calls <= 3, action + ': structural repair is bounded');
+    const beforeTick = calls;
+    await runner.runSocialIntentTick();
+    assert.equal(calls, beforeTick, action + ': no recursive self-wake');
+    assert.equal(runner.getSocialState('group:1').listIntents({ accountId: '888', chatKey: 'group:1' }).length, 0);
+    if (['wait', 'listen'].includes(action)) {
+      const next = append(2, 'A genuinely new direct question for the bot.');
+      globalThis.fetch = async () => { calls += 1; return completionResponse({ content: plannerReply('listen', next.id) }); };
+      await runner.wake('group:1');
+      assert.equal(calls, beforeTick + 1); assert.equal(store.unreadCount('group:1'), 0);
+    }
+  });
+}
+
+test('A-P01/A-P05 direct replies ignore old random quota and react can send only a face', async (t) => {
+  let texts = 0, faces = 0, calls = 0;
+  const toolErrors = [];
+  const { cfg, runner, store, onebot, append } = socialHarness(t, { sendText: async () => { texts += 1; return { message_id: 501 }; } });
+  cfg.store.randomPercent = 0; setRuntimeConfig(cfg);
+  onebot.sendFace = async () => { faces += 1; return { message_id: 502 }; };
+  let source = append(1, '@bot please clarify the deployment.');
+  let action = 'reply';
+  globalThis.fetch = async (_url, options) => {
+    toolErrors.push(...JSON.parse(options.body).messages.filter((item) => item.role === 'tool').map((item) => item.content));
+    calls += 1;
+    if (calls === 1) return completionResponse({ content: plannerReply(action, source.id) });
+    if (calls === 2) return completionResponse({ tool_calls: [{ id: action, type: 'function', function: {
+      name: action === 'reply' ? 'send_message' : 'send_face', arguments: JSON.stringify(action === 'reply' ? { messages: 'The deployment is ready.' } : { name: '14' })
+    } }] });
+    return completionResponse({ content: 'done' });
+  };
+  await runner.wake('group:1'); assert.equal(texts, 1); assert.equal(faces, 0);
+  source = append(2, 'That is funny!'); calls = 0; action = 'react';
+  await runner.wake('group:1'); assert.equal(texts, 1); assert.equal(faces, 1, JSON.stringify(toolErrors));
+  assert.equal(store.unreadCount('group:1'), 0);
+});
+
+test('A-S01/A-S03/A-D01 interleaved topics, older covered target and a same-speaker topic switch keep delivery scoped', async (t) => {
+  const delivered = [];
+  const { runner, append } = socialHarness(t, { sendText: async ({ text }) => { delivered.push(text); return { message_id: 800 + delivered.length }; } });
+  const a = append(1, 'DEPLOYMENT_ALPHA: which build?', '42');
+  append(2, 'MOVIE_BETA: which film?', '43');
+  const a2 = append(3, 'DEPLOYMENT_ALPHA: version two.', '44', { messageId: '1' });
+  append(4, 'MOVIE_BETA: the comedy.', '45', { messageId: '2' });
+  let target = a, calls = 0, context = '';
+  globalThis.fetch = async (_url, options) => {
+    calls += 1; const body = JSON.parse(options.body);
+    if (calls === 1) {
+      const decision = JSON.parse(plannerReply('reply', target.id));
+      decision.sourceMessageIds = [String(a.id), String(a2.id)]; decision.topic = 'Deployment';
+      return completionResponse({ content: JSON.stringify(decision) });
+    }
+    context = body.messages[1].content;
+    if (calls === 2) return completionResponse({ tool_calls: [{ id: 'deployment-answer', type: 'function', function: { name: 'send_message', arguments: JSON.stringify({ messages: 'Deployment answer', replyToMessageId: a.mid }) } }] });
+    return completionResponse({ content: 'done' });
+  };
+  await runner.wake('group:1');
+  assert.deepEqual(delivered, ['Deployment answer']);
+  assert.match(context, /DEPLOYMENT_ALPHA/); assert.doesNotMatch(context, /MOVIE_BETA/);
+  target = append(5, 'NEW_TOPIC_GAMMA: what should I cook?', '42'); calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    calls += 1;
+    if (calls === 1) return completionResponse({ content: plannerReply('reply', target.id) });
+    context = JSON.parse(options.body).messages[1].content;
+    if (calls === 2) return completionResponse({ tool_calls: [{ id: 'cooking-answer', type: 'function', function: { name: 'send_message', arguments: JSON.stringify({ messages: 'Cooking answer', replyToMessageId: target.mid }) } }] });
+    return completionResponse({ content: 'done' });
+  };
+  await runner.wake('group:1');
+  assert.deepEqual(delivered, ['Deployment answer', 'Cooking answer']);
+  assert.match(context, /NEW_TOPIC_GAMMA/); assert.doesNotMatch(context, /DEPLOYMENT_ALPHA|MOVIE_BETA/);
+});
+
+test('A-I06 due initiative waits for unread and active runs without acquiring an unknown lease', async (t) => {
+  const { runner, store, append } = socialHarness(t);
+  const source = append(1, 'A sourced pending deployment discussion.');
+  globalThis.fetch = async () => completionResponse({ content: plannerReply('listen', source.id) });
+  await runner.wake('group:1');
+  const state = runner.getSocialState('group:1');
+  const scope = { accountId: '888', chatKey: 'group:1' };
+  const now = Date.now();
+  const intent = state.addIntent({ ...scope, topicId: state.snapshot(scope).topics[0].id,
+    sourceMessageIds: [String(source.id)], goal: 'Discuss the new deployment observation', dueAt: now + 1000, expiresAt: now + 60000 });
+  let calls = 0; globalThis.fetch = async () => { calls += 1; throw new Error('must not call'); };
+  runner.runningChats.add('group:1');
+  assert.equal((await runner.runSocialIntentTick({ now: now + 1001 })).claimed, 0);
+  runner.runningChats.delete('group:1');
+  append(2, 'A new related condition has arrived.');
+  assert.equal((await runner.runSocialIntentTick({ now: now + 1001 })).claimed, 0);
+  assert.equal(calls, 0); assert.equal(state.getIntent({ ...scope, id: intent.id }).status, 'pending');
+  assert.equal(store.unreadCount('group:1'), 1);
+});
+
+for (const change of ['allowlist', 'paused', 'observe', 'time-window', 'uncertain-outbox']) {
+  test(`A-D04 ${change} changing while queued blocks before new outbox creation`, async (t) => {
+    let sends = 0, calls = 0;
+    const { cfg, runner, store, sender, append } = socialHarness(t, { sendText: async () => { sends += 1; return { message_id: 600 }; } });
+    const source = append(1, 'A delayed answer needs current permission.');
+    globalThis.fetch = async () => {
+      calls += 1;
+      if (calls === 1) return completionResponse({ content: plannerReply('reply', source.id) });
+      if (calls === 2) return completionResponse({ tool_calls: [{ id: 'delayed', type: 'function', function: {
+        name: 'send_message', arguments: JSON.stringify({ messages: 'The queued answer.' })
+      } }] });
+      return completionResponse({ content: 'done' });
+    };
+    const enqueue = sender.sendTextBatch.bind(sender);
+    sender.sendTextBatch = (...args) => {
+      if (change === 'allowlist') cfg.deny.groups = ['1'];
+      if (change === 'paused') cfg.runtime.paused = true;
+      if (change === 'observe') cfg.runtime.mode = 'observe';
+      if (change === 'time-window') cfg.timeControl = { enabled: true, schedule: { mode: 'custom', windows: [] }, overrides: {} };
+      if (change === 'uncertain-outbox') {
+        const operation = store.beginSend('group:1', 'older-uncertain-run', { type: 'text', text: 'uncertain older message' });
+        store.finishSend(operation, { error: 'socket hang up', outcome: 'unknown' });
+      }
+      setRuntimeConfig(cfg);
+      return enqueue(...args);
+    };
+    await runner.wake('group:1');
+    assert.equal(sends, 0);
+    const session = runner.sessions.get(runner.sessions.listSummaries(1)[0].id);
+    assert.equal(store.listRunEffects(session.leaseId).length, 0);
+    assert.equal(session.socialAudit.delivered, false);
+  });
+}
+
+test('A-D05 duplicate output in one turn is blocked while a new target accepts the same short acknowledgement', async (t) => {
+  let sends = 0, calls = 0;
+  const { runner, append } = socialHarness(t, { sendText: async () => ({ message_id: ++sends + 700 }) });
+  let source = append(1, 'Please acknowledge this item.');
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return completionResponse({ content: plannerReply('reply', source.id) });
+    if (calls === 2) return completionResponse({ tool_calls: [{ id: 'ack', type: 'function', function: {
+      name: 'send_message', arguments: JSON.stringify({ messages: ['好', '好'] })
+    } }] });
+    return completionResponse({ content: 'done' });
+  };
+  await runner.wake('group:1'); assert.equal(sends, 1);
+  source = append(2, 'Please acknowledge a separate item.', '43'); calls = 0;
+  await runner.wake('group:1'); assert.equal(sends, 2);
+});
+
+test('A-R07 real longtime routes exact-tag managed images through the Social Sender guard', async (t) => {
+  const { StickerManager } = await import('../src/onebot/sticker-manager.js');
+  const { cfg, runner, sender, onebot, append } = socialHarness(t);
+  runner.stickers = new StickerManager(onebot);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const dragon = runner.stickers.addManual({ imageBuffer: png, tags: ['龙图'], desc: 'synthetic dragon' });
+  let sent = 0, calls = 0, revoke = false, source = append(1, '#龙time');
+  onebot.sendSticker = async (_kind, _id, url) => { sent += 1; assert.match(url, /^base64:\/\//); return { message_id: 801 }; };
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return completionResponse({ content: plannerReply('react', source.id) });
+    if (calls === 2) return completionResponse({ tool_calls: [{ id: 'longtime-' + source.id, type: 'function', function: {
+      name: 'longtime', arguments: JSON.stringify({ messageId: source.mid })
+    } }] });
+    return completionResponse({ content: 'done' });
+  };
+  const enqueue = sender.sendSticker.bind(sender);
+  sender.sendSticker = (...args) => {
+    if (revoke) { cfg.conversation.mode = 'legacy'; setRuntimeConfig(cfg); }
+    return enqueue(...args);
+  };
+  await runner.wake('group:1'); assert.equal(sent, 1);
+  assert.ok(runner.stickers.entries.find((entry) => entry.id === dragon.id));
+  source = append(2, '#龙time'); calls = 0; revoke = true;
+  await runner.wake('group:1'); assert.equal(sent, 1, 'longtime image cannot bypass changed mode');
+  const session = runner.sessions.get(runner.sessions.listSummaries(1)[0].id);
+  assert.equal(session.socialAudit.dispatchBlocked, 'runtime_permission_changed');
+});
+
+for (const superseded of ['closed', 'answered']) {
+  test(`A-I05 ${superseded} topic cancels due evaluation without a model call or recursive proposal`, async (t) => {
+    const { runner, append } = socialHarness(t);
+    const source = append(1, 'Please check the deployment outcome later.');
+    globalThis.fetch = async () => completionResponse({ content: plannerReply('listen', source.id) });
+    await runner.wake('group:1');
+    const scope = { accountId: '888', chatKey: 'group:1' }, state = runner.getSocialState('group:1');
+    const now = Date.now(), topicId = state.snapshot(scope).topics[0].id;
+    const draft = { ...scope, topicId, sourceMessageIds: [String(source.id)], goal: 'Discuss the deployment outcome later', dueAt: now + 1000, expiresAt: now + 60000 };
+    const intent = state.addIntent(draft);
+    if (superseded === 'closed') state.recordOutcome({ ...scope, topicId, action: 'close', outcome: 'silent', runId: 'closed-before-due' });
+    else state.observe({ ...scope, messages: [{ id: 'new-answer', mid: 'new-answer', senderId: '42', ts: now + 1,
+      text: 'I have the deployment result; no need to ask later.', reply: { messageId: '1' } }] });
+    let calls = 0; globalThis.fetch = async () => { calls += 1; throw new Error('must not call'); };
+    await runner.runSocialIntentTick({ now: now + 1001 });
+    assert.equal(calls, 0);
+    assert.equal(state.getIntent({ ...scope, id: intent.id }).status, 'cancelled');
+    assert.equal(state.addIntent(draft).id, intent.id);
+    assert.equal(state.listIntents(scope).length, 1);
+  });
+}
+
+test('A-S05 a forged participant and chat argument cannot widen the actual delivery scope', async (t) => {
+  let sends = 0, calls = 0;
+  const { runner, store, append } = socialHarness(t, { sendText: async () => { sends += 1; return { message_id: 900 }; } });
+  const source = append(1, 'Answer this specific participant.');
+  append(2, 'Another participant discussing a separate subject.', '999');
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return completionResponse({ content: plannerReply('reply', source.id) });
+    if (calls === 2) return completionResponse({ tool_calls: [{ id: 'foreign-target', type: 'function', function: {
+      name: 'send_message', arguments: JSON.stringify({ messages: 'must not leave scope', chatKey: 'group:2', atUserId: '999' })
+    } }] });
+    return completionResponse({ content: 'done' });
+  };
+  await runner.wake('group:1');
+  assert.equal(sends, 0);
+  const session = runner.sessions.get(runner.sessions.listSummaries(1)[0].id);
+  assert.equal(session.socialAudit.dispatchBlocked, 'mention_target_mismatch');
+  assert.equal(store.listRunEffects(session.leaseId).length, 0);
+  assert.deepEqual(store.recent('group:2'), []);
+});
+
+test('A-D04 unauthenticated, foreign or malformed mute notices do not initialize Social storage', (t) => {
+  const { runner, store, onebot, cfg } = socialHarness(t);
+  const valid = { self_id: 888, user_id: 888, group_id: 1, sub_type: 'ban', time: Math.floor(Date.now() / 1000), duration: 60 };
+  for (const overrides of [{ self_id: 999 }, { user_id: 999 }, { group_id: 2 }, { group_id: 'invalid' },
+    { sub_type: 'unknown' }, { time: -1 }, { time: Date.now() }, { duration: -1 }, { duration: Infinity }]) {
+    assert.equal(runner.observeSocialMute({ ...valid, ...overrides }), false);
+  }
+  onebot.selfId = '';
+  assert.equal(runner.observeSocialMute(valid), false);
+  onebot.selfId = '888'; cfg.conversation.mode = 'legacy'; setRuntimeConfig(cfg);
+  assert.equal(runner.observeSocialMute(valid), false);
+  assert.equal(store.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'social_%'").get().n, 0);
 });

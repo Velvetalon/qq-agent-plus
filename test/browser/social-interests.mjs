@@ -15,6 +15,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const originalFetch = globalThis.fetch;
 let app, chrome, ws, pending = new Map(), seq = 0;
 let modelCalls = 0, sends = 0;
+let scriptedModel = null, syntheticChatCalls = 0;
 const errors = [], checks = [], unexpectedCalls = [], unexpectedProtocol = [];
 try {
   const cfg = structuredClone(DEFAULT_CONFIG);
@@ -27,6 +28,7 @@ try {
   cfg.onebot = { ...cfg.onebot, selfId: '888', wsUrl: 'ws://127.0.0.1:1', httpUrl: 'http://127.0.0.1:1' };
   cfg.api = { ...cfg.api, model: '', baseUrl: 'https://browser-model.invalid', priceRemoteUrl: 'none' };
   cfg.memory.consolidateEnabled = false;
+  cfg.wakeDelayMinMs = 600000; cfg.wakeDelayMaxMs = 600000;
   for (const key of ['selfEvolution', 'proactive', 'pacing', 'dailyMoments', 'qzoneInteractions', 'autoUpdate']) cfg[key] = { ...cfg[key], enabled: false };
   updateConfig(cfg);
   globalThis.fetch = async (url, options) => {
@@ -34,17 +36,22 @@ try {
     // The real settings page checks release metadata independently of inference.
     if (String(url) === 'https://api.github.com/repos/Velvetalon/qq-agent-plus/releases/latest') return Response.json({ message: 'synthetic: no release' }, { status: 404 });
     if (String(url).startsWith('https://browser-model.invalid') && !options?.body) return Response.json({ data: [] });
+    if (String(url).startsWith('https://browser-model.invalid') && scriptedModel) { syntheticChatCalls += 1; return scriptedModel(); }
     modelCalls += 1; unexpectedCalls.push(String(url)); throw new Error('Unexpected external call in browser test');
   };
   app = createApp({ log: () => {} });
+  const bindProtocolBoundary = () => {
   app.onebot.getGroupInfo = async () => ({ group_name: 'synthetic' });
-  app.onebot.connect = async () => {};
+  app.onebot.connect = async () => { app.onebot.selfInfo = await app.onebot.call('get_login_info'); };
   app.onebot.call = async (action) => {
     if (action === 'get_login_info') return { user_id: 888, nickname: 'synthetic' };
     if (action === 'get_friend_list') return [];
     if (action === 'get_group_list') return [{ group_id: 1, group_name: 'synthetic' }];
+    if (action === 'fetch_custom_face_detail') return [];
     sends += 1; unexpectedProtocol.push(action); throw new Error('Unexpected protocol action');
   };
+  };
+  bindProtocolBoundary();
   const port = await app.start();
   await app.onebot.onEvent({ post_type: 'message', message_type: 'group', self_id: 888,
     group_id: 1, user_id: 42, message_id: 100, time: Math.floor(Date.now() / 1000),
@@ -126,9 +133,59 @@ try {
   assert.equal(state.interests.read({ accountId: '888', chatKey: 'group:1' }).enabled, false);
   assert.equal(state.interests.read({ accountId: '888', chatKey: 'group:1' }).revision, current.revision + 1);
   checks.push('stale browser save preserves newer configuration and unsaved form input');
+  // A-C05/C06: generate an actual guarded session, then inspect its real HTTP/UI.
+  cfg.runtime.mode = 'active'; cfg.api.model = 'synthetic-ui'; cfg.api.apiKey = 'SYNTHETIC_MODEL_SECRET'; updateConfig(cfg);
+  await app.onebot.onEvent({ post_type: 'message', message_type: 'group', self_id: 888, group_id: 1,
+    user_id: 42, message_id: 101, time: Math.floor(Date.now() / 1000), sender: { user_id: 42, nickname: 'synthetic-member' },
+    message: 'Please explain this astronomy observation.', raw_message: 'Please explain this astronomy observation.' });
+  const sourceId = String(app.store.recent('group:1', { limit: 1 })[0].id);
+  scriptedModel = () => Response.json({ choices: [{ message: syntheticChatCalls === 1
+    ? { content: JSON.stringify({ action: 'reply', topicId: null, topic: 'Astronomy', targetMessageIds: [sourceId], sourceMessageIds: [sourceId], sourceRefs: [], goal: 'Explain the observation', novelty: 'A new explanation' }) }
+    : { tool_calls: [{ id: 'ui-delivery', type: 'function', function: { name: 'send_message', arguments: JSON.stringify({ messages: 'A queued synthetic answer.' }) } }] }
+  }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } });
+  const enqueue = app.sender.sendTextBatch.bind(app.sender);
+  app.sender.sendTextBatch = (...args) => { cfg.conversation.mode = 'legacy'; updateConfig(cfg); return enqueue(...args); };
+  await app.orchestrator.wake('group:1'); scriptedModel = null;
+  cfg.runtime.mode = 'observe'; updateConfig(cfg);
+  assert.equal(syntheticChatCalls, 2);
+  const session = app.sessions.listSummaries(1)[0];
+  assert.equal(session.socialAudit.decision, 'reply'); assert.equal(session.socialAudit.delivered, false);
+  const sessionResponse = await originalFetch(`http://127.0.0.1:${port}/api/sessions/${session.id}`, { headers: { 'x-console-token': cfg.server.token } });
+  const sessionText = await sessionResponse.text();
+  assert.ok(!sessionText.includes('SYNTHETIC_MODEL_SECRET'));
+  assert.ok(!sessionText.includes(cfg.server.token));
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}` });
+  await until(`!!document.querySelector('.tab[data-tab="sessions"]')`);
+  await evaluate(`document.querySelector('.tab[data-tab="sessions"]').click()`);
+  await until(`!!document.querySelector('.session-item[data-id="${session.id}"]')`);
+  await evaluate(`document.querySelector('.session-item[data-id="${session.id}"]').click()`);
+  await until(`document.querySelector('.social-session-panel')?.textContent.includes('runtime_permission_changed')`);
+  const auditText = await evaluate(`document.querySelector('.social-session-panel').textContent`);
+  assert.match(auditText, /规划决定/); assert.match(auditText, /未发送/);
+  assert.ok(!auditText.includes('SYNTHETIC_MODEL_SECRET'));
+  for (const width of [390, 1440]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width === 390 });
+    assert.ok(await evaluate(`document.documentElement.scrollWidth-innerWidth<=1`));
+  }
+  checks.push('real guarded session HTTP/UI distinguishes reply plan from non-delivery, with no synthetic credentials in response');
+  await app.stop();
+  app = createApp({ log: () => {} }); bindProtocolBoundary();
+  assert.equal(await app.start(), port);
+  assert.equal(app.sessions.get(session.id).socialAudit.delivered, false);
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}` });
+  await until(`!!document.querySelector('.tab[data-tab="sessions"]')`);
+  await evaluate(`document.querySelector('.tab[data-tab="sessions"]').click()`);
+  await until(`!!document.querySelector('.session-item[data-id="${session.id}"]')`);
+  await evaluate(`document.querySelector('.session-item[data-id="${session.id}"]').click()`);
+  await until(`document.querySelector('.social-session-panel')?.textContent.includes('runtime_permission_changed')`);
+  for (const width of [390, 1440]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width === 390 });
+    assert.ok(await evaluate(`document.documentElement.scrollWidth-innerWidth<=1`));
+  }
+  checks.push('mode fallback and app restart preserve the same historical guarded session in desktop/mobile browser');
   assert.deepEqual(errors, []); assert.equal(modelCalls, 0, JSON.stringify(unexpectedCalls)); assert.equal(sends, 0, JSON.stringify(unexpectedProtocol));
-  fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ checks, layout, errors, modelCalls, sends }, null, 2));
-  console.log(JSON.stringify({ evidence, checks, layout, errors, modelCalls, sends }));
+  fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ checks, layout, errors, modelCalls, syntheticChatCalls, sends }, null, 2));
+  console.log(JSON.stringify({ evidence, checks, layout, errors, modelCalls, syntheticChatCalls, sends }));
 } finally {
   for (const task of pending.values()) clearTimeout(task.timer);
   ws?.close();

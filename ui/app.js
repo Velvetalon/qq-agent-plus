@@ -2313,6 +2313,7 @@ function renderSocialSessionPanel(s) {
         <button type="button" class="btn btn-small" data-social-interests>兴趣与探索</button>
         <button type="button" class="icon-btn" data-social-refresh title="刷新社交状态" aria-label="刷新社交状态">↻</button>
       </div>
+      ${status?.mute?.muted ? `<p class="empty-hint">宿主账号在群内被禁言，暂停社交评估与发送；预计解除 ${esc(fmtTime(status.mute.mutedUntil))}</p>` : ''}
       ${audit ? `<dl class="social-audit-grid">
         <div><dt>规划决定</dt><dd>${esc(decisions[audit.decision] || audit.decision || '-')}</dd></div>
         <div><dt>实际动作</dt><dd>${esc(actionText)} · ${esc(audit.deliveryState || 'not_attempted')}</dd></div>

@@ -224,4 +224,43 @@ test('real social producer accumulates independent candidate evidence through Ma
   const beforeEmptyTick = externalBoundaryCalls;
   assert.deepEqual(await runner.runSocialIntentTick(), { claimed: 0 });
   assert.equal(externalBoundaryCalls, beforeEmptyTick);
+  const correction = reflection.correctProfileTrait({
+    accountId, subject: `user:${senderId}`, key: 'communication_style', scope: 'chat', chatKey,
+    action: 'remove', expectedCurrentRevision: learned.revision, basePersona: cfg.persona,
+    actor: 'synthetic-admin', reason: 'The user corrected the earlier preference', confirm: true
+  });
+  assert.equal(correction.revision, 2);
+  activeSource = chatStore.appendIncoming(chatKey, { mid: 'platform-5', ts: clock,
+    senderId, senderName: 'synthetic-member', text: 'A new question after correcting that preference.' });
+  const beforeCorrectedRun = requests.length;
+  await runner.wake(chatKey);
+  const correctedReply = requests.slice(beforeCorrectedRun).find((body) => String(body.messages[0]?.content || '').includes('【阶段：自然回应】'));
+  assert.ok(correctedReply);
+  assert.doesNotMatch(String(correctedReply.messages[1]?.content || ''), /Prefers a concise conclusion before supporting detail/);
+  assert.equal(visibleSends, 5);
+  // Drain the two preceding completions before isolating the split request.
+  await runner.pluginManager.drainCompletionEvents();
+  while ((await worker.runOnce()).committed) {}
+  const splitStart = reflected.length;
+  clock += 31 * 60 * 1000;
+  for (let part = 0; part < 3; part += 1) {
+    activeSource = chatStore.appendIncoming(chatKey, {
+      mid: 'split-' + part, ts: clock + part, senderId, senderName: 'synthetic-member',
+      text: 'One request, continued detail ' + part,
+      ...(part ? { reply: { messageId: 'split-' + (part - 1) } } : {})
+    });
+    await runner.wake(chatKey);
+    await runner.pluginManager.drainCompletionEvents();
+    assert.equal((await worker.runOnce()).committed, true);
+  }
+  const splitEvidence = reflected.slice(splitStart).flatMap((e) => e.conversationEvidence)
+    .filter((e) => e.role === 'user' && e.platformMessageId.startsWith('split-'));
+  assert.equal(splitEvidence.length, 3);
+  assert.equal(new Set(splitEvidence.map((e) => e.originalSourceId)).size, 1, 'three real completion batches share one human root');
+  assert.equal(new Set(splitEvidence.map((e) => e.interactionId)).size, 1);
+  assert.ok(reflected.slice(splitStart).every((e) => e.conversationEvidence.filter((item) => item.role === 'assistant').every((item) => !item.userEvidence)));
+  const reflectedCount = reflected.length;
+  await runner.pluginManager.drainCompletionEvents();
+  assert.notEqual((await worker.runOnce()).committed, true);
+  assert.equal(reflected.length, reflectedCount, 'draining again cannot create learning evidence');
 });

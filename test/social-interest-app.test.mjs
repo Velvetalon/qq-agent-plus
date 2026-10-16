@@ -58,7 +58,7 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
   };
   const open = async () => {
     app = createApp({ log: () => {} });
-    app.onebot.connect = async () => {};
+    app.onebot.connect = async () => { app.onebot.selfInfo = await app.onebot.call('get_login_info'); };
     app.onebot.call = async (action) => {
       if (action === 'get_login_info') return { user_id: 888, nickname: 'synthetic-bot' };
       if (action === 'get_friend_list') return [];

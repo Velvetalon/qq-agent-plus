@@ -1154,6 +1154,8 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     const chatKey = `${kind}:${id}`;
 
     const segments = Array.isArray(event.message) ? event.message : null;
+    let forwarded = Boolean(segments?.some((segment) => segment?.type === 'forward')
+      || (!segments && /\[CQ:forward(?:,|\])/.test(String(event.raw_message ?? event.message ?? ''))));
     const senderId = String(event.sender?.user_id ?? event.user_id ?? '');
     const senderName = String(event.sender?.card || event.sender?.nickname || senderId || '');
     const isSelf = senderId === onebot.selfId;
@@ -1208,6 +1210,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         const nodes = await readForwardMessages(onebot, event.message_id, segments);
         const ex = await expandForwardNodes(nodes);
         if (ex && ex.text) {
+          forwarded = true;
           text = ex.text;
           if (ex.media?.length) media.push(...ex.media);
         }
@@ -1228,7 +1231,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       reply,
       media,
       mentionsSelf,
-      eventKind: 'message'
+      eventKind: forwarded ? 'forward' : 'message'
     };
     const stored = isSelf ? store.appendSelf(chatKey, message) : store.appendIncoming(chatKey, message, {
       recordOnly: arrivedInactive || !isTimeActive(chatKey)
@@ -1463,6 +1466,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
 
   async function ingestOneBotEvent(event, arrivedInactive) {
     if (!event || typeof event !== 'object') return;
+    if (event.post_type === 'notice' && event.notice_type === 'group_ban') {
+      orchestrator.observeSocialMute(event);
+      return;
+    }
     if (event.post_type === 'message' || event.post_type === 'message_sent') {
       // Echoes are deduplicated by message ID; shared-protocol observe mode also records old-instance replies.
       if (event.message_type === 'group' && event.group_id != null) return ingestMessage('group', String(event.group_id), event, arrivedInactive);
@@ -3376,7 +3383,8 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           config: conversation.social,
           scene: status?.snapshot ?? null,
           intents: Array.isArray(status?.intents) ? status.intents.slice(0, 50) : [],
-          interests: status?.interests ?? null
+          interests: status?.interests ?? null,
+          mute: status?.mute ?? null
         });
       }
 
