@@ -565,9 +565,12 @@ export class SocialStateStore {
 
   validateSourceRefs({ accountId, chatKey, refs = [], now } = {}) {
     const scope = scopeOf({ accountId, chatKey }), at = this.#time(now);
+    if (!Array.isArray(refs) || refs.length > MAX_INTENT_SOURCES) {
+      return { valid: [], invalidRefs: [{ reason: 'invalid_source_ref_list' }] };
+    }
     this.#ensure();
     const valid = [], invalidRefs = [];
-    for (const ref of Array.isArray(refs) ? refs.slice(0, 8) : []) {
+    for (const ref of refs) {
       const external = ref?.kind === 'external_observation'
         ? this.#db.prepare(`SELECT source_id FROM social_external_observations
             WHERE account_id=? AND chat_key=? AND source_id=? AND expires_at>?`)
@@ -622,11 +625,17 @@ export class SocialStateStore {
 
   addIntent({ accountId, chatKey, topicId, sourceMessageIds = [], sourceRefs = [], goal, dueAt, expiresAt } = {}) {
     const scope = scopeOf({ accountId, chatKey });
+    if (!Array.isArray(sourceMessageIds) || sourceMessageIds.length > MAX_INTENT_SOURCES
+      || sourceMessageIds.some((value) => !['string', 'number'].includes(typeof value) || !id(value))
+      || !Array.isArray(sourceRefs) || sourceRefs.length > MAX_INTENT_SOURCES
+      || sourceRefs.some((ref) => !ref || typeof ref !== 'object' || Array.isArray(ref))) {
+      throw fail('INVALID_SOURCES', 'initiative sources must be complete bounded lists');
+    }
     return this.#tx(() => {
       const topic = id(topicId);
       if (!topic || !this.#topicRow(scope, topic)) throw fail('UNKNOWN_TOPIC', 'initiative topic is not in this account/chat');
       const sources = strings(sourceMessageIds, MAX_INTENT_SOURCES);
-      const refs = (Array.isArray(sourceRefs) ? sourceRefs : []).filter((ref) => ref && typeof ref === 'object').slice(0, 8);
+      const refs = sourceRefs;
       const checkedRefs = this.validateSourceRefs({ ...scope, refs });
       if (checkedRefs.invalidRefs.length) throw fail('INVALID_SOURCES', 'initiative source references are not current or visible');
       for (const ref of checkedRefs.valid) {
