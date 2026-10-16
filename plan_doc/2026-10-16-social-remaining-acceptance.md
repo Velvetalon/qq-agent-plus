@@ -29,3 +29,8 @@ as ordinary human preference evidence. Preserve protocol-observed forward kind
 in the existing message event_kind column and v3 completion record type. Keep
 it readable for conversation, but do not invent an original human root or treat
 the forwarding envelope as the author's preference. No historical data rewrite.
+
+Execution recorded in delay/schedule/2026-10-16-social-remaining-closure.md.
+Fixed source/test candidate 2899a54 passes Node 22 full gates (749 tests).
+Local contract rows are updated precisely; semantic/live checks and the older
+F4 cross-consumer lexical policy discrepancy remain explicit, not silently green.
