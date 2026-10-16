@@ -462,7 +462,7 @@ export class ReflectionWorker {
           .filter(Boolean)
           .slice(-6)
           .join('\n')
-          .slice(0, 1200)
+          .slice(-1200)
         : '';
       if (typeof notebook?.semanticSearch === 'function') {
         const semantic = await notebook.semanticSearch({

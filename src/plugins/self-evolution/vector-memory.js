@@ -569,7 +569,16 @@ export class VectorMemory {
     signal?.throwIfAborted();
     const status = this.status();
     const profileId = this.profileId, client = this.embeddingClient;
-    const { maxDistance, maxQueryChars } = normalizeEmbeddingConfig(this.config);
+    const queryConfig = normalizeEmbeddingConfig(this.config);
+    const { maxDistance, maxQueryChars } = queryConfig;
+    const queryStateChanged = () => {
+      const current = normalizeEmbeddingConfig(this.config);
+      return profileId !== this.profileId || client !== this.embeddingClient
+        || ['enabled', 'allowQuery', 'allowPrivate', 'maxDistance', 'maxQueryChars']
+          .some((key) => current[key] !== queryConfig[key]);
+    };
+    const changedResult = () => ({ results: [], contextBlocks: [], degradationReason: 'profile-changed',
+      degradationReasons: ['profile-changed'], diagnostics: { candidateCount: 0, matchCount: 0 } });
     const rawQuery = text(query).trim();
     const normalizedQuery = rawQuery.slice(-maxQueryChars);
     if (!normalizedQuery) {
@@ -627,8 +636,8 @@ export class VectorMemory {
         diagnostics: { candidateCount: 0, matchCount: 0, profileId: this.profileId }
       };
     }
-    if (typeof this.embeddingClient.authorizeQuery === 'function'
-      && !(await this.embeddingClient.authorizeQuery())) {
+    if (typeof client.authorizeQuery === 'function'
+      && !(await client.authorizeQuery())) {
       return {
         results: [],
         contextBlocks: [],
@@ -639,12 +648,10 @@ export class VectorMemory {
       };
     }
     signal?.throwIfAborted();
+    if (queryStateChanged()) return changedResult();
     const vector = await client.embedQuery({ query: normalizedQuery, signal });
     signal?.throwIfAborted();
-    if (profileId !== this.profileId || client !== this.embeddingClient || this.config.enabled !== true) {
-      return { results: [], contextBlocks: [], degradationReason: 'profile-changed',
-        degradationReasons: ['profile-changed'], diagnostics: { candidateCount: 0, matchCount: 0 } };
-    }
+    if (queryStateChanged()) return changedResult();
     const checked = validateEmbeddingVector(vector, this.config.dimension);
     if (!checked.ok) {
       return {

@@ -54,6 +54,19 @@ test('F4 actual tools and ready SQL enforce exact tags, metadata, scope, cancell
   assert.equal(bounded.diagnostics.queryTruncated, true); assert.equal(bounded.diagnostics.queryChars, 64);
   action = null;
   store.setEmbeddingServices({ config: fixtureEmbeddingConfig, embeddingClient: client });
+  for (const patch of [{ enabled: false }, { allowQuery: false }, { maxDistance: 0.2 },
+    { maxQueryChars: 64 }, { model: 'replaced-model' }]) {
+    const authorizingClient = { ...client, authorizeQuery: async () => {
+      await Promise.resolve();
+      store.setEmbeddingServices({ config: { ...fixtureEmbeddingConfig, ...patch }, embeddingClient: authorizingClient });
+      return true;
+    } };
+    store.setEmbeddingServices({ config: fixtureEmbeddingConfig, embeddingClient: authorizingClient });
+    const before = queries;
+    assert.equal((await invoke({ query: 'Current' })).degradationReason, 'profile-changed');
+    assert.equal(queries, before, 'revocation while authorizing must prevent the external query: ' + JSON.stringify(patch));
+  }
+  store.setEmbeddingServices({ config: fixtureEmbeddingConfig, embeddingClient: client });
   const beforeFailure = queries;
   action = async () => { throw new Error('synthetic embedding outage'); };
   assert.equal((await search.execute(ctx, { query: 'Current' })).isError, true);
