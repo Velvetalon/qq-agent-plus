@@ -58,6 +58,7 @@
     "realQQSends": 0,
     "rawEvidenceOutsideGit": true,
     "rawCredentialPersisted": false,
+    "credentialPersistenceScope": "runtime key files, QQ persistent config, Git and project evidence; private user messages/tool execution inputs are outside this claim",
     "evidenceVersionLimits": "chat runs started from the uncommitted candidate and contain their own pre-run source manifests; later credential-env/proxy fixes are not retroactively claimed to have been used by those chat runs; standalone embedding has no pre-run source manifest"
   },
   "safety": { "upstreamAccess": false, "productionConnection": false, "productionDeploy": false, "tagOrRelease": false, "productionDataCleanup": false, "untrackedLocalFilePreserved": true, "SC8": "USER_PAUSED" },

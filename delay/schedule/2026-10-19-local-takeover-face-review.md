@@ -57,6 +57,8 @@
 
 基线副本由精确188ba22 Git archive恢复在仓库外，仅junction复用未变化的node_modules，没有覆盖本地工作区。既有44项涉及Linux shell/fake Git路径、Windows不支持的POSIX mode预期、SQLite夹具句柄关闭和信号语义。本轮没有修改这些夹具、添加skip或降低断言；同名失败不等于这些问题不存在，也不能声称完整CI已绿。旧云端819 PASS是Linux/旧版本的历史时点。
 
+普通push后回读 [main Actions API](https://api.github.com/repos/Velvetalon/qq-agent-plus/actions/runs?branch=main&per_page=3) 返回 `total_count=0`。本轮未开启/修改工作流，也不能把推送成功当作远程Linux门禁通过。
+
 ## 5. 指定模型真实测试：结果分开报告
 
 ### Chat canary
@@ -77,7 +79,7 @@
 
 ## 6. 安全与证据
 
-所有输入均为已入Git的合成fixture；OneBot回执为合成，真实QQ发送0。密钥只在临时进程认证；没有创建key文件、写QQ持久配置、写Git或输出密钥。临时数据、原始调用/响应/模型输出和完整失败日志留在仓库外；[结构化摘要和SHA256](evidence/2026-10-19-social-face-review/result.json)不含原始聊天或秘密。模式扫描仅是增量检查，不声称完备DLP。
+所有输入均为已入Git的合成fixture；OneBot回执为合成，真实QQ发送0。密钥以临时环境变量传给测试进程并在读取后清除；没有创建key文件、写QQ持久配置或写Git，项目测试日志和交付证据不记录认证值。此承诺不包含用户消息和工具执行输入形成的会话记录，不能保证该类记录不保留认证输入；本会话不能当作密钥管理器，需限制会话记录风险时应轮换本次密钥。临时数据、原始调用/响应/模型输出和完整失败日志留在仓库外；[结构化摘要和SHA256](evidence/2026-10-19-social-face-review/result.json)不含原始聊天或秘密。模式扫描仅是增量检查，不声称完备DLP。
 
 未跟踪的本地备忘未读取、修改或提交。没有访问上游、生产服务器、生产配置/数据库，没有部署、清理、切模式、解除禁言、tag或Release。
 
