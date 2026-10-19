@@ -11,6 +11,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-run-budget-'));
 process.env.QQ_AGENT_DATA_DIR = dir;
 process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
@@ -41,7 +46,7 @@ it('预算线卡在最小值 + 满历史时，第一轮仍然要真的调用一�
   const onebot = { getGroupInfo: async () => ({ group_name: 'test' }), sendText: async () => ({ message_id: 1 }) };
   const sender = new SendQueue({ store, onebot });
   const sessions = new SessionRegistry();
-  const runner = new Orchestrator({ store, sessions, sender, onebot,
+  const runner = new Orchestrator({ socialDraftReviewer: approveSyntheticSocialDraft, store, sessions, sender, onebot,
     stickers: {}, memory: { formatForPrompt: () => '' } });
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async () => {

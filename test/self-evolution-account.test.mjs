@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-p6-account-'));
 process.env.QQ_AGENT_DATA_DIR = root;
 
@@ -57,6 +62,7 @@ function fixture(t, selfId = 'account-a') {
     })
   };
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store,
     sessions,
     memory,

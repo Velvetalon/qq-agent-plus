@@ -5,6 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-persona-behavior-'));
 process.env.QQ_AGENT_DATA_DIR = dir;
 process.env.DEBUG_SERVER_URL = 'http://127.0.0.1:1/event';
@@ -145,6 +150,7 @@ test('grounded 会话通过工具与出站队列发出完整代码', async (t) =
   const store = new ChatStore(0, { dataDir: dir });
   const sessions = new SessionRegistry();
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store, sessions, onebot, stickers: {}, memory: { formatForPrompt: () => '' },
     sender: new SendQueue({ store, onebot })
   });

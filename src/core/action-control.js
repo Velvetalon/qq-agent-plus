@@ -269,6 +269,10 @@ export function hasOutboundEffects(outbound) {
 
 export function recordOutboundObservation(session, name, result, callId = '') {
   if (!VISIBLE_EXTERNAL_TOOL_NAMES.has(String(name || ''))) return;
+  // These host preflight results prove that no sender/outbox was entered.
+  // Do not turn a rejected draft into a failed or partial external delivery.
+  if (result?.skipped === true && (result?.preflightRejected === true && result?.errorCode === 'SOCIAL_DRAFT_REVIEW'
+    || result?.errorCode === 'SOCIAL_MESSAGE_BATCH_LIMIT')) return;
   session.outbound ||= emptyOutbound();
   session.outbound.effects ||= [];
   const state = result?.isError ? 'failed' : 'sent';

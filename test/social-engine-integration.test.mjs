@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-social-main-chain-'));
 process.env.QQ_AGENT_DATA_DIR = root;
 
@@ -56,6 +61,7 @@ test('real social producer accumulates independent candidate evidence through Ma
   let clock = originalNow();
   Date.now = () => clock;
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store: chatStore,
     sessions,
     onebot,

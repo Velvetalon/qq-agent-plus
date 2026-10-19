@@ -10,6 +10,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-mem-identity-'));
 process.env.QQ_AGENT_DATA_DIR = dir;
 process.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* Windows 上可能被句柄占着 */ } });
@@ -47,7 +52,7 @@ function makeRunner(groupIds) {
   const sessions = new SessionRegistry();
   const sender = new SendQueue({ store, onebot: {} });
   const memory = new MemoryStore();
-  const runner = new Orchestrator({ store, sessions, sender, onebot: {}, stickers: {}, memory });
+  const runner = new Orchestrator({ socialDraftReviewer: approveSyntheticSocialDraft, store, sessions, sender, onebot: {}, stickers: {}, memory });
   return { runner, store, memory };
 }
 

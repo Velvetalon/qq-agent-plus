@@ -11,6 +11,11 @@ import {
 } from '../src/conversation/runtime.js';
 import { SocialStateStore } from '../src/conversation/state.js';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-social-runtime-'));
 process.env.QQ_AGENT_DATA_DIR = testRoot;
 const { buildSocialMaterialRefs, validateSocialMaterialRefs } = await import('../src/conversation/context.js');
@@ -325,6 +330,7 @@ function socialHarness(t, { validateSocialMaterials = null, sendText = null } = 
   };
   const sender = new SendQueue({ onebot, store });
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store,
     sessions,
     memory: { formatForPrompt: () => '' },

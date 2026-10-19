@@ -10,6 +10,11 @@ import { PluginManager } from '../src/plugins/manager.js';
 import { PluginRegistry } from '../src/plugins/registry.js';
 import { executeTool } from '../src/tools/tools.js';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 function probePlugin({ enabled = true, failStart = false, observe = null } = {}) {
   return {
     id: 'probe-plugin',
@@ -443,6 +448,7 @@ test('Orchestrator composition accepts a probe manager through the real construc
   const manager = new PluginManager();
   manager.register(probePlugin());
   const orchestrator = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store: {}, memory: {}, stickers: {}, sender: {}, sessions: {}, onebot: {},
     pluginManager: manager
   });

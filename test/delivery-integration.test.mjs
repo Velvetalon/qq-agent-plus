@@ -3,6 +3,12 @@ import { it } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-delivery-'));
 process.env.QQ_AGENT_DATA_DIR = dir;
 process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
@@ -30,7 +36,7 @@ it('holds uncertain deliveries and does not automatically send again on new inpu
   const store = new ChatStore(0, { dataDir: dir });
   const sessions = new SessionRegistry();
   const sender = new SendQueue({ store, onebot });
-  const runner = new Orchestrator({ store, sessions, sender, onebot,
+  const runner = new Orchestrator({ socialDraftReviewer: approveSyntheticSocialDraft, store, sessions, sender, onebot,
     stickers: {}, memory: { formatForPrompt: () => '' } });
   const oldFetch = globalThis.fetch;
   t.after(async () => { globalThis.fetch = oldFetch; await runner.abortAll(); store.close(); fs.rmSync(dir, { recursive: true, force: true }); });
@@ -68,6 +74,7 @@ it('also blocks a chat after an uncertain proactive send with no input lease', a
   const store = new ChatStore(0, { dataDir: dir });
   const sessions = new SessionRegistry();
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store, sessions, onebot, stickers: {}, memory: { formatForPrompt: () => '' },
     sender: new SendQueue({ store, onebot })
   });
@@ -119,6 +126,7 @@ it('incident pilot quarantines an unknown write without blocking later messages'
     contextForChat: () => '【异常隔离】不要重试旧操作'
   };
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store,
     sessions,
     onebot,
@@ -176,6 +184,7 @@ it('manual incident control blocks model work while preserving unread input', as
   const sessions = new SessionRegistry();
   let modelCalls = 0;
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store,
     sessions,
     onebot: {
@@ -238,6 +247,7 @@ it('keeps explicit OneBot business rejection retryable without holding the chat'
   const store = new ChatStore(0, { dataDir: caseDir });
   const sessions = new SessionRegistry();
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store,
     sessions,
     onebot,

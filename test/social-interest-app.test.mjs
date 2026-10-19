@@ -26,12 +26,14 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
   cfg.wakeDelayMinMs = 600000; cfg.wakeDelayMaxMs = 600000;
   updateConfig(cfg);
   const originalNow = Date.now, originalFetch = globalThis.fetch;
-  let clock = originalNow(), app, modelCalls = 0, sends = 0, readCalls = 0, phase = 0;
+  let clock = originalNow(), app, modelCalls = 0, reviewCalls = 0, sends = 0, readCalls = 0, phase = 0;
   let mode = 'listen', interestRef = null, topicId = null, sourceId = null;
   let revokeBeforeSend = false, onModel = null;
   Date.now = () => clock;
   const requests = [], completions = [];
   const response = (message) => Response.json({ choices: [{ message }], usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } });
+  const isReviewRequest = (body) => body.messages?.[0]?.role === 'system'
+    && body.messages[0].content.startsWith('【阶段：发送前语义审核】');
   globalThis.fetch = async (url, options) => {
     const host = new URL(String(url)).hostname;
     if (host === '127.0.0.1') return originalFetch(url, options);
@@ -42,6 +44,12 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
     }
     modelCalls += 1;
     const body = JSON.parse(options.body); requests.push(body);
+    // Synthetic semantic-review response must not consume the scripted chat phase.
+    if (isReviewRequest(body)) {
+      reviewCalls += 1;
+      return response({ content: JSON.stringify({ claimsComplete: true,
+        novelty: { repeated: false, previousIds: [], reason: 'synthetic fixture approval' }, claims: [], issues: [] }) });
+    }
     if (onModel) { const override = await onModel(body); if (override) return override; }
     if (mode === 'listen') return response({ content: JSON.stringify({ action: 'listen', topicId, sourceMessageIds: sourceId ? [sourceId] : [], sourceRefs: [], goal: '', novelty: '' }) });
     phase += 1;
@@ -133,7 +141,7 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
   const scheduled = await opportunity(settings);
   assert.equal(scheduled.status, 200, JSON.stringify(scheduled));
   assert.equal((await opportunity(settings)).body.intent.id, scheduled.body.intent.id);
-  const callsBefore = modelCalls;
+  const callsBefore = modelCalls, reviewsBefore = reviewCalls;
   settings = (await save(settings, { enabled: false })).body.interests;
   clock += 1001;
   await app.orchestrator.runSocialIntentTick(); assert.equal(modelCalls, callsBefore);
@@ -147,11 +155,14 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
   const after = await status();
   assert.equal(sends, 1, JSON.stringify(app.sessions?.listSummaries?.(1) || after.body));
   assert.equal(readCalls, 1); assert.equal(modelCalls - callsBefore, 4);
+  assert.equal(reviewCalls - reviewsBefore, 1);
+  assert.equal(modelCalls - callsBefore - (reviewCalls - reviewsBefore), 3, 'two planner calls and one reply call fit alongside review in the four-call budget');
   assert.equal(after.body.interests.usage.runs, 1);
   assert.equal(after.body.intents[0].status, 'completed');
   assert.equal(completions.at(-1).proactive, true);
   assert.equal(completions.at(-1).conversationEvidence.filter((item) => item.role === 'user').length, 0);
-  assert.ok(requests.slice(-4).every((item) => item.max_tokens === 2048));
+  assert.ok(requests.slice(-4).filter((item) => !isReviewRequest(item)).every((item) => item.max_tokens === 2048));
+  assert.ok(requests.slice(-4).filter(isReviewRequest).every((item) => item.max_tokens === 768));
   await app.orchestrator.runSocialIntentTick(); assert.equal(sends, 1);
 
   clock += 130000; // old unanswered opportunity expires; a new independent source is not permanently silenced.
@@ -227,9 +238,11 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
   phase = 0; clock += 1001;
   onModel = () => phase === 2 ? response({ tool_calls: [{ id: 'partial-interest', type: 'function',
     function: { name: 'send_message', arguments: JSON.stringify({ messages: ['Confirmed public observation.', 'Potentially delivered detail.'] }) } }] }) : null;
-  const beforePartial = modelCalls;
+  const beforePartial = modelCalls, beforePartialReview = reviewCalls;
   await app.orchestrator.runSocialIntentTick(); onModel = null;
-  assert.equal(modelCalls - beforePartial, 3);
+  assert.equal(modelCalls - beforePartial, 4);
+  assert.equal(reviewCalls - beforePartialReview, 1);
+  assert.equal(modelCalls - beforePartial - (reviewCalls - beforePartialReview), 3);
   assert.equal(attempted, 2);
   assert.equal((await status()).body.intents.find((item) => item.id === recovered.body.intent.id).status, 'held');
   assert.equal(completions.at(-1).deliveryState, 'partial');
@@ -243,7 +256,8 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
   await app.stop(); app = null; await open();
   clock += 180000;
   await app.orchestrator.runSocialIntentTick();
-  assert.equal(modelCalls - beforePartial, 3, 'unknown remainder is not replayed after another restart');
+  assert.equal(modelCalls - beforePartial, 4, 'unknown remainder is not replayed after another restart');
+  assert.equal(reviewCalls - beforePartialReview, 1, 'unknown remainder is not reviewed again');
   assert.equal((await status()).body.intents.find((item) => item.id === recovered.body.intent.id).status, 'held');
   assert.ok(app.store.recent('group:1').some((entry) => entry.self && entry.text === 'Confirmed public observation.'));
 
@@ -254,10 +268,11 @@ test('A-P04/A-I/A-C/A-H configured interests use real app management, ingress, d
     message: 'A new related astronomy question.', raw_message: 'A new related astronomy question.' });
   sourceId = String(app.store.recent('group:1', { limit: 1 })[0].id);
   await app.orchestrator.wake('group:1');
-  assert.equal(modelCalls - beforePartial, 4);
+  assert.equal(modelCalls - beforePartial, 5);
+  assert.equal(reviewCalls - beforePartialReview, 1, 'silent input does not require draft review');
   assert.equal(app.store.unreadCount('group:1'), 0);
   await app.orchestrator.runSocialIntentTick();
-  assert.equal(modelCalls - beforePartial, 4, 'a silent completed response does not create a follow-up loop');
+  assert.equal(modelCalls - beforePartial, 5, 'a silent completed response does not create a follow-up loop');
   let replyPhase = 0;
   onModel = () => {
     replyPhase += 1;

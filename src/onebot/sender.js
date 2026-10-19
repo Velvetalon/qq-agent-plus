@@ -7,6 +7,7 @@ import { getConfig, DEFAULT_CONFIG } from '../core/config.js';
 import { sleep, randInt, createSendChain, escapeCqText, formatClockTime } from '../core/util.js';
 import { mdToPlain, splitForQQ } from '../llm/md-to-plain.js';
 import { assertCanSend } from '../core/access.js';
+import { SocialDraftReviewError } from '../conversation/draft-review.js';
 
 // 限频回退值统一取自 DEFAULT_CONFIG，杜绝"代码默认 80 / 回退值 8 / UI 回退 8"三处打架。
 const DEFAULT_MAX_PER_MINUTE = DEFAULT_CONFIG.send.maxPerMinute;
@@ -156,6 +157,9 @@ export class SendQueue {
       hardSplitAt: getConfig().send?.hardSplitAt
     });
     if (!parts.length) throw new Error('消息内容为空');
+    if (options.reviewedTextParts && JSON.stringify(parts) !== JSON.stringify(options.reviewedTextParts)) {
+      throw new SocialDraftReviewError({ code: 'REVIEW_PREPARATION_CHANGED', issues: [{ reason: '审核期间发送格式/分片配置改变；本批未入队，需要重新准备并审核' }] }, true);
+    }
 
     const chain = this.#chain(chatKey);
     const promises = [];

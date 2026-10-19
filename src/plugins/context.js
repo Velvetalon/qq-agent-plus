@@ -158,11 +158,19 @@ function senderFacade(hostCtx) {
   const sender = hostCtx?.sender;
   const chatKey = String(hostCtx?.chatKey || '');
   return Object.freeze({
-    sendTextBatch(_chatKey, messages, options) {
+    async sendTextBatch(_chatKey, messages, options) {
       if (typeof sender?.sendTextBatch !== 'function') throw new TypeError('sender.sendTextBatch unavailable');
-      return withSocialDelivery(hostCtx, 'text',
-        () => sender.sendTextBatch(chatKey, messages, boundSendOptions(hostCtx, options)),
-        Array.isArray(messages) ? messages : [messages]);
+      const approval = typeof hostCtx?.beforeTextBatch === 'function'
+        ? await hostCtx.beforeTextBatch(messages, options || {}) : null;
+      hostCtx?.signal?.throwIfAborted();
+      try {
+        const result = await withSocialDelivery(hostCtx, 'text',
+          () => sender.sendTextBatch(chatKey, messages, { ...boundSendOptions(hostCtx, options),
+            ...(approval ? { reviewedTextParts: approval.parts } : {}) }),
+          Array.isArray(messages) ? messages : [messages]);
+        approval?.afterDelivery?.(result);
+        return result;
+      } catch (error) { approval?.afterDelivery?.(null, error); throw error; }
     },
     sendSticker(_chatKey, sticker, options) {
       if (typeof sender?.sendSticker !== 'function') throw new TypeError('sender.sendSticker unavailable');

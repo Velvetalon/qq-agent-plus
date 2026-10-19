@@ -16,7 +16,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const originalFetch = globalThis.fetch;
 let app, chrome, chromeLifecycle, ws, pending = new Map(), seq = 0;
 let modelCalls = 0, sends = 0;
-let scriptedModel = null, syntheticChatCalls = 0;
+let scriptedModel = null, syntheticChatCalls = 0, syntheticReviewCalls = 0;
 const errors = [], checks = [], unexpectedCalls = [], unexpectedProtocol = [];
 try {
   const cfg = structuredClone(DEFAULT_CONFIG);
@@ -37,7 +37,17 @@ try {
     // The real settings page checks release metadata independently of inference.
     if (String(url) === 'https://api.github.com/repos/Velvetalon/qq-agent-plus/releases/latest') return Response.json({ message: 'synthetic: no release' }, { status: 404 });
     if (String(url).startsWith('https://browser-model.invalid') && !options?.body) return Response.json({ data: [] });
-    if (String(url).startsWith('https://browser-model.invalid') && scriptedModel) { syntheticChatCalls += 1; return scriptedModel(); }
+    if (String(url).startsWith('https://browser-model.invalid') && scriptedModel) {
+      const body = JSON.parse(options.body);
+      // Review is a separate synthetic boundary, not the next scripted chat phase.
+      if (body.messages?.[0]?.role === 'system' && body.messages[0].content.startsWith('【阶段：发送前语义审核】')) {
+        syntheticReviewCalls += 1;
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ claimsComplete: true,
+          novelty: { repeated: false, previousIds: [], reason: 'synthetic fixture approval' }, claims: [], issues: [] }) } }],
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } });
+      }
+      syntheticChatCalls += 1; return scriptedModel();
+    }
     modelCalls += 1; unexpectedCalls.push(String(url)); throw new Error('Unexpected external call in browser test');
   };
   app = createApp({ log: () => {} });
@@ -150,6 +160,8 @@ try {
   await app.orchestrator.wake('group:1'); scriptedModel = null;
   cfg.runtime.mode = 'observe'; updateConfig(cfg);
   assert.equal(syntheticChatCalls, 2);
+  assert.equal(syntheticReviewCalls, 1);
+  assert.equal(syntheticChatCalls + syntheticReviewCalls, 3);
   const session = app.sessions.listSummaries(1)[0];
   assert.equal(session.socialAudit.decision, 'reply'); assert.equal(session.socialAudit.delivered, false);
   const sessionResponse = await originalFetch(`http://127.0.0.1:${port}/api/sessions/${session.id}`, { headers: { 'x-console-token': cfg.server.token } });
@@ -188,8 +200,8 @@ try {
   }
   checks.push('mode fallback and app restart preserve the same historical guarded session in desktop/mobile browser');
   assert.deepEqual(errors, []); assert.equal(modelCalls, 0, JSON.stringify(unexpectedCalls)); assert.equal(sends, 0, JSON.stringify(unexpectedProtocol));
-  fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ checks, layout, errors, modelCalls, syntheticChatCalls, sends }, null, 2));
-  console.log(JSON.stringify({ evidence, checks, layout, errors, modelCalls, syntheticChatCalls, sends }));
+  fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ checks, layout, errors, modelCalls, syntheticChatCalls, syntheticReviewCalls, sends }, null, 2));
+  console.log(JSON.stringify({ evidence, checks, layout, errors, modelCalls, syntheticChatCalls, syntheticReviewCalls, sends }));
 } finally {
   try {
     for (const task of pending.values()) clearTimeout(task.timer);

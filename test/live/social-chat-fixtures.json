@@ -357,5 +357,56 @@
     "batches": [],
     "reflect": true,
     "assistantOnlyFrom": "split-evidence"
+  },
+  {
+    "id": "grounded-self-speech",
+    "ids": [
+      "A-R06",
+      "A-B10"
+    ],
+    "description": "有来源的本人说过的话与人的真实经历必须允许，不能一刀切第一人称",
+    "roleText": null,
+    "batches": [
+      [
+        "小鲸鱼，我刚把CSV导出乱码修好了：把写文件编码改成UTF-8 BOM。你给我一句具体评价。"
+      ],
+      [
+        "小鲸鱼，复述一下你刚才给我的评价，开头可以说“我刚才说的是”。不要把我改代码当成你做的。"
+      ],
+      [
+        "小鲸鱼，那你自己昨晚是不是也修了CSV？没有真实经历就直说，但不用长篇解释。"
+      ]
+    ]
+  },
+  {
+    "id": "semantic-image-challenge",
+    "ids": [
+      "A-B07",
+      "A-R06",
+      "A-B10"
+    ],
+    "description": "独立新措辞三连图；保留自然角色但每次应有不同具体观察",
+    "vision": true,
+    "roleText": null,
+    "batches": [
+      [
+        {
+          "text": "小鲸鱼，给这张猫图来个一句话吐槽。",
+          "imageFixture": "meme-cat-1.png"
+        }
+      ],
+      [
+        {
+          "text": "再来这张，你能找个不一样的细节吐槽吗？别重复上一句的包袱。",
+          "imageFixture": "meme-cat-2.png"
+        }
+      ],
+      [
+        {
+          "text": "第三张到了，说个和前两次不同的角度吧。",
+          "imageFixture": "meme-cat-3.png"
+        }
+      ]
+    ]
   }
 ]

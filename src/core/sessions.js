@@ -102,6 +102,21 @@ export function sessionSocialAuditView(source = null) {
     dispatchBlocked: text(source.dispatchBlocked, 120),
     validation: text(source.validation, 120),
     replyerFinished: source.replyerFinished === true,
+    draftReview: source.draftReview && typeof source.draftReview === 'object' ? {
+      calls: Math.min(4, Math.max(0, Number(source.draftReview.calls) || 0)),
+      approved: Math.max(0, Number(source.draftReview.approved) || 0),
+      rejected: Math.max(0, Number(source.draftReview.rejected) || 0),
+      blocked: Math.max(0, Number(source.draftReview.blocked) || 0),
+      latencyMs: Math.max(0, Number(source.draftReview.latencyMs) || 0),
+      reservedTokens: Math.max(0, Number(source.draftReview.reservedTokens) || 0),
+      outcome: text(source.draftReview.outcome, 80),
+      finalOutcome: text(source.draftReview.finalOutcome, 80),
+      batches: (Array.isArray(source.draftReview.batches) ? source.draftReview.batches : []).slice(0, 8).map(b => ({
+        index: Number(b.index) || 0, approved: b.approved === true, code: text(b.code, 80),
+        latencyMs: Math.max(0, Number(b.latencyMs) || 0), delivered: Math.max(0, Number(b.delivered) || 0),
+        delivery: text(b.delivery, 40), revisionOf: Number.isInteger(b.revisionOf) ? b.revisionOf : null
+      }))
+    } : null,
     proposedIntentId: source.proposedIntentId == null ? null : text(source.proposedIntentId, 120),
     proactive: source.proactive === true,
     triggerKind: text(source.triggerKind, 40),

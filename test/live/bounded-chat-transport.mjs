@@ -20,7 +20,7 @@ export function boundedChatTransport({ fetchImpl, key, record, afterDispatch, ma
     if (reserve > 128000 || stats.calls >= maxCalls || stats.tokens + stats.reservedUnknownTokens + reserve > maxTokens || Date.now() - started > deadlineMs) { stats.budgetStops++; record({error:'LIVE_BUDGET_EXHAUSTED',dispatched:false}); throw new Error('LIVE_BUDGET_EXHAUSTED'); }
     const call = ++stats.calls;
     const begin = Date.now();
-    const phase = body.messages?.some(m => String(m.content).includes('【阶段：参与规划】')) ? 'planner' : body.messages?.some(m => String(m.content).includes('【阶段：自然回应】')) ? 'replyer' : body.messages?.length === 1 && String(body.messages[0]?.content).includes('ReflectionInput:') ? 'reflection' : 'other-or-repair';
+    const phase = body.messages?.some(m => String(m.content).includes('【阶段：发送前语义审核】')) ? 'review' : body.messages?.some(m => String(m.content).includes('【阶段：参与规划】')) ? 'planner' : body.messages?.some(m => String(m.content).includes('【阶段：自然回应】')) ? 'replyer' : body.messages?.length === 1 && String(body.messages[0]?.content).includes('ReflectionInput:') ? 'reflection' : 'other-or-repair';
     active = true;
     stats.reservedUnknownTokens += reserve;
     try {

@@ -5,6 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { socialReplyerTools } from '../src/conversation/runtime.js';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 function fixture({ maxMessagesPerTurn = 3, socialSendActions = 0, countTextParts = null } = {}) {
   const calls = [];
   const original = {
@@ -144,7 +149,7 @@ async function integration(t, { firstBatch = null, hardSplitAt = 0, behaviorProf
     getGroupInfo: async () => ({ group_name: 'synthetic-cap' }),
     sendText: async (_kind, _chat, text) => { sent.push(text); return { message_id: 1000 + sent.length }; } };
   const sender = new SendQueue({ onebot, store });
-  const runner = new Orchestrator({ store, sessions, memory: { formatForPrompt: () => '' }, stickers: {}, sender, onebot });
+  const runner = new Orchestrator({ socialDraftReviewer: approveSyntheticSocialDraft, store, sessions, memory: { formatForPrompt: () => '' }, stickers: {}, sender, onebot });
   const originalFetch = globalThis.fetch;
   t.after(async () => { await runner.abortAll(); store.close(); globalThis.fetch = originalFetch; fs.rmSync(dataDir, { recursive: true, force: true }); });
   const source = store.appendIncoming('group:1', { mid: 1, text: 'Please give a concise, useful answer.', senderId: '42', senderName: 'synthetic-member' });

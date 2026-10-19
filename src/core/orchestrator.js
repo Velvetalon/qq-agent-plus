@@ -95,7 +95,8 @@ import { assertTimeAllowed, isTimeActive, TimeControlError, watchTimeWindow, wit
 import { vendorOfConfig } from '../pricing/model-prices.js';
 import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey, sanitizeUserText } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from '../llm/prompt.js';
-import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from '../llm/llm.js';
+import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError, resolveApiKey } from '../llm/llm.js';
+import { reviewSocialDraft, socialDraftEvidence, SocialDraftReviewError } from '../conversation/draft-review.js';
 import { toOpenAiTools, executeTool } from '../tools/tools.js';
 import { modelImageVerdict } from '../llm/vision-scan.js';
 import { prepareTextParts } from '../onebot/sender.js';
@@ -397,7 +398,8 @@ export class Orchestrator {
     getIdentityPilot = null,
     getIncidentPilot = null,
     pluginManager = null,
-    validateSocialMaterials = null
+    validateSocialMaterials = null,
+    socialDraftReviewer = reviewSocialDraft
   }) {
     this.store = store;
     this.memory = memory;
@@ -406,6 +408,7 @@ export class Orchestrator {
     this.sessions = sessions;
     this.onebot = onebot;
     this.random = random;
+    this.socialDraftReviewer = socialDraftReviewer;
     this.getIdentityPilot = typeof getIdentityPilot === 'function' ? getIdentityPilot : (() => null);
     this.getIncidentPilot = typeof getIncidentPilot === 'function'
       ? getIncidentPilot
@@ -1772,6 +1775,7 @@ export class Orchestrator {
     let runSignal = signal;
     if (typeof AbortSignal?.any === 'function') runSignal = AbortSignal.any([signal, runSnapshot.signal]);
     const identityPilot = this.getIdentityPilot();
+    let beforeTextBatch = null;
     const plannerTools = socialPlannerTools(toolDefs).filter((tool) => !interestRefs.length
       || ['web_search', 'web_fetch'].includes(tool.name) || tool.socialSource === true);
     const replyerTools = socialReplyerTools(toolDefs, {
@@ -1801,6 +1805,7 @@ export class Orchestrator {
       runSnapshot,
       pluginContext,
       signal: runSignal,
+      ...(beforeTextBatch ? { beforeTextBatch } : {}),
       ...(deliveryGuard ? { deliveryGuard } : {}),
       emit: (type, payload) => this.emit(type, payload)
     });
@@ -2285,6 +2290,99 @@ export class Orchestrator {
         { role: 'system', content: replyPrompt.system },
         { role: 'user', content: replyerUserContent }
       ];
+      const draftReview = session.socialAudit.draftReview = {
+        batches: [], calls: 0, approved: 0, rejected: 0, blocked: 0,
+        latencyMs: 0, reservedTokens: 0, stopped: false, outcome: 'not_requested'
+      };
+      session.socialUsage.review = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, calls: 0 };
+      beforeTextBatch = async (rawMessages, options) => {
+        runSignal.throwIfAborted();
+        const rawDrafts = Array.isArray(rawMessages) ? rawMessages.map(String) : [String(rawMessages)];
+        const drafts = prepareTextParts(rawDrafts, { preserveCode: options.preserveCode, hardSplitAt: getConfig().send?.hardSplitAt });
+        const remaining = visibleLimit - (Number(session.socialSendActions) || 0);
+        if (drafts.length > remaining) throw new SocialDraftReviewError({ code: 'SOCIAL_MESSAGE_BATCH_LIMIT', issues: [{ reason: `请自行压缩至剩余 ${Math.max(0, remaining)} 条实际消息` }] }, remaining > 0);
+        if (draftReview.stopped || draftReview.calls >= 4 || draftReview.rejected >= 2) {
+          draftReview.stopped = true; draftReview.blocked += 1; draftReview.outcome = 'review_budget';
+          session.socialGuardInvalidated = true;
+          throw new SocialDraftReviewError({ code: 'REVIEW_BUDGET' });
+        }
+        const sources = socialDraftEvidence({
+          messages: [...new Map([...selectedMessages, ...this.store.recent(chatKey, { limit: 60 }).filter(visible), ...targetMessages].map(m => [String(m.id), m])).values()],
+          targetIds: targetMessages.map(m => m.id), topicSelfIds: selectedMessages.filter(m => m.self).map(m => m.id), selfName: selfNickname, selfModel: cfg.api.model,
+          delivered: session.socialDelivered, memoryText, pluginContext: extensionText,
+          toolResults: session.messages.filter(m => m.toolCall).map(m => ({ ...m.toolCall,
+            effect: toolDefs.find(t => t.name === m.toolCall.name)?.effect }))
+        });
+        const started = Date.now();
+        const batch = { index: draftReview.batches.length, drafts, approved: false, code: '', latencyMs: 0 };
+        draftReview.batches.push(batch);
+        try {
+          const result = await this.socialDraftReviewer({ drafts, rawDrafts, sources,
+            images: [...new Map(replyerMessages.flatMap(m => Array.isArray(m.content) ? m.content.filter(p => p.type === 'image_url') : [])
+              .map(p => [p.image_url?.url, p])).values()].slice(-4),
+            targets: targetMessages.map(m => ({ id: `message:${m.id}`, actor: String(m.senderId || ''), text: String(m.text || '') })),
+            signal: runSignal,
+            complete: async (args) => {
+              runSignal.throwIfAborted();
+              const reserve = estimateNextPromptTokens({ messages: args.messages, tools: [] }).estimatedPromptTokens + 768;
+              const limits = effectiveRunLimits(cfg);
+              const exploration = session.socialExploration;
+              if (draftReview.calls >= 4 || session.usage.totalTokens + draftReview.reservedTokens + reserve > limits.maxRunTokens
+                || exploration && (exploration.calls >= exploration.maxModelCalls
+                  || Math.max(exploration.admittedTokens, Number(session.usage.totalTokens) || 0) + reserve > exploration.maxRunTokens)) {
+                session.budgetStopped = true; session.budgetStopReason = 'social-review-budget';
+                throw Object.assign(new Error('Review budget exhausted'), { code: 'REVIEW_BUDGET' });
+              }
+              draftReview.calls += 1; draftReview.reservedTokens += reserve;
+              session.usage.calls = (Number(session.usage.calls) || 0) + 1;
+              session.socialUsage.review.calls += 1;
+              if (exploration) { exploration.calls += 1; exploration.admittedTokens += reserve; }
+              const reviewStarted = Date.now();
+              const call = { phase: 'review', round: session.rounds, promptTokens: 0, completionTokens: 0, totalTokens: 0, latencyMs: 0, usageKnown: false };
+              (session.callUsage ||= []).push(call);
+              try {
+                const response = await chatCompletion({ ...args,
+                  signal: AbortSignal.any([runSignal, AbortSignal.timeout(15000)]),
+                  overrides: { ...cfg.api, apiKey: resolveApiKey(cfg), timeoutMs: 15000 } });
+                if (Number.isFinite(response.usage?.total_tokens)) {
+                  draftReview.reservedTokens -= reserve;
+                  call.usageKnown = true;
+                }
+                addUsage(session.usage, response.usage); addUsage(session.socialUsage.review, response.usage);
+                Object.assign(call, { promptTokens: Number(response.usage?.prompt_tokens) || 0,
+                  completionTokens: Number(response.usage?.completion_tokens) || 0, totalTokens: Number(response.usage?.total_tokens) || 0 });
+                return response;
+              } finally { call.latencyMs = Date.now() - reviewStarted; }
+            }
+          });
+          runSignal.throwIfAborted();
+          Object.assign(batch, { approved: result?.allowed === true, code: result?.code || 'REVIEW_INVALID',
+            issues: result?.issues || [], claims: result?.claims || [], novelty: result?.novelty || null });
+          batch.visualClaims = result?.visualClaims || [];
+          if (result?.allowed !== true) {
+            draftReview.rejected += 1;
+            const retryable = result?.code === 'REVISION_REQUIRED' && draftReview.rejected < 2;
+            if (!retryable) { draftReview.stopped = true; session.socialGuardInvalidated = true; }
+            draftReview.outcome = retryable ? 'revision_requested' : 'no_acceptable_draft';
+            throw new SocialDraftReviewError(result || { code: 'REVIEW_INVALID' }, retryable);
+          }
+          draftReview.approved += 1;
+          draftReview.outcome = draftReview.rejected ? 'approved_after_revision' : 'approved';
+          batch.revisionOf = draftReview.batches.slice(0, -1).findLast(b => b.code === 'REVISION_REQUIRED')?.index ?? null;
+          return { parts: drafts, afterDelivery: (result, error) => {
+            batch.delivered = Array.isArray(result?.sent) ? result.sent.length : 0;
+            batch.delivery = error ? 'failed_or_blocked' : result?.failed?.length ? 'partial' : batch.delivered ? 'sent' : 'not_sent';
+          } };
+        } catch (error) {
+          if (error instanceof SocialDraftReviewError) throw error;
+          draftReview.stopped = true; draftReview.blocked += 1;
+          draftReview.outcome = error?.code === 'REVIEW_BUDGET' ? 'review_budget' : runSignal.aborted ? 'cancelled' : 'review_unavailable';
+          batch.code = draftReview.outcome;
+          session.socialGuardInvalidated = true;
+          runSignal.throwIfAborted();
+          throw new SocialDraftReviewError({ code: draftReview.outcome });
+        } finally { batch.latencyMs = Date.now() - started; draftReview.latencyMs += batch.latencyMs; }
+      };
       const sentThisTurn = new Set();
       const deliveryGuard = async ({ payload = {}, options = {} } = {}) => {
         runSignal.throwIfAborted();
@@ -2373,6 +2471,7 @@ export class Orchestrator {
         store: this.store,
         session,
         signal: runSignal,
+        beforeTextBatch,
         deliveryGuard
       }).sender;
       const replyerContext = makeToolContext(topicRunContext, deliveryGuard);
@@ -2413,7 +2512,17 @@ export class Orchestrator {
       session.socialAudit.delivered = session.socialDelivered.length > 0 && session.socialAudit.deliveryState !== 'unknown';
       session.finishReason = session.socialAudit.delivered
         ? '社交回应已完成'
-        : (session.socialGuardInvalidated ? '社交回应因话题变化而停止' : '回应阶段未发送消息');
+        : (draftReview.rejected || draftReview.blocked ? '草稿审核未获得可发送回复：' + draftReview.outcome
+          : session.socialGuardInvalidated ? '社交回应因话题变化而停止' : '回应阶段未发送消息');
+      draftReview.finalDelivered = session.socialAudit.delivered;
+      const deliveredReviewBatches = draftReview.batches.filter(b => b.delivered > 0);
+      const unresolvedDraft = draftReview.batches.some(b => b.code === 'REVISION_REQUIRED'
+        && !deliveredReviewBatches.some(done => done.revisionOf === b.index));
+      draftReview.finalOutcome = deliveredReviewBatches.length
+        ? unresolvedDraft ? 'delivered_with_unresolved_draft'
+          : deliveredReviewBatches.some(b => b.revisionOf !== null) ? 'delivered_after_revision' : 'delivered'
+        : draftReview.approved ? 'approved_but_not_delivered'
+          : draftReview.rejected || draftReview.blocked ? 'no_acceptable_output' : 'no_text_proposed';
       state.recordOutcome({
         ...scope,
         topicId: String(selectedTopic.id),
@@ -2514,7 +2623,7 @@ export class Orchestrator {
       if ((exploration && (exploration.calls >= exploration.maxModelCalls
         || Math.max(exploration.admittedTokens, Number(session.usage.totalTokens) || 0) + explorationCost > exploration.maxRunTokens))
         || (session.usage.calls > 0
-        && session.usage.totalTokens + estimate.estimatedPromptTokens + 2048 > maxRunTokens)) {
+        && session.usage.totalTokens + (session.socialAudit?.draftReview?.reservedTokens || 0) + estimate.estimatedPromptTokens + 2048 > maxRunTokens)) {
         session.budgetStopped = true;
         session.budgetStopReason = 'social-phase-token-budget';
         session.finishReason = '社交阶段 Token 预算不足，已安全结束';

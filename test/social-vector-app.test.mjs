@@ -47,6 +47,11 @@ test('A-H05 real app vector consumers reject archived memory in queued and subse
     assert.equal(host, 'vector-chat.invalid', 'all external traffic stays within synthetic boundaries');
     if (!body) return Response.json({ data: [] });
     requests.push(body);
+    // Synthetic semantic-review response must not consume the scripted chat phase.
+    if (body.messages?.[0]?.role === 'system' && body.messages[0].content.startsWith('【阶段：发送前语义审核】')) {
+      return response({ content: JSON.stringify({ claimsComplete: true,
+        novelty: { repeated: false, previousIds: [], reason: 'synthetic fixture approval' }, claims: [], issues: [] }) });
+    }
     if (body.messages.length === 1 && body.messages[0].role === 'user') {
       reflections.push(body.messages[0].content);
       if (silentEpisode) {

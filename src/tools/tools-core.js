@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getConfig } from '../core/config.js';
+import { SocialDraftReviewError } from '../conversation/draft-review.js';
 
 // 消息 id 归一化：模型常把聊天记录里的 "#123" 连 # 一起传进来，而 OneBot 只认纯数字 id。
 // store.js 里有一份同名函数但没导出，所以这里保留 tools 层自用的一份。
@@ -282,6 +283,7 @@ export function buildToolDefs() {
           if (result.failed.length) note.push(`（另有 ${result.failed.length} 条发送失败：${result.failed.map((f) => f.error).join('；')}——成功的不需要重发，失败的请稍后再试或减少条数）`);
           return ok({ sent: result.sent.length, messageIds: result.sent.map((s) => s.messageId), note: note.join('') });
         } catch (error) {
+          if (error instanceof SocialDraftReviewError) return error.result;
           return err(error?.message ?? error, {
             incidentCaptured: error?.incidentCaptured === true
           });
@@ -1018,6 +1020,7 @@ export async function executeTool(defs, ctx, name, argsJson) {
       ...(parsed.repaired ? { argumentsRepaired: true } : {})
     };
   } catch (error) {
+    if (error instanceof SocialDraftReviewError) return error.result;
     return { content: `错误：${error?.message ?? error}`, isError: true };
   }
 }

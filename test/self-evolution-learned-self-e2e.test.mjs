@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+// Synthetic reviewer boundary: these fixtures isolate existing host contracts.
+async function approveSyntheticSocialDraft() {
+  return { allowed: true, code: 'APPROVED', issues: [], claims: [], reviewed: true };
+}
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-learned-self-e2e-'));
 process.env.QQ_AGENT_DATA_DIR = root;
 
@@ -97,6 +102,7 @@ test('legacy v2 reflection history cannot adopt or inject a stable trait', async
   const chatStore = new ChatStore(0, { dataDir: path.join(dataDir, 'chat') });
   const sessions = new SessionRegistry(0);
   const runner = new Orchestrator({
+    socialDraftReviewer: approveSyntheticSocialDraft,
     store: chatStore,
     sessions,
     memory: {
