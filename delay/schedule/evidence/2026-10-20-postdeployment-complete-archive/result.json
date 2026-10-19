@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "status": "COMPLETE_REARCHIVE_CURRENT_PRODUCTION_UNCHANGED",
+  "observedAt": "2026-10-19T21:17:35.436133+00:00",
+  "repositoryBeforeArchive": "188bc3a23a8203ae57644cce023dffc11b79edc4",
+  "productionRevision": "91beebbcc3a99e725b5f35ac97245a80ca1195ea",
+  "freshReadOnlyObservation": {
+    "observedAt": "2026-10-19T21:17:35.436133+00:00",
+    "operationStatus": "SUCCESS",
+    "initialRolloutStatus": "FAILED",
+    "configurationRecoverySucceeded": true,
+    "authorizedExistingNoteBackfill": {
+      "status": "QUEUED_ONLY_ELIGIBLE",
+      "profileId": "b06e6d30f9eeac6e3de186c16b048a32504c47b4778293a2b5e109d0afcbfbac",
+      "counts": {
+        "examined": 293,
+        "activeRecallable": 246,
+        "privacyAllowed": 0,
+        "queued": 0,
+        "archivedOrIneligible": 47,
+        "privacySkipped": 246,
+        "existingJobsKept": 0
+      },
+      "primaryNoteRowsUnchanged": true,
+      "accountOrScopeOrRevisionNotModified": true,
+      "allowPrivate": false,
+      "modelCallsIssuedByQueueOperation": 0,
+      "workerMayProcessAuthorizedQueue": true
+    },
+    "revision": "91beebbcc3a99e725b5f35ac97245a80ca1195ea",
+    "service": {
+      "NRestarts": "0",
+      "ExecMainStatus": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "timer": {
+      "ActiveState": "active",
+      "SubState": "waiting",
+      "UnitFileState": "enabled"
+    },
+    "health": {
+      "ok": true,
+      "name": "qq-agent-plus",
+      "version": "0.6.18",
+      "uptimeSeconds": 2614,
+      "onebotConnected": false,
+      "timestamp": 1792444655413
+    },
+    "controlledSourceFiles": 142,
+    "sourceMismatches": [],
+    "runtime": {
+      "mode": "active",
+      "paused": false
+    },
+    "conversationMode": "lifecycle",
+    "chatModel": "deepseek/deepseek-v4.1-flash-1017",
+    "providerAndKeysPreserved": true,
+    "memoryFlags": {
+      "master": true,
+      "retrieval": true,
+      "reflection": true
+    },
+    "embedding": {
+      "state": "verified",
+      "configured": true,
+      "model": "Qwen/Qwen3-Embedding-4B",
+      "dimension": 2560,
+      "enabled": true,
+      "allowQuery": true,
+      "allowPrivate": false,
+      "timeoutMs": 60000,
+      "keyPresent": true,
+      "lastTest": {
+        "ok": true,
+        "code": "EMBEDDING_PROBE_OK",
+        "dimension": 2560,
+        "latencyMs": 14560,
+        "testedAt": 1792443217380
+      },
+      "vector": {
+        "reason": "ready",
+        "configured": true,
+        "profileId": "b06e6d30f9eeac6e3de186c16b048a32504c47b4778293a2b5e109d0afcbfbac",
+        "stats": {
+          "ready": 0,
+          "pending": 0,
+          "blocked": 0,
+          "failed": 0,
+          "obsolete": 0,
+          "total": 0
+        }
+      }
+    },
+    "notebookCount": 293,
+    "backupPresence": {
+      "application-backup": true,
+      "data-backup": true,
+      "original-config.json": true,
+      "units-backup": true,
+      "prior-deploy-backups": true
+    },
+    "explicitQQTestRequestsIssued": false,
+    "totalLiveSendsMeasured": false
+  },
+  "businessCodeRemainsPublishedInGit": true,
+  "newOperatorSourceSnapshots": 17,
+  "previousOperatorSourceSnapshots": 16,
+  "snapshotDirectory": "delay/implementation/2026-10-20-production-release-records",
+  "rawStatusSHA256": "56b0e8dfa1846e46c47f9dccf3cc6ed293bc07d96db8361f34a7d20dec91fb7d",
+  "globalPolicySHA256": "9cbce55322080c4440a9d1da8f1637cf57831e31998c5e2066c6faec5b16fadf",
+  "archivalWorkflow": {
+    "name": "luna-freeze-release-source-records",
+    "requestedProvider": "codex-proxy",
+    "requestedModel": "gpt-6-luna",
+    "jobId": "workflow-7629e823720b4b30",
+    "result": "17 source files plus README/manifest delivered; syntax/hash checked by worker; coordinator full checks follow"
+  },
+  "safety": {
+    "newDeploymentOrConfigWrite": false,
+    "newModelProbeOrIndexJob": false,
+    "credentialsOrActualQQIdCopied": false,
+    "rawNotebookChatOrDatabaseCopied": false,
+    "fullRawLogsCopied": false,
+    "localUntrackedMemoReadOrStaged": false
+  },
+  "remaining": [
+    "OneBot pre-existing disconnect and realQQ/SC8 acceptance",
+    "B07/R06/B10 broader real-model matrix",
+    "complete current-model chat/reflection/4B/new-session memory chain",
+    "Windows44 platform/fixture failures",
+    "CFG-RB01 exact selfEvolution rollback; not fixed by cleanup tests"
+  ],
+  "zeroVectorOutcomeMustRemainExplicit": true
+}

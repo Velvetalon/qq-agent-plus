@@ -1,6 +1,14 @@
 # 项目开发任务索引
 
-## 最新：2026-10-20 Workflow/Luna、实际发布与模型配置已完成
+## 最新：2026-10-20 上线后完整再归档
+
+[当前全部工作与部署总交接](../schedule/2026-10-20-postdeployment-complete-archive.md)、[新鲜状态](../schedule/evidence/2026-10-20-postdeployment-complete-archive/result.json)、[新增17份运维源码封存](../implementation/2026-10-20-production-release-records/README.md)。全局workflow/model规则、五轮Luna工作、代码/测试、备份/失败/恢复、当前模型与隐私零索引都已串联。
+
+当前生产91be正常；本轮只归档。待办仍为OneBot/SC8、B07/R06/B10广矩阵、完整记忆链、Windows平台失败与[CFG-RB01](CFG-RB01-exact-self-evolution-rollback.md)，不能把归档或上线当全卡结束。
+
+以下历史进度保留。
+
+## 历史检查点：2026-10-20 Workflow/Luna、实际发布与模型配置已完成
 
 [当前续做](../schedule/2026-10-20-workflow-resume.md)、[新分工规则](../coordination-policy-2026-10-20-workflow.md)、[测试实绩](../schedule/evidence/2026-10-20-workflow-resume/luna-fault-tests.json)。已用workflow显式gpt-6-luna实现、自测、返修并独立复核；当前清理补丁的故障矩阵已闭合，不再沿用归档时“未派发/未测试”的状态。架构/发布裁决仍由主协调者亲自负责。
 

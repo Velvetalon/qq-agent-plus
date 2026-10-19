@@ -1,0 +1,208 @@
+{
+  "files": [
+    {
+      "file": "prepare_release_candidate.py",
+      "originalPrivateSHA256": "068e2590356c0737069f12a759a28b099c0ea6592a135cfadef68cd58f5bd13a",
+      "archivedSHA256": "96b0385df0302da6ac1fa02bc3664be81ef17ebe77c236d852a18393b202176b",
+      "bytes": 4664,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "run_cleanup_faults.py",
+      "originalPrivateSHA256": "6fe0f17ee7a258ae6690d2a9cb02cb171d10f135cce4c66e69e643316d166118",
+      "archivedSHA256": "54ff81d670c9810cc83bdf9ec4433eb1e5b2797855d4d24f1d82a7fb8d8c706b",
+      "bytes": 3375,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "resume-preconditions.sh",
+      "originalPrivateSHA256": "d0890fa1dcbef80cccbb02f7a71c5428b3d51144fc42a2e8519e1e984a13178d",
+      "archivedSHA256": "6675f7a7bf7ffb42b3eb07c1f6fb46c799d06d6187839423b2a5625d442b5a2d",
+      "bytes": 2078,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "prepare-91beebbcc3.sh",
+      "originalPrivateSHA256": "6ec89f67e1ae6ed9a4e40b77b0fff52c1447be523e42a8821746c42240e609aa",
+      "archivedSHA256": "3f08e25c69384291ba89bf79ad266c1c2af6acd5dbaecf2b3f17c07f1bf02efe",
+      "bytes": 454,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "validate-91beebbcc3.sh",
+      "originalPrivateSHA256": "d894c8954b7d80e0952487b7255a2beb72ae7d5173a80ba82ef619344cc3c25d",
+      "archivedSHA256": "1b16d822174881deea5e3e6419ac302edabe1294dab66f4b8839146e798061eb",
+      "bytes": 6455,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "apply-final-91beebbcc3.sh",
+      "originalPrivateSHA256": "41278bd1e6bb0efca38f3e9fce56ec745872a920d50c316f6cd0356dffe91e30",
+      "archivedSHA256": "e93f6632cc03f1a7cfea32525efa62d263ea527badaf1555d2f4a9868c976c99",
+      "bytes": 15452,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "verify-final-worker.sh",
+      "originalPrivateSHA256": "865b88a8aeffc1d9ed7724b76b1b75edf221662f725121437153c556cccda320",
+      "archivedSHA256": "28982f375d3721ec28ff2ab55ff191ac0339166ad9354f757f80b79c107304b1",
+      "bytes": 974,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "recover-code-and-diagnose.sh",
+      "originalPrivateSHA256": "192f7dcff1a0392cacb0a6560a3192e288dd16b49110ba62cdf89efa70dedc10",
+      "archivedSHA256": "220eea408b5c992b0fbe703e5cfeef5ca4909469908d016bec467a063067d676",
+      "bytes": 2873,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "diagnose-account-identity.sh",
+      "originalPrivateSHA256": "20d471ae9a9688f2e17f18fbd5e25f274076ec97bada8148d0a518ccb875917d",
+      "archivedSHA256": "7c308d7135a95ffa936ca253e50c1c11658a464a252738c9d45233a02c9fdb24",
+      "bytes": 2378,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "inspect-protocol-metadata.sh",
+      "originalPrivateSHA256": "46220f6dbb924a1ba58a81c151fe720a48615e038ef484c80511143e9201d3fa",
+      "archivedSHA256": "e06b5217a63e137600a2b1e005c78881c9a214e5c39221d8a7da232dc6089fe1",
+      "bytes": 1530,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "verify-configured-protocol-account.sh",
+      "originalPrivateSHA256": "969e1df52c4424f203b45fa1eddcfff50af8e1457e1c77fb85f9cd50c30fd70c",
+      "archivedSHA256": "86cdfd42e560086300cd6cad069035fa9a915dfe4d8e75bb2f3349747c80db3a",
+      "bytes": 2259,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "complete-authorized-configuration.sh",
+      "originalPrivateSHA256": "141cac05ab930422c918543349b55b33a807e8cfad7cface020c1f08408ce7c6",
+      "archivedSHA256": "e69a37470720cc3e63e577ea7500831c4186268210013ca123f11b541bdb6957",
+      "bytes": 5630,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "queue-authorized-existing-notes.sh",
+      "originalPrivateSHA256": "3c1952e2784abe0b21af46a4244f57e92576e810f6bb4971517c3b60325d5d58",
+      "archivedSHA256": "bf376ab5ba1a3ebd5858c027240385b1be851ad6e3e1e3fe281cd86c4673a291",
+      "bytes": 4003,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "post-release-status.sh",
+      "originalPrivateSHA256": "d3f5ecd9de8a3f7f1f61b0a76e941c6680387c415b9afc685156ed1c97e93835",
+      "archivedSHA256": "27bdb664577a463ffa81916f9c4d779afd74e9f94dfbf713a5a0b2b4442636a7",
+      "bytes": 4124,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "production-chat-smoke.sh",
+      "originalPrivateSHA256": "5054e751862c044101bcc75fcb6a175ee6df3f6ddf3a1fdf7b218030432bcc7b",
+      "archivedSHA256": "13f3aa6598cbb74c0dcf5b98e26edc9f330f1b6ec742f0a14142d49634ff51fe",
+      "bytes": 2268,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "verify-business-data.sh",
+      "originalPrivateSHA256": "5b9503cb6eb36f5d769b27cb8b75033a878e504c4a609df2ca38594e3d0d02f4",
+      "archivedSHA256": "b081c311e3eab90e2abd0408181ec6a9661c1393a7182e458f9c949bdefedd71",
+      "bytes": 1380,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    },
+    {
+      "file": "collect_final_release_evidence.py",
+      "originalPrivateSHA256": "5693fcc0d296a062a8d236497795e1720c4268c479625d0952b354727d017630",
+      "archivedSHA256": "066f202c43b1bd822fd265f4b19b3342cd089bf0df35284a01eea62d5f7c1b18",
+      "bytes": 3712,
+      "executionBlocked": true,
+      "redactions": [
+        "private maintenance path placeholder",
+        "private local source directory placeholder",
+        "unconditional execution blocker"
+      ]
+    }
+  ]
+}

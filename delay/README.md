@@ -1,6 +1,14 @@
 # 当前工作交接入口
 
-## 最新：2026-10-20 Workflow显式Luna与线上更新已落实
+## 最新：2026-10-20 上线后全部工作再次完整归档
+
+**先读[当前总交接](schedule/2026-10-20-postdeployment-complete-archive.md)**，配有[05:17新鲜只读状态](schedule/evidence/2026-10-20-postdeployment-complete-archive/result.json)和[17份新增上线/恢复源码封存](implementation/2026-10-20-production-release-records/README.md)。加上[此前16份准备期封存](implementation/2026-10-20-production-update/README.md)，关键运维代码不再仅留临时目录；业务代码/测试仍以Git为权威。
+
+生产保持91be、服务正常、DeepSeek与4B配置已应用；本次只归档，没有新增部署/模型/索引。293笔记仍因47不合条件+246私密保护而就绪向量0，OneBot未连、SC8及广语义和CFG-RB01继续开放；全局workflow显式model规则仍生效。
+
+以下为历史进度，不覆盖当前总交接。
+
+## 历史检查点：2026-10-20 Workflow显式Luna与线上更新已落实
 
 [本轮执行进度](schedule/2026-10-20-workflow-resume.md)、[全局新规则快照](coordination-policy-2026-10-20-workflow.md)、[真实故障矩阵](schedule/evidence/2026-10-20-workflow-resume/luna-fault-tests.json)、[Luna独立复核](schedule/evidence/2026-10-20-workflow-resume/independent-review.json)。全局已禁止普通subagent派发；本轮每次workflow agent都显式model=gpt-6-luna，后续显式provider=codex-proxy。
 

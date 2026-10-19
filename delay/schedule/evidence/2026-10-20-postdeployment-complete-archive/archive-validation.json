@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "createdAt": "2026-10-19T21:20:10.452916+00:00",
+  "sourceSnapshots": 17,
+  "originalAndArchivedHashesMatch": true,
+  "syntaxAndBlockedExecutionTests": 17,
+  "localMarkdownLinksChecked": 106,
+  "knownSecretPatternScan": "PASS",
+  "businessCodeUnchangedSince188bc": true,
+  "noProductionOrModelOperations": true,
+  "notebookOrCredentialDataIncluded": false
+}
