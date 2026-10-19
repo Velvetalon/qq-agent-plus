@@ -33,8 +33,7 @@
       "requestedModel": "gpt-6-luna",
       "status": "DELIVERED_BUT_REQUIRED_COORDINATOR_ASSERTION_REVISIONS",
       "changedConditions": "compact <=120line/8000byte test file; <=4000-character write chunks; evidence collection retained by coordinator"
-    }
-    ,
+    },
     {
       "workflow": "luna-tighten-cleanup-assertions",
       "jobId": "workflow-2e97ae4f13e74aa2",
@@ -55,6 +54,14 @@
       "requestedModel": "gpt-6-luna",
       "status": "PASS_WITHIN_GIVEN_SCOPE",
       "noArchitectureOrDeploymentDecisionDelegated": true
+    },
+    {
+      "workflow": "luna-final-deployment-facts-review",
+      "jobId": "workflow-946635c0ea11406f",
+      "requestedProvider": "codex-proxy",
+      "requestedModel": "gpt-6-luna",
+      "status": "PASS_INTERNAL_RESULT_CONSISTENCY_ONLY",
+      "noProductionOrRawEvidenceIndependentlyVerified": true
     }
   ],
   "notArchitectureDelegation": true,

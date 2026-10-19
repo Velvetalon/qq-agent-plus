@@ -1,11 +1,13 @@
 # 当前工作交接入口
 
-## 最新：2026-10-20 Workflow显式Luna续做（发布准备中）
+## 最新：2026-10-20 Workflow显式Luna与线上更新已落实
 
 [本轮执行进度](schedule/2026-10-20-workflow-resume.md)、[全局新规则快照](coordination-policy-2026-10-20-workflow.md)、[真实故障矩阵](schedule/evidence/2026-10-20-workflow-resume/luna-fault-tests.json)、[Luna独立复核](schedule/evidence/2026-10-20-workflow-resume/independent-review.json)。全局已禁止普通subagent派发；本轮每次workflow agent都显式model=gpt-6-luna，后续显式provider=codex-proxy。
 
 - 已完成Luna紧凑实现、协调者返修验收与全新Luna限域复核；两源各4个方法/18场景、2旧逻辑红例和1唯一性反例PASS。首轮max-tokens无产物保留为失败。
-- 重新核验原服务仍059/Qwen/active/lifecycle及293笔记。正在固定提交、准备实际备份/发布；成功回执出来前不当部署完成。4B/费用/查询与私密隔离授权沿用既有选择，不再发确认问题。
+- **线上已更新到91beebb**：142源码hash全部相符，服务active/running，备份和SQLite完整性通过；实际DeepSeek生产固定文本HTTP200/OK。4B/2560已启用并线上验证，query=true/private=false，原权限/凭据和三个记忆开关保持。
+- 首次配置500及停供记录保留；现已通过可信已有协议配置/笔记账号交叉核验补宿主身份并恢复成功，不是实时QQ登录证明。OneBot仍既有断连，SC8未通过。
+- **现有向量0不冒充索引完成**：293笔记中47不活跃/不可召回，246属chat私域被allowPrivate=false拦截，0条外发排队；主记录不变。[最终生产证据](schedule/evidence/2026-10-20-workflow-resume/production-result.json)。
 
 以下为历史时点，不覆盖本节最新进度。
 

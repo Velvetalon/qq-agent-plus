@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "status": "CODE_AND_AUTHORIZED_CONFIGURATION_DEPLOYED",
+  "observedAt": "2026-10-19T21:05:22.268099+00:00",
+  "releaseCommit": "91beebbcc3a99e725b5f35ac97245a80ca1195ea",
+  "packageVersion": "0.6.18",
+  "sourceArchiveSHA256": "6725e3d1ed4d76fa3bb9af5704aca628ae1a9050e67fc9dbce66ff8dd16146a8",
+  "controlledFiles": 142,
+  "sourceManifestSHA256": "afca77f6d8e867c64498bd6bf7a5eb0db9b84764653b1cbf68c817faf055f7f3",
+  "linuxUnit": {
+    "exitCode": 0,
+    "tests": 852,
+    "pass": 852,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "failureTitles": []
+  },
+  "linuxPythonCleanup": {
+    "exitCode": 0,
+    "unittestMethods": 4,
+    "testFile": "production-embedding-cleanup.test.py",
+    "source": "frozen cleanup AST only",
+    "notProductionIO": true
+  },
+  "live": {
+    "observedAt": "2026-10-19T21:05:22.268099+00:00",
+    "operationStatus": "SUCCESS",
+    "initialRolloutStatus": "FAILED",
+    "configurationRecoverySucceeded": true,
+    "authorizedExistingNoteBackfill": {
+      "status": "QUEUED_ONLY_ELIGIBLE",
+      "profileId": "b06e6d30f9eeac6e3de186c16b048a32504c47b4778293a2b5e109d0afcbfbac",
+      "counts": {
+        "examined": 293,
+        "activeRecallable": 246,
+        "privacyAllowed": 0,
+        "queued": 0,
+        "archivedOrIneligible": 47,
+        "privacySkipped": 246,
+        "existingJobsKept": 0
+      },
+      "primaryNoteRowsUnchanged": true,
+      "accountOrScopeOrRevisionNotModified": true,
+      "allowPrivate": false,
+      "modelCallsIssuedByQueueOperation": 0,
+      "workerMayProcessAuthorizedQueue": true
+    },
+    "revision": "91beebbcc3a99e725b5f35ac97245a80ca1195ea",
+    "service": {
+      "NRestarts": "0",
+      "ExecMainStatus": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "timer": {
+      "ActiveState": "active",
+      "SubState": "waiting",
+      "UnitFileState": "enabled"
+    },
+    "health": {
+      "ok": true,
+      "name": "qq-agent-plus",
+      "version": "0.6.18",
+      "uptimeSeconds": 1881,
+      "onebotConnected": false,
+      "timestamp": 1792443922233
+    },
+    "controlledSourceFiles": 142,
+    "sourceMismatches": [],
+    "runtime": {
+      "mode": "active",
+      "paused": false
+    },
+    "conversationMode": "lifecycle",
+    "chatModel": "deepseek/deepseek-v4.1-flash-1017",
+    "providerAndKeysPreserved": true,
+    "memoryFlags": {
+      "master": true,
+      "retrieval": true,
+      "reflection": true
+    },
+    "embedding": {
+      "state": "verified",
+      "configured": true,
+      "model": "Qwen/Qwen3-Embedding-4B",
+      "dimension": 2560,
+      "enabled": true,
+      "allowQuery": true,
+      "allowPrivate": false,
+      "timeoutMs": 60000,
+      "keyPresent": true,
+      "lastTest": {
+        "ok": true,
+        "code": "EMBEDDING_PROBE_OK",
+        "dimension": 2560,
+        "latencyMs": 14560,
+        "testedAt": 1792443217380
+      },
+      "vector": {
+        "reason": "ready",
+        "configured": true,
+        "profileId": "b06e6d30f9eeac6e3de186c16b048a32504c47b4778293a2b5e109d0afcbfbac",
+        "stats": {
+          "ready": 0,
+          "pending": 0,
+          "blocked": 0,
+          "failed": 0,
+          "obsolete": 0,
+          "total": 0
+        }
+      }
+    },
+    "notebookCount": 293,
+    "backupPresence": {
+      "application-backup": true,
+      "data-backup": true,
+      "original-config.json": true,
+      "units-backup": true,
+      "prior-deploy-backups": true
+    },
+    "explicitQQTestRequestsIssued": false,
+    "totalLiveSendsMeasured": false
+  },
+  "configurationRecovery": {
+    "status": "SUCCESS",
+    "revision": "91beebbcc3a99e725b5f35ac97245a80ca1195ea",
+    "health": {
+      "ok": true,
+      "name": "qq-agent-plus",
+      "version": "0.6.18",
+      "uptimeSeconds": 1176,
+      "onebotConnected": false,
+      "timestamp": 1792443217670
+    },
+    "chatModel": "deepseek/deepseek-v4.1-flash-1017",
+    "existingProtocolAccountBound": true,
+    "identitySource": "existing_unique_protocol_config_with_matching_agent_tokens_ports_and_notebook_account",
+    "notLiveQQLoginProof": true,
+    "noAccountRebinding": true,
+    "protocolCredentialsAndEndpointsPreserved": true,
+    "modelCredentialsPreserved": true,
+    "runtimeAndPermissionsPreserved": true,
+    "memoryFlagsPreserved": true,
+    "embedding": {
+      "enabled": true,
+      "configured": true,
+      "state": "verified",
+      "model": "Qwen/Qwen3-Embedding-4B",
+      "dimension": 2560,
+      "allowQuery": true,
+      "allowPrivate": false,
+      "timeoutMs": 60000,
+      "probe": {
+        "ok": true,
+        "code": "EMBEDDING_PROBE_OK",
+        "dimension": 2560,
+        "latencyMs": 14560,
+        "saved": false
+      },
+      "vector": {
+        "extension": {
+          "available": true,
+          "reason": "ready",
+          "version": "v0.1.9"
+        },
+        "configured": true,
+        "reason": "ready",
+        "profileId": "b06e6d30f9eeac6e3de186c16b048a32504c47b4778293a2b5e109d0afcbfbac",
+        "stats": {
+          "ready": 0,
+          "pending": 0,
+          "blocked": 0,
+          "failed": 0,
+          "obsolete": 0,
+          "total": 0
+        }
+      }
+    },
+    "explicitQQTestRequestsIssued": false,
+    "totalLiveSendsMeasured": false,
+    "backupRoot": "/home/ubuntu/qq-agent-maintenance-20261020-cd1c4beb"
+  },
+  "chatFixedTextProbe": {
+    "status": "HTTP_SUCCESS",
+    "httpStatus": 200,
+    "requestedModel": "deepseek/deepseek-v4.1-flash-1017",
+    "returnedModel": "deepseek/deepseek-v4.1-flash-1017",
+    "finishReason": "stop",
+    "answerMatchesOK": true,
+    "usage": {
+      "prompt_tokens": 21,
+      "completion_tokens": 2,
+      "total_tokens": 23,
+      "reasoning_tokens": 0,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      },
+      "cache_read_input_tokens": 0,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "created_cache_tokens": 0,
+        "audio_tokens": 0
+      },
+      "citation_tokens": 0,
+      "num_search_queries": 0,
+      "cache_creation_input_tokens": 0,
+      "input_tokens": 21,
+      "cost": 0,
+      "currency": "USD"
+    },
+    "returnedCost": 0,
+    "latencyMs": 1282,
+    "dispatches": 1,
+    "maxOutputTokens": 64,
+    "syntheticFixedTextOnly": true,
+    "realQQSendsCommanded": 0
+  },
+  "businessData": {
+    "status": "PASS",
+    "before": {
+      "messages": 9904,
+      "outbox": 54,
+      "conversation_threads": 2
+    },
+    "summaries": {
+      "live": {
+        "quickCheck": "ok",
+        "counts": {
+          "messages": 9904,
+          "outbox": 54,
+          "conversation_threads": 2
+        }
+      },
+      "backup": {
+        "quickCheck": "ok",
+        "counts": {
+          "messages": 9904,
+          "outbox": 54,
+          "conversation_threads": 2
+        }
+      }
+    },
+    "durableCountsNotDecreased": true,
+    "backupAndLiveSQLiteValid": true,
+    "notebookCountObservedSeparately": 293
+  },
+  "operatorScriptSHA256": "41278bd1e6bb0efca38f3e9fce56ec745872a920d50c316f6cd0356dffe91e30",
+  "all293NotebookRowsIndexed": false,
+  "whyZeroVectors": "47 inactive/non-recallable plus246 chat-private externalization denied under allowPrivate=false;0 eligible queued, no data rewritten or scope widened",
+  "onebotLiveConnectionRestored": false,
+  "realQQOrSC8Accepted": false,
+  "knownOpenIssues": [
+    "OneBot pre-existing disconnect; protocol container not modified/restarted",
+    "generic config selfEvolution rollback uses deep merge; adding timeout before namespace failure retained that field, exact rollback follow-up remains",
+    "B07/R06/B10 broader matrix and complete new-model memory chain remain open"
+  ],
+  "privateValuesExcluded": [
+    "SSH/API/console/OneBot credentials",
+    "actual QQ account identifier",
+    "Notebook/chat content",
+    "SQLite files",
+    "opaque model replay data"
+  ],
+  "rawEvidenceSHA256": {
+    "validate-release-91beebbcc3.stdout.log": "6355a972a390eb915f9ae2c1faee5190b350d4d52869640946bb3156d0bab574",
+    "verify-final-worker-91beebbcc3.stdout.log": "629725ee4967cd8ae07411987a98c9139549458555443c8d33f76861266642fe",
+    "rollout-91beebbcc3.stdout.log": "d06d86342dc8a49cbb62a183da6b0d72b8d0a5cc7100a39cbda6718378b1c6a7",
+    "diagnose-postdeploy-91beebbcc3.stdout.log": "a50b6cda77b2afcf36e75f1b85930be0773ed25158f13d13b11f086a5dffac83",
+    "recover-code-91beebbcc3.stdout.log": "a4a56dbc18dc0a737084c9117ca07b07810c64a68a288447f17403e15a364df6",
+    "diagnose-account.stdout.log": "6f0de85ff01ad5b47d6676727cfe1a48ef0c910883e4f82c50032c8ec740eb67",
+    "verify-existing-protocol-account.stdout.log": "f5d71704249f78d0a5f20c6162fa7263e6bb1d48514cf04665ef43234707d202",
+    "complete-configuration-91beebbcc3.stdout.log": "4542ae4d2ffae16669fd1a116f6739c60e730465f1fc22578f33d9fc397369e1",
+    "queue-authorized-existing-notes.stdout.log": "211c889919f0758d97cf80714c5b110cd61c7d70d0d9a14c603ecfdc2bc44ed4",
+    "post-release-final.stdout.log": "f6de06eb0d118df4111773a84be4e831a99c5d270c95cc97c5fdde19b47d9c3e",
+    "production-chat-smoke.stdout.log": "d349cd9d64d4bafcb9850b35cefeb35d497e0b9f09c4261e0ceb3e8c9eee6617",
+    "verify-business-data.stdout.log": "4182fbb4c4a575aac0261efc79c9d7dc3a99674fc5d8227711b89963540691cd"
+  }
+}

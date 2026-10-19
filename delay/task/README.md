@@ -1,10 +1,10 @@
 # 项目开发任务索引
 
-## 最新：2026-10-20 显式Workflow/Luna故障矩阵已完成，继续发布
+## 最新：2026-10-20 Workflow/Luna、实际发布与模型配置已完成
 
 [当前续做](../schedule/2026-10-20-workflow-resume.md)、[新分工规则](../coordination-policy-2026-10-20-workflow.md)、[测试实绩](../schedule/evidence/2026-10-20-workflow-resume/luna-fault-tests.json)。已用workflow显式gpt-6-luna实现、自测、返修并独立复核；当前清理补丁的故障矩阵已闭合，不再沿用归档时“未派发/未测试”的状态。架构/发布裁决仍由主协调者亲自负责。
 
-尚待实际备份、源/配置切换及向量/健康验收；当前不能据离线PASS宣称生产升级。历史材料见下。
+实际备份、91be发布、DeepSeek聊天与4B启用/后端验证、源码/健康/数据库验收均已落实，见[生产实绩](../schedule/evidence/2026-10-20-workflow-resume/production-result.json)。现有就绪向量仍0：47条不活跃/不可召回、246条受私密外发保护，未上传，不放松allowPrivate。OneBot既有断连、B07/R06/B10广矩阵、完整记忆链和新观察到的通用config精确回滚问题仍开放；不把本轮发布当全项目完成。历史材料见下。
 
 ## 历史检查点：2026-10-20 全量归档与未完成发布交接
 

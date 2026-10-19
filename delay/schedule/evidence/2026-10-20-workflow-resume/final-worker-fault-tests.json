@@ -1,0 +1,314 @@
+{
+  "status": "PASS",
+  "implementationRequestedProvider": "codex-proxy",
+  "implementationRequestedModel": "gpt-6-luna",
+  "coordinatorExecutedEvidence": true,
+  "testsFile": "test/production-embedding-cleanup.test.py",
+  "testFileSHA256": "c5858a9f95b37887583df080cdee4ea75703285adb4abd3cb8d1f556b48b28f3",
+  "runs": [
+    {
+      "sourceLabel": "frozen-archive",
+      "sourceBasename": "apply-update.sh",
+      "sourceSHA256": "d98db2904d66aa77803d426852bb25466ca499d6ec6af7827a28d483d9821348",
+      "fragmentSHA256": "0b88b31b0e0a48c0cbf7d71819842df9b4a4db55995feffc7c229bb3f26a1b56",
+      "unittestMethodsRun": 4,
+      "currentScenarios": 18,
+      "faultScenarios": [
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-false"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-HTTPError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-URLError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-TimeoutError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-JSONDecodeError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-false"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-HTTPError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-URLError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-TimeoutError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-JSONDecodeError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "dimension-1024"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-nondict"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-HTTPError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-URLError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-TimeoutError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-JSONDecodeError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-false"
+          },
+          "passed": true
+        }
+      ],
+      "controlledLegacyRedCases": [
+        {
+          "method": "test_legacy_red_baselines",
+          "parameters": {
+            "mode": "http"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_legacy_red_baselines",
+          "parameters": {
+            "mode": "dimension"
+          },
+          "passed": true
+        }
+      ],
+      "uniqueCandidateCounterexamplePassed": true,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "noProductionOrNetworkCalls": true
+    },
+    {
+      "sourceLabel": "current-operator",
+      "sourceBasename": "apply-final-91beebbcc3.sh",
+      "sourceSHA256": "41278bd1e6bb0efca38f3e9fce56ec745872a920d50c316f6cd0356dffe91e30",
+      "fragmentSHA256": "0b88b31b0e0a48c0cbf7d71819842df9b4a4db55995feffc7c229bb3f26a1b56",
+      "unittestMethodsRun": 4,
+      "currentScenarios": 18,
+      "faultScenarios": [
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-false"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-HTTPError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-URLError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-TimeoutError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "save-JSONDecodeError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-false"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-HTTPError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-URLError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-TimeoutError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-JSONDecodeError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "dimension-1024"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "test-nondict"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-HTTPError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-URLError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-TimeoutError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-JSONDecodeError"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_scenarios",
+          "parameters": {
+            "name": "pause-false"
+          },
+          "passed": true
+        }
+      ],
+      "controlledLegacyRedCases": [
+        {
+          "method": "test_legacy_red_baselines",
+          "parameters": {
+            "mode": "http"
+          },
+          "passed": true
+        },
+        {
+          "method": "test_legacy_red_baselines",
+          "parameters": {
+            "mode": "dimension"
+          },
+          "passed": true
+        }
+      ],
+      "uniqueCandidateCounterexamplePassed": true,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "noProductionOrNetworkCalls": true
+    }
+  ],
+  "fragmentIdenticalAcrossSources": true,
+  "notProductionEmbeddingOrDeploymentAcceptance": true
+}

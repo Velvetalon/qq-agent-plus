@@ -1,0 +1,13 @@
+{
+  "status": "PASS_WITHIN_GIVEN_SCOPE",
+  "workflow": "luna-final-deployment-facts-review",
+  "jobId": "workflow-946635c0ea11406f",
+  "requestedProvider": "codex-proxy",
+  "requestedModel": "gpt-6-luna",
+  "scope": "four public result/handoff/index files; internal factual consistency only",
+  "actualProductionOrRawEvidenceIndependentlyVerified": false,
+  "preservesZeroVectorPrivacyOutcome": true,
+  "doesNotClaimLiveQQLoginOrSC8Pass": true,
+  "preservesInitialFailureAndRecoverySeparately": true,
+  "coordinatorRetainsFinalAcceptance": true
+}
