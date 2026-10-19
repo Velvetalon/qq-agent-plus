@@ -1,6 +1,16 @@
 # 项目开发任务索引
 
-## 最新：2026-10-20 工程修复已验证，身份实测待余额恢复（WIP）
+## 最新：2026-10-20 DeepSeek Flash模型选择与原身份正例完成（WIP）
+
+[当前进度](../schedule/2026-10-20-deepseek-chat-profile.md)、[计划](../../plan_doc/2026-10-20-deepseek-chat-profile.md)、[脱敏证据](../schedule/evidence/2026-10-20-deepseek-chat-profile/result.json)。源码 `ef4e806` 按用户指定，将测试及待授权上线配置统一为NanoGPT `deepseek/deepseek-v4.1-flash-1017`，Embedding保持Qwen3-Embedding-4B/2560；67项专项通过。
+
+原短问答与identity两轮共12次HTTP200、5条合成输出；没有402/审核截断/超时，明确否认虚构现实经历并承认机器人身份。本轮只是这些原fixture正例，不是跨场景B07/R06/B10或整项目通过。后续仍需主协调者亲自决定更广矩阵、完整记忆链及Linux门禁验收。
+
+服务器连接/部署暂停未解除，线上实际持久配置未修改；配置片段与测试已一致，须另行获准应用。SC8/真实QQ保持USER_PAUSED。旧Qwen402按历史保存，不再要求为当前DeepSeek测试先恢复余额。
+
+以下为历史记录，不覆盖最新模型选择。
+
+## 历史检查点：2026-10-20 工程修复已验证，身份实测待余额恢复（WIP）
 
 [当前进度](../schedule/2026-10-20-thinking-review-repair.md)、[计划](../../plan_doc/2026-10-19-thinking-review-compatibility.md)、[脱敏证据](../schedule/evidence/2026-10-20-thinking-review-repair/result.json)。源码 `e870954` 已修有界thinking审核配置与消息提示recent崩溃，并闭合读盘归一化/不可变run限额两项复核P2。66项专项通过；新增14项全部通过；全量保留原44失败/3跳过。
 

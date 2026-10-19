@@ -1,6 +1,17 @@
 # 当前工作交接入口
 
-## 最新：2026-10-20 Thinking审核与消息ID提示已修，身份复验受402中断（WIP）
+## 最新：2026-10-20 按用户选择改用DeepSeek Flash，原短问答/身份小样本实测正常（WIP）
+
+[本轮模型选择与实测](schedule/2026-10-20-deepseek-chat-profile.md)、[脱敏结果](schedule/evidence/2026-10-20-deepseek-chat-profile/result.json)。源码 `ef4e806` 将测试和待授权上线配置约定统一为NanoGPT `deepseek/deepseek-v4.1-flash-1017`；Embedding继续 `Qwen/Qwen3-Embedding-4B` / 2560。
+
+- 专项 **67/67**；精确新模型断言及旧Qwen聊天0dispatch拒绝通过；审核/共享预算/失败锁闭不变。本轮未重跑全量，不覆盖上轮44旧失败/3跳过。
+- 原short-invitation与identity实测共 **12次HTTP200 / 65038报告tokens / 0错误**，本轮无402。短答1条、身份两轮4条，明确否认虚构现实经历并承认机器人身份；仅属原fixture正例，不把全部R06/B10关闭。
+- 12个返回cost字段为0，不保证最终账单为0；原人物卡、fixture及Embedding未修改。B07、更广身份矩阵、完整记忆链与Linux门禁仍开放。
+- **线上实际实例未改**：本轮只统一仓库测试/上线配置约定，未恢复既有服务器连接/部署暂停，SC8/真实QQ保持USER_PAUSED。
+
+以下为历史时点；前Qwen的402不代表本轮DeepSeek不可用。
+
+## 历史检查点：2026-10-20 Thinking审核与消息ID提示已修，身份复验受402中断（WIP）
 
 先读 [本轮修复与实测](schedule/2026-10-20-thinking-review-repair.md) 和 [脱敏结果](schedule/evidence/2026-10-20-thinking-review-repair/result.json)。源码 `e870954` 完成有界审核配置、读盘/保存/运行统一、不可变run快照和最小ID提示；主协调者亲自定方案，原两项独立复核P2已返修闭合。
 

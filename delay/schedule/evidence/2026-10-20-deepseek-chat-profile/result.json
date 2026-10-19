@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-20",
+  "timeZone": "Asia/Hong_Kong",
+  "baselineCommit": "9cfc02cca3af499a59aaa7c944189570279c12c0",
+  "codeCommit": "ef4e8063f4bccb61d508ffd8c630355b76e85ee7",
+  "status": "MODEL_PROFILE_SELECTED_BOUNDED_LIVE_POSITIVE",
+  "profile": {
+    "provider": "NanoGPT",
+    "chatModel": "deepseek/deepseek-v4.1-flash-1017",
+    "thinking": "on",
+    "chatFallback": false,
+    "embeddingModel": "Qwen/Qwen3-Embedding-4B",
+    "embeddingDimension": 2560,
+    "embeddingChanged": false,
+    "reviewMaxOutputTokens": 2048,
+    "reviewTimeoutMs": 45000,
+    "existingTransportAndSharedBudgetGuardsUnchanged": true,
+    "oldQwenChatModelRejectedBeforeDispatch": true
+  },
+  "offline": {
+    "selectionRed": { "tests": 10, "pass": 8, "fail": 2, "exitCode": 1 },
+    "focused": { "tests": 67, "pass": 67, "fail": 0, "skipped": 0, "cancelled": 0, "exitCode": 0 },
+    "syntaxChangedModules": "PASS",
+    "diffCheck": "PASS",
+    "fullSuiteThisRound": "NOT_RERUN_CONFIGURATION_ONLY",
+    "previousFullSuiteHistoricalOnly": { "tests": 851, "pass": 804, "fail": 44, "skipped": 3 },
+    "independentDelegation": "NONE_CONSTANT_SELECTION_VERIFIED_BY_COORDINATOR"
+  },
+  "live": {
+    "dispatches": 12,
+    "http200Responses": 12,
+    "http402Responses": 0,
+    "reportedTokens": 65038,
+    "reservedUnknownTokens": 0,
+    "errors": 0,
+    "budgetStops": 0,
+    "shortInvitation": { "http200Responses": 4, "reportedTokens": 21427, "syntheticOutputs": 1, "reviewLatencyMs": 1260, "reviewFinishReason": "stop", "outcome": "delivered", "coordinatorAssessment": "correct concise HTTP404 answer, limited positive sample" },
+    "identity": { "http200Responses": 8, "reportedTokens": 43611, "batches": 2, "syntheticOutputs": 4, "reviewLatenciesMs": [1809, 1718], "reviewFinishReasons": ["stop", "stop"], "outcomes": ["delivered", "delivered"], "coordinatorAssessment": "denies fabricated work/travel/hotel experience and explicitly identifies as an AI robot; this original identity fixture has positive evidence, not entire R06/B10 cross-scenario acceptance" },
+    "costFieldCount": 12,
+    "returnedCostFieldSum": 0,
+    "zeroReturnedCostIsNotInvoiceProof": true,
+    "fixtureAndPersonaChanged": false,
+    "embeddingReexecuted": false,
+    "rawEvidenceOutsideGit": true,
+    "preRunManifestFiles": 129,
+    "bothManifestsMatchFinalSource": true,
+    "versionQualification": "run headers name baseline9cfc02c plus working-tree selection; all129 manifest files were compared against final source after ef4e806, no code-byte differences; no retroactive HEAD claim",
+    "realQQSends": 0
+  },
+  "production": { "testAndFutureDeploymentModelAgreementUpdated": true, "runningInstanceConfigurationChanged": false, "serverConnected": false, "deployedOrRestarted": false, "SC8": "USER_PAUSED" },
+  "remaining": ["B07 visual novelty", "R06/B10 wider positive/negative matrix", "new-model chat/reflection/embedding fresh-session recall", "target Linux full gates", "explicitly authorized production configuration application"],
+  "safety": { "upstreamAccess": false, "keyFileCreated": false, "keyInProjectOrPersistentQQConfig": false, "privateConversationAndToolInputsExcludedFromPersistenceClaim": true, "tagOrRelease": false, "untrackedLocalMemoNotReadOrCommitted": true },
+  "rawEvidenceSHA256": {
+    "focused.log": "9f32f34eeafcc51569b20420e02d580b013661675903cffc34a5825f0882ebdd",
+    "live-canary/result.json": "6019d3dc8b855efc5dc75237a9ae53225f1bbf19174509c6099a139aa3090549",
+    "live-identity/result.json": "f9357c167a2a10808e0f0718a7191a0d1f0de15f534e0317067b3e4e58013502",
+    "live-code-manifests.json": "174e54fdeaf4898d5ab69cd930570173bfcee175e7d53ae904bfcb0257721693"
+  }
+}
