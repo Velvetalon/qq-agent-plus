@@ -277,6 +277,13 @@ export class SendQueue {
   /** 发送一个 QQ 系统表情（小黄脸/汪汪这类）。face = { id, name }。 */
   sendFace(chatKey, face, options = {}) {
     const [kind, id] = String(chatKey).split(':');
+    options = { ...options };
+    const caption = options.text == null ? '' : String(options.text);
+    if (options.text != null) options.text = caption;
+    if (options.reviewedTextParts
+      && JSON.stringify(caption.trim() ? [escapeCqText(caption)] : []) !== JSON.stringify(options.reviewedTextParts)) {
+      throw new SocialDraftReviewError({ code: 'REVIEW_PREPARATION_CHANGED', issues: [{ reason: '表情附带文字与审核原文不一致；本批未入队，需要重新准备并审核' }] }, true);
+    }
     const chain = this.#chain(chatKey);
     return chain(async () => {
       // 与 sendTextBatch 同一道防线：上次发送结果 unknown 时停止后续发送。

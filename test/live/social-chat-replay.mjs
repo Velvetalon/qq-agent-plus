@@ -8,7 +8,9 @@ import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { syncBuiltinESMExports } from 'node:module';
 import { ProxyAgent } from 'undici';
-import { boundedChatTransport, LIVE_ENDPOINT, LIVE_MODEL } from './bounded-chat-transport.mjs';
+import { boundedChatTransport, LIVE_ENDPOINT, LIVE_MODEL, LIVE_THINKING } from './bounded-chat-transport.mjs';
+import { readReplayKey } from './replay-credentials.mjs';
+import { replayProxyOptions } from './replay-fetch-options.mjs';
 import { collectNewSessionAudit } from './replay-session-audit.mjs';
 if (process.env.QQ_REPLAY_LIVE !== LIVE_MODEL) throw new Error('Explicit QQ_REPLAY_LIVE model opt-in required');
 const output = path.resolve(process.env.QQ_REPLAY_OUTPUT || '');
@@ -26,10 +28,9 @@ for (const dir of ['src', 'ui', 'test/live', 'test/fixtures/social-live-images']
   }
 }
 fs.writeFileSync(path.join(output,'code-manifest.json'),JSON.stringify(codeManifest,null,2));
-const keyFile = process.env.QQ_REPLAY_KEY_FILE;
-if (!keyFile) throw new Error('Existing authorized key file required');
-const key = fs.readFileSync(keyFile, 'utf8').trim();
-if (!key || /\s/.test(key)) throw new Error('Expected a single raw key in existing file');
+const key = readReplayKey();
+delete process.env.QQ_REPLAY_API_KEY;
+delete process.env.QQ_REPLAY_KEY_FILE;
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-live-synthetic-'));
 process.env.QQ_AGENT_DATA_DIR = root;
 // safe-fetch uses node:http(s), not global fetch. No web/image downloader may
@@ -64,7 +65,7 @@ const embeddingFetch=async(url,options)=>{
  const chars=body.input.reduce((n,x)=>n+x.length,0);
  if(embeddingStats.calls>=32||embeddingStats.inputChars+chars>50000||Date.now()>=liveDeadline){embeddingStats.budgetStops++;throw new Error('EMBEDDING_BUDGET_EXHAUSTED');}
  const record={call:++embeddingStats.calls,input:body.input,startedAt:new Date().toISOString()};embeddingStats.inputChars+=chars;const before=Date.now();
- try{const response=await nativeFetch(url,{...options,redirect:'error',dispatcher,signal:AbortSignal.any([options.signal,AbortSignal.timeout(Math.max(1,Math.min(60000,liveDeadline-Date.now())))])});
+ try{const response=await nativeFetch(url,{...options,redirect:'error',...replayProxyOptions(dispatcher),signal:AbortSignal.any([options.signal,AbortSignal.timeout(Math.max(1,Math.min(60000,liveDeadline-Date.now())))])});
  const data=await response.json();Object.assign(record,{httpStatus:response.status,elapsedMs:Date.now()-before,model:data.model??null,dimensions:data.data?.map(x=>x.embedding?.length),usage:data.usage??null,cost:data.cost??data.usage?.cost??null});
  if(!response.ok)throw new Error('EMBEDDING_HTTP_'+response.status);
  return Response.json(data);
@@ -75,7 +76,7 @@ let current = null;
 let hook = null;
 const transport = boundedChatTransport({ key, maxCalls: process.env.QQ_REPLAY_CANARY ? 6 : 100, maxTokens: process.env.QQ_REPLAY_CANARY ? 100000 : 800000,
   deadlineMs: Math.max(1, liveDeadline-Date.now()),
-  fetchImpl: (url, options) => nativeFetch(url, { ...options, ...(dispatcher ? { dispatcher } : {}) }),
+  fetchImpl: (url, options) => nativeFetch(url, { ...options, ...replayProxyOptions(dispatcher) }),
   record: (entry) => { current?.requests.push(entry); fs.appendFileSync(path.join(output, 'calls.jsonl'), JSON.stringify({ case: current?.id, ...entry }) + '\n'); },
   afterDispatch: async (v) => { if (hook) await hook(v); }
 });
@@ -90,7 +91,7 @@ async function runCase(spec) {
   results.push(current);
   const cfg = structuredClone(DEFAULT_CONFIG);
   cfg.runtime.mode = 'active'; cfg.allow.groups = ['1']; cfg.conversation.mode = 'social';
-  Object.assign(cfg.api, { model: LIVE_MODEL, baseUrl: LIVE_ENDPOINT.replace('/chat/completions', ''), apiKey: key, provider: '', temperature: 0.2, maxRounds: 4, timeoutMs: 60000, runTimeoutMs: 180000, maxRunTokens: 50000, priceRemoteUrl: 'none' });
+  Object.assign(cfg.api, { model: LIVE_MODEL, baseUrl: LIVE_ENDPOINT.replace('/chat/completions', ''), apiKey: key, provider: 'NanoGPT', thinking: LIVE_THINKING, fallback: { enabled: false }, temperature: 0.2, maxRounds: 4, timeoutMs: 60000, runTimeoutMs: 180000, maxRunTokens: 50000, priceRemoteUrl: 'none' });
   cfg.api.vision = Boolean(spec.vision); cfg.webSearch.enabled = false;
   cfg.sticker.enabled = false; cfg.memory.consolidateEnabled = false;
   cfg.send.minGapMs = 0; cfg.send.maxGapMs = 0; cfg.send.byLengthMs = 0;

@@ -427,7 +427,7 @@ export function buildToolDefs() {
     },
     {
       name: 'send_face',
-      description: '发送一个 QQ 系统表情（就是聊天记录里显示成 [表情14 微笑] 的那种小黄脸、汪汪等）。name 填中文名，例如 微笑 / 得意 / 流泪 / 害羞 / 酷 / 白眼 / 玫瑰 / 爱心 / 强 / 抱拳 / 打call / 汪汪。只能发表情本身，不能同时带文字——想说话请先用 send_message 单独发。',
+      description: '发送一个 QQ 系统表情（就是聊天记录里显示成 [表情14 微笑] 的那种小黄脸、汪汪等）。name 填中文名，例如 微笑 / 得意 / 流泪 / 害羞 / 酷 / 白眼 / 玫瑰 / 爱心 / 强 / 抱拳 / 打call / 汪汪。可只发表情，也可用 text 附带原样文字，整条计为一条消息；文字在 social 模式下同样经过发送前语义审核。',
       parameters: {
         type: 'object',
         properties: {
@@ -454,7 +454,10 @@ export function buildToolDefs() {
           ctx.emit('session-update', ctx.session.id);
           return ok({ sent: true, faceId: hit.face.id, name: hit.face.name, messageId: result?.message_id ?? null, note: '系统表情已发送。' });
         } catch (error) {
-          return err(error?.message ?? error);
+          if (error instanceof SocialDraftReviewError) return error.result;
+          return err(error?.message ?? error, {
+            incidentCaptured: error?.incidentCaptured === true
+          });
         }
       }
     },

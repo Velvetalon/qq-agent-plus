@@ -1,5 +1,6 @@
 /** Live-only transport boundary. No secret or real account belongs in evidence. */
-export const LIVE_MODEL = 'deepseek/deepseek-v4.1-flash-1017';
+export const LIVE_MODEL = 'qwen/qwen3.8-27b-uncensored:thinking';
+export const LIVE_THINKING = 'on';
 export const LIVE_ENDPOINT = 'https://nano-gpt.com/api/v1/chat/completions';
 export function boundedChatTransport({ fetchImpl, key, record, afterDispatch, maxCalls = 100, maxTokens = 300000, deadlineMs = 1800000, timeoutMs = 60000 }) {
   const started = Date.now();

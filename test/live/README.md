@@ -5,12 +5,16 @@ checked-in synthetic fixtures to the exact user-selected NanoGPT models. They do
 not instantiate OneBot or send QQ messages. All outputs and runtime SQLite files
 must remain outside the checkout, and no real key is saved to QQ configuration.
 
+## Current user-selected profile (2026-10-19)
+
+Testing and future production use NanoGPT chat `qwen/qwen3.8-27b-uncensored:thinking` with `api.thinking='on'`, no fallback to another model, and embedding `Qwen/Qwen3-Embedding-4B` / 2560 dimensions. The replay explicitly preserves native thinking rather than sending the usual chat thinking-off flag. This does not change any existing production configuration or authorize SC8 deployment/QQ sends. Earlier DeepSeek results remain historical evidence, not acceptance for this new model.
+
 ## Chat and integrated reflection/Notebook replay
 
 Run `social-chat-replay.mjs` with Node 22.13+ and these explicit environment inputs:
 
-- `QQ_REPLAY_LIVE=deepseek/deepseek-v4.1-flash-1017`
-- `QQ_REPLAY_KEY_FILE`: the existing, authorized raw-key file, read only in process.
+- `QQ_REPLAY_LIVE=qwen/qwen3.8-27b-uncensored:thinking`
+- `QQ_REPLAY_API_KEY`: the authorized key supplied only in the process environment, **or** `QQ_REPLAY_KEY_FILE`: an existing authorized raw-key file. The two inputs are mutually exclusive. No script creates a key file; both credential environment variables are removed after the key is read (the original file is not deleted).
 - `QQ_REPLAY_OUTPUT`: a new evidence directory outside this repository.
 - `QQ_REPLAY_CASES`: optional comma-separated IDs from `social-chat-fixtures.json`.
 - `QQ_REPLAY_CANARY=1`: first case only, six calls / 100,000 token admission cap.

@@ -93,7 +93,7 @@ function proactiveWindowState(raw, now) {
 import { canRun, chatAllowed } from './access.js';
 import { assertTimeAllowed, isTimeActive, TimeControlError, watchTimeWindow, withTimeScope } from './time-gate.js';
 import { vendorOfConfig } from '../pricing/model-prices.js';
-import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey, sanitizeUserText } from './util.js';
+import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey, sanitizeUserText, escapeCqText } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from '../llm/prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError, resolveApiKey } from '../llm/llm.js';
 import { reviewSocialDraft, socialDraftEvidence, SocialDraftReviewError } from '../conversation/draft-review.js';
@@ -2295,10 +2295,13 @@ export class Orchestrator {
         latencyMs: 0, reservedTokens: 0, stopped: false, outcome: 'not_requested'
       };
       session.socialUsage.review = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, calls: 0 };
-      beforeTextBatch = async (rawMessages, options) => {
+      beforeTextBatch = async (rawMessages, options, { kind: sendKind = 'text' } = {}) => {
         runSignal.throwIfAborted();
         const rawDrafts = Array.isArray(rawMessages) ? rawMessages.map(String) : [String(rawMessages)];
-        const drafts = prepareTextParts(rawDrafts, { preserveCode: options.preserveCode, hardSplitAt: getConfig().send?.hardSplitAt });
+        // A face caption is one literal text segment in one physical message.
+        // Keep Markdown/whitespace and apply only OneBot's existing CQ escaping.
+        const drafts = sendKind === 'face' ? rawDrafts.map(escapeCqText)
+          : prepareTextParts(rawDrafts, { preserveCode: options.preserveCode, hardSplitAt: getConfig().send?.hardSplitAt });
         const remaining = visibleLimit - (Number(session.socialSendActions) || 0);
         if (drafts.length > remaining) throw new SocialDraftReviewError({ code: 'SOCIAL_MESSAGE_BATCH_LIMIT', issues: [{ reason: `请自行压缩至剩余 ${Math.max(0, remaining)} 条实际消息` }] }, remaining > 0);
         if (draftReview.stopped || draftReview.calls >= 4 || draftReview.rejected >= 2) {

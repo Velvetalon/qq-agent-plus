@@ -178,11 +178,25 @@ function senderFacade(hostCtx) {
         () => sender.sendSticker(chatKey, sticker, boundSendOptions(hostCtx, options)),
         [sticker?.desc || sticker?.localNote || sticker?.id || '[表情包]']);
     },
-    sendFace(_chatKey, face, options) {
+    async sendFace(_chatKey, face, options) {
       if (typeof sender?.sendFace !== 'function') throw new TypeError('sender.sendFace unavailable');
-      return withSocialDelivery(hostCtx, 'face',
-        () => sender.sendFace(chatKey, face, boundSendOptions(hostCtx, options)),
-        [options?.text || face?.name || '[表情]']);
+      const sendOptions = boundSendOptions(hostCtx, options);
+      const caption = sendOptions.text == null ? '' : String(sendOptions.text);
+      if (sendOptions.text != null) sendOptions.text = caption;
+      // Face captions are literal OneBot text, not Markdown-prepared text batches.
+      // Snapshot before the asynchronous review so its caller cannot replace them.
+      const approval = caption.trim() && typeof hostCtx?.beforeTextBatch === 'function'
+        ? await hostCtx.beforeTextBatch([caption], sendOptions, { kind: 'face' }) : null;
+      try {
+        hostCtx?.signal?.throwIfAborted();
+        const result = await withSocialDelivery(hostCtx, 'face',
+          () => sender.sendFace(chatKey, face, { ...sendOptions,
+            ...(approval ? { reviewedTextParts: approval.parts } : {}) }),
+          [caption || face?.name || '[表情]']);
+        // Keep the protocol result unchanged; the review audit counts one delivery.
+        approval?.afterDelivery?.({ sent: [result], failed: [] });
+        return result;
+      } catch (error) { approval?.afterDelivery?.(null, error); throw error; }
     },
     poke(_chatKey, targetUserId, options) {
       if (typeof sender?.poke !== 'function') throw new TypeError('sender.poke unavailable');
