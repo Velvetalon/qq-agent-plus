@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-20",
+  "timeZone": "Asia/Hong_Kong",
+  "globalPolicy": {
+    "changedAndReloaded": true,
+    "sha256": "9cbce55322080c4440a9d1da8f1637cf57831e31998c5e2066c6faec5b16fadf",
+    "workflowRequired": true,
+    "eachAgentModelExplicit": true,
+    "ordinarySubagentAndForkForbidden": true,
+    "oldOrdinaryAgentReactivationForbidden": true,
+    "coordinatorArchitectureAndAcceptanceUnchanged": true
+  },
+  "dispatches": [
+    {
+      "workflow": "luna-embedding-cleanup-tests",
+      "jobId": "workflow-785675eaded9467b",
+      "requestedModel": "gpt-6-luna",
+      "observedProvider": "codex-proxy",
+      "observedModel": "gpt-6-luna",
+      "runtimeObservation": "authorized child event47 source/replay response model and turn/end max-tokens",
+      "status": "FAILED_MAX_TOKENS_NO_ARTIFACT",
+      "reportedOutputTokens": 32768,
+      "reportedTotalTokens": 54484,
+      "artifacts": [],
+      "testsExecuted": false,
+      "opaqueReplayStateArchived": false
+    },
+    {
+      "workflow": "luna-compact-cleanup-tests",
+      "jobId": "workflow-c3bfc2814ffe4521",
+      "requestedProvider": "codex-proxy",
+      "requestedModel": "gpt-6-luna",
+      "status": "DELIVERED_BUT_REQUIRED_COORDINATOR_ASSERTION_REVISIONS",
+      "changedConditions": "compact <=120line/8000byte test file; <=4000-character write chunks; evidence collection retained by coordinator"
+    }
+    ,
+    {
+      "workflow": "luna-tighten-cleanup-assertions",
+      "jobId": "workflow-2e97ae4f13e74aa2",
+      "requestedProvider": "codex-proxy",
+      "requestedModel": "gpt-6-luna",
+      "status": "DELIVERED_AND_COORDINATOR_TESTED",
+      "currentScenariosPerSource": 18,
+      "controlledLegacyRedCasesPerSource": 2,
+      "uniqueCandidateCounterexamplePerSource": 1,
+      "unittestMethodsPerSource": 4,
+      "sourcesTested": 2,
+      "notProductionOrRealAPIAcceptance": true
+    },
+    {
+      "workflow": "luna-independent-cleanup-review",
+      "jobId": "workflow-91ac5aede26a4a58",
+      "requestedProvider": "codex-proxy",
+      "requestedModel": "gpt-6-luna",
+      "status": "PASS_WITHIN_GIVEN_SCOPE",
+      "noArchitectureOrDeploymentDecisionDelegated": true
+    }
+  ],
+  "notArchitectureDelegation": true,
+  "notProductionAcceptance": true,
+  "noModelFallback": true
+}

@@ -1,6 +1,15 @@
 # 当前工作交接入口
 
-## 最新：2026-10-20 全部代码/进度/部署状态归档（WIP，生产未更新）
+## 最新：2026-10-20 Workflow显式Luna续做（发布准备中）
+
+[本轮执行进度](schedule/2026-10-20-workflow-resume.md)、[全局新规则快照](coordination-policy-2026-10-20-workflow.md)、[真实故障矩阵](schedule/evidence/2026-10-20-workflow-resume/luna-fault-tests.json)、[Luna独立复核](schedule/evidence/2026-10-20-workflow-resume/independent-review.json)。全局已禁止普通subagent派发；本轮每次workflow agent都显式model=gpt-6-luna，后续显式provider=codex-proxy。
+
+- 已完成Luna紧凑实现、协调者返修验收与全新Luna限域复核；两源各4个方法/18场景、2旧逻辑红例和1唯一性反例PASS。首轮max-tokens无产物保留为失败。
+- 重新核验原服务仍059/Qwen/active/lifecycle及293笔记。正在固定提交、准备实际备份/发布；成功回执出来前不当部署完成。4B/费用/查询与私密隔离授权沿用既有选择，不再发确认问题。
+
+以下为历史时点，不覆盖本节最新进度。
+
+## 历史检查点：2026-10-20 全部代码/进度/部署状态归档（WIP，生产未更新）
 
 **从[完整总交接](schedule/2026-10-20-complete-work-archive.md)开始**；同时提供[结构化证据](schedule/evidence/2026-10-20-complete-work-archive/result.json)、[16份禁止直接执行的运维代码快照](implementation/2026-10-20-production-update/README.md)、[准确续做卡](task/DEPLOY-2026-10-20-resume.md)及[分工规则快照](coordination-policy-snapshot.md)。既有历史不删除、不倒改。
 

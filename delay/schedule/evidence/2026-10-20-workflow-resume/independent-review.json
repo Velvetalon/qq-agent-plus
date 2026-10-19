@@ -1,0 +1,17 @@
+{
+  "status": "PASS_WITHIN_GIVEN_SCOPE",
+  "workflow": "luna-independent-cleanup-review",
+  "requestedProvider": "codex-proxy",
+  "requestedModel": "gpt-6-luna",
+  "jobId": "workflow-91ac5aede26a4a58",
+  "scope": "test harness and selected Embedding cleanup AST only",
+  "defaultAndCurrentSourceExitCodes": [0, 0],
+  "unittestMethodsPerRun": 4,
+  "currentScenariosPerRun": 18,
+  "controlledLegacyRedCasesPerRun": 2,
+  "uniquenessCounterexamplesPerRun": 1,
+  "checked": ["exactly one AST target", "restricted builtins and stub API", "save/test exceptions and wrong dimensions pause once", "pause failures retain False and final failure", "exact route/body/order", "no pause on success", "actual legacy minimal control flow red fixtures"],
+  "realApiOrProductionDataVerified": false,
+  "finalReleaseMetadataVerified": false,
+  "coordinatorRetainsArchitectureAndFinalAcceptance": true
+}

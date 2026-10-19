@@ -1,6 +1,12 @@
 # 项目开发任务索引
 
-## 最新：2026-10-20 全量归档与未完成发布交接
+## 最新：2026-10-20 显式Workflow/Luna故障矩阵已完成，继续发布
+
+[当前续做](../schedule/2026-10-20-workflow-resume.md)、[新分工规则](../coordination-policy-2026-10-20-workflow.md)、[测试实绩](../schedule/evidence/2026-10-20-workflow-resume/luna-fault-tests.json)。已用workflow显式gpt-6-luna实现、自测、返修并独立复核；当前清理补丁的故障矩阵已闭合，不再沿用归档时“未派发/未测试”的状态。架构/发布裁决仍由主协调者亲自负责。
+
+尚待实际备份、源/配置切换及向量/健康验收；当前不能据离线PASS宣称生产升级。历史材料见下。
+
+## 历史检查点：2026-10-20 全量归档与未完成发布交接
 
 [完整进度/代码/部署总交接](../schedule/2026-10-20-complete-work-archive.md)、[脱敏证据](../schedule/evidence/2026-10-20-complete-work-archive/result.json)、[16份运维代码封存](../implementation/2026-10-20-production-update/README.md)、[发布续做卡](DEPLOY-2026-10-20-resume.md)、[分工规则](../coordination-policy-snapshot.md)。
 
