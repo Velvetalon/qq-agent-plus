@@ -7,8 +7,8 @@ import { readReplayKey } from './live/replay-credentials.mjs';
 import { replayProxyOptions } from './live/replay-fetch-options.mjs';
 import { LIVE_MODEL, LIVE_THINKING, LIVE_REVIEW_LIMITS } from './live/bounded-chat-transport.mjs';
 
-test('current opt-in replay profile is the exact user-selected thinking chat model', () => {
-  assert.equal(LIVE_MODEL, 'qwen/qwen3.8-27b-uncensored:thinking');
+test('current opt-in replay profile is the exact user-selected chat model', () => {
+  assert.equal(LIVE_MODEL, 'deepseek/deepseek-v4.1-flash-1017');
   assert.equal(LIVE_THINKING, 'on');
   assert.deepEqual(LIVE_REVIEW_LIMITS, { maxOutputTokens: 2048, timeoutMs: 45000 });
   assert.ok(LIVE_REVIEW_LIMITS.maxOutputTokens <= 2048);

@@ -7,14 +7,14 @@ must remain outside the checkout, and no real key is saved to QQ configuration.
 
 ## Current user-selected profile (2026-10-20)
 
-Testing and future production use NanoGPT chat `qwen/qwen3.8-27b-uncensored:thinking` with `api.thinking='on'`, no fallback to another model, and embedding `Qwen/Qwen3-Embedding-4B` / 2560 dimensions. The replay explicitly preserves native thinking rather than sending the usual chat thinking-off flag. This does not change any existing production configuration or authorize SC8 deployment/QQ sends. Earlier DeepSeek results remain historical evidence, not acceptance for this new model.
+Testing and future production use NanoGPT chat `deepseek/deepseek-v4.1-flash-1017` with `api.thinking='on'`, no fallback to another chat model, and embedding `Qwen/Qwen3-Embedding-4B` / 2560 dimensions. The replay preserves native thinking and the existing bounded review profile. This is the user's latest model selection, superseding the previous Qwen chat selection; prior Qwen and DeepSeek runs remain historical evidence rather than current-version acceptance. Existing production configuration is not changed by editing this repository, and paused SC8/server operations are not resumed automatically.
 
 ### Bounded review settings
 
 The replay explicitly sets `conversation.social.reviewMaxOutputTokens=2048` and `reviewTimeoutMs=45000` for this thinking model. Requests, output-token admission and the per-request timeout use the same immutable run limits; the existing whole-run deadline and token/exploration budgets still apply. Before an authorized future deployment, use the same explicit settings rather than relying on old defaults:
 
 ```json
-{"conversation":{"social":{"reviewMaxOutputTokens":2048,"reviewTimeoutMs":45000}}}
+{"api":{"provider":"NanoGPT","baseUrl":"https://nano-gpt.com/api/v1","model":"deepseek/deepseek-v4.1-flash-1017","thinking":"on","fallback":{"enabled":false}},"conversation":{"social":{"reviewMaxOutputTokens":2048,"reviewTimeoutMs":45000}}}
 ```
 
 Existing installations keep the old defaults (768 tokens / 15000 ms). Valid ranges are 128–4096 output tokens and 1000–60000 ms; invalid types/nonfinite values use defaults. Saving, reloading and direct runtime injection use one bounded policy. This documentation does not change production configuration. Truncated/filtered verdicts remain rejected as `REVIEW_INCOMPLETE`, and malformed JSON is never repaired into approval.
@@ -23,7 +23,7 @@ Existing installations keep the old defaults (768 tokens / 15000 ms). Valid rang
 
 Run `social-chat-replay.mjs` with Node 22.13+ and these explicit environment inputs:
 
-- `QQ_REPLAY_LIVE=qwen/qwen3.8-27b-uncensored:thinking`
+- `QQ_REPLAY_LIVE=deepseek/deepseek-v4.1-flash-1017`
 - `QQ_REPLAY_API_KEY`: the authorized key supplied only in the process environment, **or** `QQ_REPLAY_KEY_FILE`: an existing authorized raw-key file. The two inputs are mutually exclusive. No script creates a key file; both credential environment variables are removed after the key is read (the original file is not deleted).
 - `QQ_REPLAY_OUTPUT`: a new evidence directory outside this repository.
 - `QQ_REPLAY_CASES`: optional comma-separated IDs from `social-chat-fixtures.json`.

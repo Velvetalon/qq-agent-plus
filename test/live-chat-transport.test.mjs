@@ -21,6 +21,14 @@ test('live boundary permits exact chat route/model only and forces finite output
   await assert.rejects(t.fetch(LIVE_ENDPOINT, other), /MODEL_OR_MODE_BLOCKED/);
   assert.equal(t.calls.length, 1);
 });
+test('previous Qwen chat model is rejected before any HTTP dispatch', async () => {
+  const t = setup();
+  const oldRequest = request();
+  oldRequest.body = JSON.stringify({ ...JSON.parse(oldRequest.body), model: 'qwen/qwen3.8-27b-uncensored:thinking' });
+  await assert.rejects(t.fetch(LIVE_ENDPOINT, oldRequest), /MODEL_OR_MODE_BLOCKED/);
+  assert.equal(t.calls.length, 0);
+  assert.equal(t.stats.calls, 0);
+});
 test('live boundary refuses calls and token budget before outbound request', async () => {
   const t = setup({ maxCalls: 1 }); await t.fetch(LIVE_ENDPOINT, request());
   await assert.rejects(t.fetch(LIVE_ENDPOINT, request()), /BUDGET_EXHAUSTED/);
