@@ -1,5 +1,9 @@
 # 当前工作交接入口
 
+## 最新：2026-10-19 真实模型与必选 Embedding
+
+[最新收口记录](schedule/2026-10-19-real-model-embedding-closure.md)：真实4B跨会话记忆与独立设置页通过；全量800 PASS。17项真实模型验收中14项有小样本支持，B07复读FAIL，R06/B10因跨场景编造经历保持开放。SC8仍USER_PAUSED；项目未全卡结束，仅本地归档/commit，不push。以下较早状态保留为历史。
+
 ## 最新补正：独立审查及两项修复
 
 [独立审查记录](schedule/2026-10-16-f4-independent-review.md)：原“独立复核”已纠正为实现者自查。

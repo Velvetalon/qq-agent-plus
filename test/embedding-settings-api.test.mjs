@@ -1,0 +1,146 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-embedding-settings-'));
+process.env.QQ_AGENT_DATA_DIR = root;
+const { DEFAULT_CONFIG, updateConfig, getConfig, loadConfig, setRuntimeConfig } = await import('../src/core/config.js');
+const { createApp } = await import('../src/console/app.js');
+
+test('standalone embedding API: auth, isolated save, safe probe, repeat, degraded state, rollback and restart', async (t) => {
+  const listener = http.createServer();
+  await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve));
+  const port = listener.address().port;
+  await new Promise((resolve) => listener.close(resolve));
+  const cfg = structuredClone(DEFAULT_CONFIG);
+  const token = 'synthetic-embedding-console';
+  const key = 'synthetic-embedding-api-key';
+  cfg.server = { ...cfg.server, host: '127.0.0.1', port, strictPort: true, token };
+  cfg.onebot = { ...cfg.onebot, selfId: '888', wsUrl: 'ws://127.0.0.1:1', httpUrl: 'http://127.0.0.1:1' };
+  cfg.api = { ...cfg.api, priceRemoteUrl: 'none' };
+  cfg.memory.consolidateEnabled = false;
+  cfg.sticker.enabled = false;
+  for (const name of ['proactive', 'pacing', 'dailyMoments', 'qzoneInteractions', 'autoUpdate']) cfg[name] = { ...cfg[name], enabled: false };
+  cfg.selfEvolution = { enabled: true, reflection: { enabled: false }, retrieval: { enabled: true } };
+  updateConfig(cfg);
+  const originalFetch = globalThis.fetch;
+  const requests = [], logs = [];
+  let responseMode = 'good', release = null, app;
+  globalThis.fetch = async (url, options) => {
+    const target = new URL(String(url));
+    if (target.hostname === '127.0.0.1') return originalFetch(url, options);
+    assert.equal(target.hostname, 'embedding-settings.invalid', 'all external requests must use the isolated synthetic boundary');
+    requests.push({ url: String(url), body: JSON.parse(options.body), authorization: options.headers.authorization });
+    if (responseMode === 'wait') await new Promise((resolve) => { release = resolve; });
+    if (responseMode === 'failure') return Response.json({ error: key }, { status: 503 });
+    if (responseMode === 'mismatch') return Response.json({ data: [{ index: 0, embedding: [1, 0] }] });
+    return Response.json({ data: [{ index: 0, embedding: [1, ...Array(2559).fill(0)] }] });
+  };
+  async function start() {
+    app = createApp({ log: (...args) => logs.push(args.join(' ')) });
+    app.onebot.connect = async () => {};
+    app.onebot.call = async (action) => action === 'get_login_info' ? { user_id: 888, nickname: 'synthetic' } : [];
+    await app.start();
+  }
+  t.after(async () => {
+    try { if (app) await app.stop(); }
+    finally { globalThis.fetch = originalFetch; fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  });
+  const url = `http://127.0.0.1:${port}`;
+  const call = async (route, body, headers = { 'x-console-token': token }) => {
+    const response = await originalFetch(url + route, { headers: { 'content-type': 'application/json', connection: 'close', ...headers },
+      ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }) });
+    const data = await response.json();
+    assert.equal(JSON.stringify(data).includes(key), false, 'API must not return credential/provider error text');
+    return { status: response.status, data };
+  };
+  await start();
+  assert.equal((await call('/api/embedding/settings', undefined, {})).status, 401);
+  assert.equal((await call('/api/embedding/settings', {}, {})).status, 401);
+  assert.equal((await call('/api/embedding/settings?token=' + token, {}, {})).status, 401);
+  assert.equal((await call('/api/embedding/test', {}, { 'x-console-token': token, origin: 'https://untrusted.invalid' })).status, 401);
+  const initial = (await call('/api/embedding/settings')).data;
+  assert.equal(initial.config.model, 'Qwen/Qwen3-Embedding-4B');
+  assert.equal(initial.config.dimension, 2560);
+  assert.equal(initial.state, 'disabled');
+  const unavailable = await call('/api/embedding/test', {});
+  assert.equal(unavailable.data.ok, false);
+  assert.equal(requests.length, 0);
+  const baseUrl = 'https://embedding-settings.invalid/v1';
+  assert.equal((await call('/api/embedding/settings', { baseUrl, dimension: 4096 })).status, 400);
+  const beforeApi = JSON.stringify(getConfig().api);
+  const saved = await call('/api/embedding/settings', { baseUrl, apiKey: key, enabled: true, allowQuery: true, allowPrivate: true, api: { model: 'MUST_NOT_SAVE' } });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.data.state, 'unverified');
+  assert.equal(saved.data.config.hasApiKey, true);
+  assert.equal(getConfig().selfEvolution.retrieval.embedding.apiKey, key);
+  assert.equal(JSON.stringify(getConfig().api), beforeApi, 'save must not touch general settings');
+  assert.equal(fs.statSync(path.join(root, 'config.json')).mode & 0o777, 0o600);
+  const initialProfile = saved.data.config.profileId;
+  assert.equal((await call('/api/embedding/settings', { apiKey: '******' })).data.config.profileId, initialProfile);
+  assert.equal((await call('/api/embedding/settings', { apiKey: '' })).status, 200);
+  assert.equal(getConfig().selfEvolution.retrieval.embedding.apiKey, key);
+  assert.equal((await call('/api/config')).data.selfEvolution.retrieval.embedding.hasApiKey, true);
+  const canonical = structuredClone(getConfig().selfEvolution.retrieval.embedding);
+  updateConfig({ selfEvolution: { retrieval: { embedding: { __replace__: { ...canonical, apiKey: '', key } } } } });
+  const legacyPublic = (await call('/api/config')).data.selfEvolution.retrieval.embedding;
+  assert.equal(Object.hasOwn(legacyPublic, 'key'), false);
+  assert.equal(legacyPublic.hasApiKey, true);
+  updateConfig({ selfEvolution: { retrieval: { embedding: { __replace__: canonical } } } });
+  assert.equal((await call('/api/embedding/test', { baseUrl: 'https://another.invalid/v1' })).status, 400);
+  assert.equal(requests.length, 0);
+  const tested = await call('/api/embedding/test', {});
+  assert.equal(tested.data.ok, true);
+  assert.equal(tested.data.saved, false);
+  assert.equal(tested.data.dimension, 2560);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].authorization, `Bearer ${key}`);
+  assert.deepEqual(requests[0].body.input, ['QQAgent embedding connection test.']);
+  assert.equal((await call('/api/embedding/settings')).data.state, 'verified');
+  responseMode = 'failure';
+  assert.equal((await call('/api/embedding/test', {})).data.code, 'EMBEDDING_HTTP');
+  assert.equal((await call('/api/embedding/settings')).data.state, 'degraded');
+  responseMode = 'mismatch';
+  assert.equal((await call('/api/embedding/test', {})).data.code, 'EMBEDDING_RESPONSE_INVALID');
+  responseMode = 'wait';
+  const inFlight = call('/api/embedding/test', {});
+  while (!release) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal((await call('/api/embedding/test', {})).status, 409);
+  assert.equal((await call('/api/embedding/settings', {})).status, 409);
+  responseMode = 'good'; release(); await inFlight;
+  const oldConfig = JSON.stringify(getConfig().selfEvolution.retrieval.embedding);
+  const manager = app.orchestrator.pluginManager;
+  const originalStartAll = manager.startAll;
+  let failOnce = true;
+  manager.startAll = async function (...args) {
+    if (failOnce) { failOnce = false; throw new Error(key); }
+    return originalStartAll.apply(this, args);
+  };
+  const rollback = await call('/api/embedding/settings', { allowQuery: false });
+  manager.startAll = originalStartAll;
+  assert.equal(rollback.status, 500);
+  assert.equal(rollback.data.code, 'EMBEDDING_RESTART_FAILED');
+  assert.equal(JSON.stringify(getConfig().selfEvolution.retrieval.embedding), oldConfig);
+  const draft = await call('/api/embedding/test', { model: 'synthetic-other-profile' });
+  assert.equal(draft.data.ok, true);
+  assert.equal(JSON.stringify(getConfig().selfEvolution.retrieval.embedding), oldConfig, 'probe must not save its draft');
+  await app.stop(); app = null;
+  setRuntimeConfig(loadConfig());
+  await start();
+  const restarted = (await call('/api/embedding/settings')).data;
+  assert.equal(restarted.config.hasApiKey, true);
+  assert.equal(restarted.config.model, 'Qwen/Qwen3-Embedding-4B');
+  assert.equal(restarted.config.dimension, 2560);
+  assert.equal(restarted.config.profileId, initialProfile);
+  assert.equal(restarted.state, 'unverified', 'restart must not imply connectivity is verified');
+  assert.equal(getConfig().selfEvolution.retrieval.embedding.apiKey, key);
+  assert.equal((await call('/api/embedding/settings', { clearApiKey: true })).data.state, 'unconfigured');
+  const countBefore = requests.length;
+  assert.equal((await call('/api/embedding/test', {})).data.ok, false);
+  assert.equal(requests.length, countBefore);
+  assert.equal((await originalFetch(url + '/healthz')).status, 200);
+  assert.equal(logs.join('\n').includes(key), false);
+});

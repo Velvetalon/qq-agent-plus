@@ -5,6 +5,8 @@
 继续现有 `fix/deploy-notebook-gate-20261016` 和
 [草稿 PR #1](https://github.com/Velvetalon/qq-agent-plus/pull/1)，不合并主线、不部署。
 
+> 后续同日真实模型/必选 Embedding 范围与最新结果见 [新收口记录](2026-10-19-real-model-embedding-closure.md)。本文件为新授权之前的历史检查点。
+
 ## 结论
 
 **当前任务卡尚未全部结束。** 本地实现与可执行契约已通过本轮独立复测；真实模型语义、

@@ -141,7 +141,10 @@ export class SelfEvolutionRetrievalProvider {
     ownerPluginId = 'self-evolution-retrieval'
   } = {}) {
     this.id = SELF_EVOLUTION_RETRIEVAL_PROVIDER_ID;
-    this.timeoutMs = 5000;
+    // The embedding client owns the bounded request timeout (at most 60s).
+    // An outer 5s cutoff cancelled healthy real providers before that deadline
+    // and prevented their unavailable/timeout audit from reaching the host.
+    this.timeoutMs = 65000;
     this.ownerPluginId = String(ownerPluginId || 'self-evolution-retrieval');
     this.getStore = typeof getStore === 'function' ? getStore : () => store;
     this.dataDir = dataDir;

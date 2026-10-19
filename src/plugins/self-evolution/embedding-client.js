@@ -12,7 +12,7 @@ function positiveInt(value, fallback = 0) {
 }
 
 function normalizeEndpoint(config) {
-  const raw = text(config.endpoint || config.baseUrl || config.url).trim();
+  const raw = text(config.endpoint || config.baseUrl || config.baseURL || config.url).trim();
   if (!raw) return '';
   return raw.replace(/\/+$/u, '').endsWith('/embeddings')
     ? raw.replace(/\/+$/u, '')
@@ -51,7 +51,7 @@ export function normalizeEmbeddingConfig(config = {}) {
     allowAnonymous: selected.allowAnonymous === true,
     allowPrivate: selected.allowPrivate === true,
     allowQuery: selected.allowQuery === true,
-    timeoutMs: Math.max(1000, positiveInt(selected.timeoutMs, 8000)),
+    timeoutMs: Math.min(60000, Math.max(1000, positiveInt(selected.timeoutMs, 8000))),
     maxBatch: Math.min(32, Math.max(1, positiveInt(selected.maxBatch, 16))),
     queryPrefix: text(selected.queryPrefix),
     documentPrefix: text(selected.documentPrefix),
@@ -97,6 +97,7 @@ export class EmbeddingClient {
       && Boolean(this.config.model)
       && this.config.dimension > 0
       && (Boolean(this.config.apiKey && this.config.apiKey !== '[redacted]')
+        && !['******', '••••••••'].includes(this.config.apiKey)
         || this.config.allowAnonymous)
       && Boolean(this.fetchImpl);
   }
@@ -173,6 +174,7 @@ export class EmbeddingClient {
     try {
       const response = await this.fetchImpl(this.config.endpoint, {
         method: 'POST',
+        redirect: 'error',
         headers,
         body: JSON.stringify({
           model: this.config.model,
@@ -201,7 +203,12 @@ export class EmbeddingClient {
       const ordered = [...rows].sort((left, right) => (
         Number(left?.index) - Number(right?.index)
       ));
-      const vectors = ordered.map((row) => vectorValues(row?.embedding, this.dimension));
+      let vectors;
+      try {
+        vectors = ordered.map((row) => vectorValues(row?.embedding, this.dimension));
+      } catch (error) {
+        throw Object.assign(error, { code: 'EMBEDDING_RESPONSE_INVALID' });
+      }
       if (ordered.some((row, index) => Number(row?.index) !== index)) {
         throw Object.assign(new Error('embedding response order mismatch'), {
           code: 'EMBEDDING_RESPONSE_INVALID'

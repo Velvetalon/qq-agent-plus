@@ -42,6 +42,7 @@ import { selfEvolutionConfig } from '../plugins/self-evolution/config.js';
 import { NotebookStore, notebookDatabasePath } from '../plugins/self-evolution/notebook-store.js';
 import { ReflectionStore, hashBasePersona, reflectionDatabasePath } from '../plugins/self-evolution/reflection-store.js';
 import { createEmbeddingCapability } from '../plugins/self-evolution/embedding-runtime.js';
+import { embeddingSettingsState, prepareEmbeddingSettings, probeEmbeddingSettings } from '../plugins/self-evolution/embedding-settings.js';
 import { repairJsonObject } from '../core/json-repair.js';
 
 import { AssetObserver } from './asset-observer.js';
@@ -399,6 +400,18 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     return createEmbeddingCapability({
       config: config && typeof config === 'object' ? config : {}
     });
+  }
+
+  let embeddingOperationBusy = false;
+  let lastEmbeddingTest = null;
+  let testedEmbeddingConfig = '';
+  function embeddingSettingsStatus() {
+    const config = getConfig().selfEvolution?.retrieval?.embedding || {};
+    return embeddingSettingsState(
+      config,
+      testedEmbeddingConfig === JSON.stringify(config) ? lastEmbeddingTest : null,
+      selfEvolutionPlugin.getStore?.()?.embeddingStatus?.() || null
+    );
   }
 
   function pluginServices() {
@@ -1670,6 +1683,15 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     };
     walk(out);
 
+    // Legacy embedding aliases also contain credentials; plain `key` is too
+    // generic to redact globally, so scope this compatibility rule precisely.
+    const embedding = out.selfEvolution?.retrieval?.embedding;
+    if (embedding && typeof embedding === 'object') {
+      const original = cfg?.selfEvolution?.retrieval?.embedding || {};
+      delete embedding.key;
+      embedding.hasApiKey = Boolean(String(original.apiKey || original.key || '').trim());
+    }
+
     // 密钥集合整体清空（不逐 key 暴露存在性）
     if (out.providerKeys && typeof out.providerKeys === 'object') {
       const has = {};
@@ -2606,6 +2628,51 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
           return json(res, 200, { ok: true, model: r.model, reply, latencyMs: Date.now() - startedAt });
         } catch (error) {
           return json(res, 200, { ok: false, error: String(error?.message ?? error), latencyMs: Date.now() - startedAt });
+        }
+      }
+
+      if (pathname === '/api/embedding/settings' && method === 'GET') {
+        return json(res, 200, embeddingSettingsStatus());
+      }
+
+      if (['/api/embedding/settings', '/api/embedding/test'].includes(pathname) && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        if (embeddingOperationBusy) return apiFailure(res, 409, 'EMBEDDING_BUSY', 'Embedding 操作正在进行，请等待完成');
+        embeddingOperationBusy = true;
+        try {
+          const body = await readJsonBody(req, 32 * 1024);
+          const previous = structuredClone(getConfig().selfEvolution?.retrieval?.embedding || {});
+          const next = prepareEmbeddingSettings(previous, body);
+          if (pathname === '/api/embedding/test') {
+            const controller = new AbortController();
+            const cancel = () => { if (!res.writableEnded) controller.abort(); };
+            res.once('close', cancel);
+            let result;
+            try { result = await probeEmbeddingSettings(next, { signal: controller.signal }); }
+            finally { res.off('close', cancel); }
+            // A draft test must never mark a different persisted profile healthy.
+            if (result.code !== 'EMBEDDING_CANCELLED' && JSON.stringify(next) === JSON.stringify(previous)) {
+              lastEmbeddingTest = { ...result, testedAt: Date.now() };
+              testedEmbeddingConfig = JSON.stringify(previous);
+            }
+            return json(res, 200, { ...result, saved: false });
+          }
+          updateConfig({ selfEvolution: { retrieval: { embedding: { __replace__: next } } } });
+          try {
+            if (JSON.stringify(previous) !== JSON.stringify(next)) await reconcileSelfEvolutionRuntime({ restart: true });
+          } catch {
+            updateConfig({ selfEvolution: { retrieval: { embedding: { __replace__: previous } } } });
+            try { await reconcileSelfEvolutionRuntime({ restart: true }); } catch { /* report only sanitized failure */ }
+            return apiFailure(res, 500, 'EMBEDDING_RESTART_FAILED', 'Embedding 运行时重载失败，已恢复原配置；请检查自我迭代与宿主账号状态');
+          }
+          emit('status', { configUpdated: true });
+          return json(res, 200, { ok: true, ...embeddingSettingsStatus() });
+        } catch (error) {
+          const safe = /^EMBEDDING_|^INVALID_|^BODY_TOO_LARGE$/.test(String(error?.code || ''));
+          return apiFailure(res, safe ? error.httpStatus || 400 : 500,
+            safe ? error.code : 'EMBEDDING_SETTINGS_FAILED', safe ? error.message : 'Embedding 设置操作失败，未确认保存成功');
+        } finally {
+          embeddingOperationBusy = false;
         }
       }
 

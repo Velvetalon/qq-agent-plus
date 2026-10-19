@@ -1474,3 +1474,42 @@ test('A-D04 unauthenticated, foreign or malformed mute notices do not initialize
   assert.equal(runner.observeSocialMute(valid), false);
   assert.equal(store.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name LIKE 'social_%'").get().n, 0);
 });
+
+for (const differentTopic of [false, true]) test(`due intent ${differentTopic ? 'rejects another known topic before Replyer' : 'shares within its authorized topic'}`, async (t) => {
+ const {runner,store,sessions,onebot}=socialHarness(t);
+ const first=store.appendIncoming('group:1',{mid:801,text:'I will share the project release next week.',senderId:'42'},{recordOnly:true});
+ const other=store.appendIncoming('group:1',{mid:802,text:'A separate weather discussion.',senderId:'43'},{recordOnly:true});
+ const state=new SocialStateStore({db:store.db});const scope={accountId:'888',chatKey:'group:1'};
+ const scene=state.observe({...scope,messages:[first,other]});
+ const authorized=scene.topics.find(t=>t.messageIds.includes(String(first.id)));
+ const different=scene.topics.find(t=>t.messageIds.includes(String(other.id)));
+ assert.notEqual(authorized.id,different.id);
+ const intent=state.addIntent({...scope,topicId:authorized.id,sourceMessageIds:[String(first.id)],goal:'Share the follow-up release.',dueAt:Date.now()+1000,expiresAt:Date.now()+60000});
+ let calls=0,sends=0;const send=onebot.sendText;onebot.sendText=async(...args)=>{sends++;return send(...args);};
+ globalThis.fetch=async(_url,options)=>{calls++;const req=JSON.parse(options.body);
+  if(calls===1){assert.match(req.messages[1].content,new RegExp('到期的主持端意图.*topicId='+authorized.id));return completionResponse({content:plannerReply('share',differentTopic?other.id:first.id,{topicId:differentTopic?different.id:authorized.id})});}
+  if(calls===2)return completionResponse({tool_calls:[{id:'scoped-share',type:'function',function:{name:'send_message',arguments:JSON.stringify({messages:'A relevant release update.'})}}]});
+  return completionResponse({content:''});
+ };
+ assert.deepEqual(await runner.runSocialIntentTick({now:intent.dueAt}),{claimed:1});
+ const session=sessions.get(sessions.listSummaries(1)[0].id);
+ if(differentTopic){assert.equal(calls,1);assert.equal(sends,0);assert.equal(session.socialAudit.validation,'intent_topic_mismatch');assert.equal(store.listRunEffects(session.leaseId).length,0);}
+ else{assert.equal(sends,1);assert.equal(session.socialAudit.delivered,true);assert.equal(session.socialAudit.topicId,authorized.id);}
+ assert.equal(state.listIntents(scope)[0].status,'completed');
+});
+
+for (const validRepair of [true,false]) test(`structural repair receives full host sources and ${validRepair?'can deliver after exact correction':'still rejects a forged source'}`,async(t)=>{
+ const {runner,store,sessions,onebot,append}=socialHarness(t);
+ const source=append(901,'We share a project update.');let calls=0,sends=0;
+ const send=onebot.sendText;onebot.sendText=async(...args)=>{sends++;return send(...args);};
+ let raw;
+ globalThis.fetch=async(_url,options)=>{calls++;const req=JSON.parse(options.body);
+  if(calls===1){raw={action:'share',topicId:null,topic:'project',targetMessageIds:[],sourceMessageIds:[String(source.id)],sourceRefs:[String(source.id)],goal:'Share the update',novelty:'Relevant progress',initiative:null};return completionResponse({content:JSON.stringify(raw)});}
+  if(calls===2){const input=JSON.parse(req.messages[1].content);assert.equal(input.invalidReason,'invalid_source_ref_shape');assert.match(req.messages[0].content,/完整对象/);assert.ok(input.allowedHumanMessageIds.includes(String(source.id)));const ref=input.allowedSourceRefs.find(r=>r.kind==='message'&&r.id===String(source.id));assert.ok(ref);return completionResponse({content:JSON.stringify({...raw,sourceRefs:[validRepair?ref:{...ref,scope:{accountId:'foreign',chatKey:'group:1'}}]})});}
+  if(calls===3)return completionResponse({tool_calls:[{id:'repaired-share',type:'function',function:{name:'send_message',arguments:JSON.stringify({messages:'One sourced update.'})}}]});
+  return completionResponse({content:''});
+ };
+ await runner.wake('group:1');const session=sessions.get(sessions.listSummaries(1)[0].id);
+ assert.equal(session.socialAudit.validationRepairCount,1);
+ if(validRepair){assert.equal(sends,1);assert.equal(session.socialAudit.delivered,true);}else{assert.equal(calls,2);assert.equal(sends,0);assert.equal(session.socialAudit.validation,'unknown_source_ref');assert.equal(store.listRunEffects(session.leaseId).length,0);}
+});

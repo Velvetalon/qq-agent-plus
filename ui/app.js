@@ -754,6 +754,7 @@ async function resumePause({ skipBacklog = false } = {}) {
 }
 
 function switchTab(name) {
+  if (state.tab === 'embedding' && name !== 'embedding' && typeof leaveEmbeddingSettingsPage === 'function') leaveEmbeddingSettingsPage();
   $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
   state.tab = name;
@@ -768,6 +769,7 @@ function switchTab(name) {
   if (name === 'assets') loadAssetObservatory();
   if (name === 'plugins') loadPluginsPage();
   if (name === 'self-evolution') loadSelfEvolutionPage();
+  if (name === 'embedding') loadEmbeddingSettingsPage();
   if (name === 'usage') loadUsageView({ force: true });
   if (name === 'settings') loadSettings();
 }

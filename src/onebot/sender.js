@@ -12,6 +12,21 @@ import { assertCanSend } from '../core/access.js';
 const DEFAULT_MAX_PER_MINUTE = DEFAULT_CONFIG.send.maxPerMinute;
 const DEFAULT_MAX_PER_HOUR = DEFAULT_CONFIG.send.maxPerHour;
 
+/** Pure physical text preparation, shared by batch preflight and delivery. */
+export function prepareTextParts(messages, { preserveCode = false, hardSplitAt = 0 } = {}) {
+  const list = Array.isArray(messages) ? messages : [messages];
+  const limit = Number(hardSplitAt) || 0;
+  const parts = [];
+  for (const message of list) {
+    const plain = mdToPlain(String(message ?? ''), { preserveCode: preserveCode === true });
+    // Never send empty text or a malformed object's string representation.
+    if (!plain || /^\[object Object\]$/.test(plain)) continue;
+    if (limit > 0 && plain.length > limit) parts.push(...splitForQQ(plain, limit));
+    else parts.push(plain);
+  }
+  return parts;
+}
+
 /**
  * 按证据给一次发送失败定性（重试判定与 outbox 记账必须同一口径）。
  *   definite  —— 能证明请求没被对方收到（连不上/解析不了/网络不可达），可以安全重试、按 failed 记账；
@@ -136,17 +151,10 @@ export class SendQueue {
     if (kind !== 'group' && kind !== 'private') throw new Error(`非法会话 key：${chatKey}`);
     const list = Array.isArray(messages) ? messages : [messages];
     if (!list.length) throw new Error('消息列表为空');
-    const hardSplitAt = Number(getConfig().send?.hardSplitAt) || 0;
-    const parts = [];
-    for (const m of list) {
-      const plain = mdToPlain(String(m ?? ''), { preserveCode: options.preserveCode === true });
-      if (!plain) continue;
-      // 最后防线：任何上游畸形路径漏下来的 "[object Object]" 到这儿直接拦掉，
-      // 用户永远不该在 QQ 里看到这串字符。全被拦 → 下方抛"消息内容为空"回给模型。
-      if (/^\[object Object\]$/.test(plain)) continue;
-      if (hardSplitAt > 0 && plain.length > hardSplitAt) parts.push(...splitForQQ(plain, hardSplitAt));
-      else parts.push(plain);
-    }
+    const parts = prepareTextParts(list, {
+      preserveCode: options.preserveCode,
+      hardSplitAt: getConfig().send?.hardSplitAt
+    });
     if (!parts.length) throw new Error('消息内容为空');
 
     const chain = this.#chain(chatKey);

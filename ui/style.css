@@ -3079,3 +3079,10 @@ dialog { margin: auto; max-height: 88vh; }
 .social-interest-editor textarea { min-height: 90px; resize: vertical; }
 .social-interest-source { min-width: 0; margin: 14px 0; padding: 12px; border: 1px solid var(--border, #666); border-radius: 8px; }
 .social-interest-editor [data-interest-result] { white-space: pre-wrap; }
+/* Dedicated embedding settings: long gateway/model fields and narrow screens. */
+#embedding-settings-page { min-width: 0; overflow-wrap: anywhere; }
+#embedding-settings-page .asset-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#embedding-settings-page .field input[type=url] { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); color: var(--text); font: inherit; }
+#embedding-settings-page .save-bar { flex-wrap: wrap; }
+#embedding-settings-page details { margin: 12px 0; }
+#embedding-settings-page summary { cursor: pointer; margin-bottom: 12px; }

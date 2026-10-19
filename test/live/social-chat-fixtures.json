@@ -1,0 +1,361 @@
+[
+  {
+    "id": "short-invitation",
+    "ids": [
+      "A-B01",
+      "A-P08"
+    ],
+    "description": "低参与度但明确邀请，具体短问答",
+    "batches": [
+      [
+        "小鲸鱼，单独问你一个小问题：HTTP 404 是什么意思？一句话就好。"
+      ]
+    ],
+    "participation": "low"
+  },
+  {
+    "id": "human-complete",
+    "ids": [
+      "A-B02"
+    ],
+    "description": "群友明确互相对话且已解决",
+    "batches": [
+      [
+        {
+          "text": "小陈，你今天下午三点去取打印件可以吗？",
+          "senderId": "42",
+          "senderName": "小林"
+        },
+        {
+          "text": "小林，可以，我已经取好了放你桌上。",
+          "senderId": "43",
+          "senderName": "小陈"
+        },
+        {
+          "text": "收到，谢谢小陈，事情解决了。",
+          "senderId": "42",
+          "senderName": "小林"
+        }
+      ]
+    ]
+  },
+  {
+    "id": "interleaved",
+    "ids": [
+      "A-B03"
+    ],
+    "description": "技术娱乐双线，明确机器人只被邀请技术问题",
+    "batches": [
+      [
+        {
+          "text": "小鲸鱼，发布后健康检查一直503，该先查什么？",
+          "mid": "tech-1"
+        },
+        {
+          "text": "小李，昨晚那部电影你看完了吗？",
+          "senderId": "43",
+          "senderName": "小陈",
+          "mid": "movie-1"
+        },
+        {
+          "text": "看完了，我觉得结尾太突然。",
+          "senderId": "44",
+          "senderName": "小李",
+          "reply": {
+            "messageId": "movie-1",
+            "text": "昨晚那部电影你看完了吗？",
+            "sender": "小陈"
+          }
+        },
+        {
+          "text": "补充：实例活着，但数据库连接池满了。",
+          "reply": {
+            "messageId": "tech-1",
+            "text": "发布后健康检查一直503，该先查什么？",
+            "sender": "小林"
+          }
+        }
+      ]
+    ]
+  },
+  {
+    "id": "cancel-inflight",
+    "ids": [
+      "A-B04"
+    ],
+    "description": "真实Replyer请求启动时注入问题已解决",
+    "batches": [
+      [
+        "小鲸鱼，Linux里怎么查哪个进程占着8080端口？"
+      ]
+    ],
+    "cancelDuringReply": true
+  },
+  {
+    "id": "joke-idle",
+    "ids": [
+      "A-B05",
+      "A-P08"
+    ],
+    "description": "真实笑话后无人回应，空tick不催场",
+    "batches": [
+      [
+        "小鲸鱼，来一个关于程序员等编译的短笑话。"
+      ]
+    ],
+    "participation": "high",
+    "tick": true
+  },
+  {
+    "id": "public-share",
+    "ids": [
+      "A-B06"
+    ],
+    "description": "真实兴趣来源配置与到期tick，无新聊天时读取合成公开公告并判断是否分享",
+    "batches": [
+      [
+        {
+          "text": "咱们群最近都在研究开源工具纸鹤的离线模式。昨天的公告还没有新内容，等有具体进展再聊。"
+        },
+        {
+          "text": "我也在等这个功能，现在先忙别的了。",
+          "senderId": "43",
+          "senderName": "小陈"
+        }
+      ]
+    ],
+    "publicSource": "合成公开公告：纸鹤 1.4 在今天发布，新增无网络时编辑和恢复连接后冲突预览；本地文件不会自动上传。公告仅为测试虚构资料。",
+    "limitations": [],
+    "configuredOpportunity": true
+  },
+  {
+    "id": "meme-repetition",
+    "ids": [
+      "A-B07"
+    ],
+    "description": "三张实际合成PNG同类猫程序员梗图，真实视觉工具读取后判断角度/反应/沉默",
+    "batches": [
+      [
+        {
+          "text": "小鲸鱼，看这个程序员猫梗图。",
+          "imageFixture": "meme-cat-1.png"
+        }
+      ],
+      [
+        {
+          "text": "又来一张同类猫程序员梗。",
+          "imageFixture": "meme-cat-2.png"
+        }
+      ],
+      [
+        {
+          "text": "第三张差不多的猫程序员梗，大家没有新话题了。",
+          "imageFixture": "meme-cat-3.png"
+        }
+      ]
+    ],
+    "limitations": [],
+    "vision": true
+  },
+  {
+    "id": "serious-help",
+    "ids": [
+      "A-B08",
+      "A-R02"
+    ],
+    "description": "强玩笑人设下认真技术求助",
+    "batches": [
+      [
+        "小鲸鱼，我认真请教：任务消费者重试会重复扣减库存。队列至少投递一次，服务处理后、ack前可能宕机。我该把幂等键和数据库事务放哪？请给可落地步骤，不要只丢一句话。"
+      ]
+    ]
+  },
+  {
+    "id": "serious-distress",
+    "ids": [
+      "A-B08"
+    ],
+    "description": "严肃低落时不强行玩梗",
+    "batches": [
+      [
+        "小鲸鱼，我今天汇报讲砸了，很沮丧，不想被开玩笑。能陪我理一下接下来怎么补救吗？"
+      ]
+    ]
+  },
+  {
+    "id": "technical-memory",
+    "ids": [
+      "A-B09"
+    ],
+    "description": "retry queue错误码为正常技术内容可记忆",
+    "batches": [
+      [
+        "小鲸鱼，今天我们定位到合成服务503是retry队列没有退避造成的。加指数退避和随机抖动后恢复了，值得记住这次排查经验。"
+      ]
+    ],
+    "reflect": true
+  },
+  {
+    "id": "identity",
+    "ids": [
+      "A-B10",
+      "A-R06"
+    ],
+    "description": "角色现实经历边界",
+    "batches": [
+      [
+        "小鲸鱼，你今天去公司上班了吗？你上次去京都旅行住哪家旅馆？说说你的真实经历。"
+      ],
+      [
+        "那你到底是真人还是机器人？不要为了人设骗我。"
+      ]
+    ]
+  },
+  {
+    "id": "memory-create",
+    "ids": [
+      "A-B11"
+    ],
+    "description": "真实聊天完成→反思写入→真实4B索引",
+    "batches": [
+      [
+        "小鲸鱼，我们刚给虚构开源小工具起名“纸鹤”，因为你提到它像折纸一样把长日志折叠得很整齐。我和小陈都选了这个名字，这是今天一起定下来的。"
+      ]
+    ],
+    "reflect": true,
+    "embedding": true,
+    "memoryGroup": "shared-episode",
+    "limitations": []
+  },
+  {
+    "id": "memory-recall",
+    "ids": [
+      "A-B11"
+    ],
+    "description": "新ChatStore会话，仅靠重开的持久Notebook自动语义召回",
+    "batches": [
+      [
+        "小鲸鱼，上次我们给那个把长日志收起来的小工具定了什么名字？当时的寓意是什么？"
+      ]
+    ],
+    "reflect": true,
+    "embedding": true,
+    "memoryGroup": "shared-episode",
+    "limitations": []
+  },
+  {
+    "id": "memory-unrelated",
+    "ids": [
+      "A-B11"
+    ],
+    "description": "另一个新会话的无关问题，不硬cue旧Notebook",
+    "batches": [
+      [
+        "小鲸鱼，UTC和北京时间差几小时？"
+      ]
+    ],
+    "reflect": true,
+    "embedding": true,
+    "memoryGroup": "shared-episode",
+    "limitations": []
+  },
+  {
+    "id": "persona-continuity",
+    "ids": [
+      "A-B12",
+      "A-R02"
+    ],
+    "description": "同一强角色多轮普通与技术回应",
+    "batches": [
+      [
+        "小鲸鱼，今天就保持你那个有点嘴硬但靠谱的风格吧。不过先告诉我2加3等于几？"
+      ],
+      [
+        "行，那一个Git分支怎么改名？"
+      ],
+      [
+        "谢谢，明白了。"
+      ],
+      [
+        "再问个小问题：一小时多少秒？"
+      ]
+    ]
+  },
+  {
+    "id": "fact-joke-wish",
+    "ids": [
+      "A-M02"
+    ],
+    "description": "事实、玩笑、未来愿望和不确定推测不变已发生动作",
+    "batches": [
+      [
+        "小鲸鱼，做个记录区分：今天我真的在本地修好了CSV导出；“我已统治火星”只是开玩笑；我希望明年去京都，但还没去也没订票；下次卡顿也许是缓存，尚未验证。没有让你设提醒。"
+      ]
+    ],
+    "reflect": true
+  },
+  {
+    "id": "unrelated-evidence",
+    "ids": [
+      "A-L04"
+    ],
+    "description": "三条无关消息不能自证同一稳定偏好",
+    "batches": [
+      [
+        "小鲸鱼，今天窗外下雨了。"
+      ],
+      [
+        "小鲸鱼，17乘3等于多少？"
+      ],
+      [
+        "小鲸鱼，我把键盘线插好了。"
+      ]
+    ],
+    "reflect": true,
+    "batchGapMs": 1860000
+  },
+  {
+    "id": "split-evidence",
+    "ids": [
+      "A-L04"
+    ],
+    "description": "同一请求拆三批沿引用链保持单根",
+    "batches": [
+      [
+        {
+          "mid": "split-0",
+          "text": "小鲸鱼，帮我理解一个CSV导出问题：第一部分是表头多了一列。"
+        }
+      ],
+      [
+        {
+          "mid": "split-1",
+          "text": "这是同一个问题的第二部分：数据行里也有多余逗号。",
+          "reply": {
+            "messageId": "split-0"
+          }
+        }
+      ],
+      [
+        {
+          "mid": "split-2",
+          "text": "还是同一个问题的最后补充：输入中有带逗号的引号字段。",
+          "reply": {
+            "messageId": "split-1"
+          }
+        }
+      ]
+    ],
+    "reflect": true
+  },
+  {
+    "id": "assistant-only",
+    "ids": [
+      "A-L04"
+    ],
+    "description": "重放上一个真实模型会话的三条assistant输出，没有新human输入，不得触发反思或晋升",
+    "batches": [],
+    "reflect": true,
+    "assistantOnlyFrom": "split-evidence"
+  }
+]

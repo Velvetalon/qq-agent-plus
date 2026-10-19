@@ -98,6 +98,7 @@ import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from '../llm/p
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from '../llm/llm.js';
 import { toOpenAiTools, executeTool } from '../tools/tools.js';
 import { modelImageVerdict } from '../llm/vision-scan.js';
+import { prepareTextParts } from '../onebot/sender.js';
 import { currentProviders } from './providers.js';
 import { buildSlangContextForChat } from '../console/asset-observer.js';
 import { parseInlineToolCalls } from '../tools/inline-tools.js';
@@ -137,6 +138,7 @@ import {
 } from '../conversation/runtime.js';
 import {
   buildSocialPlannerPrompts,
+  buildSocialDecisionRepairMessages,
   buildSocialReplyerPrompts
 } from '../conversation/prompts.js';
 import {
@@ -1772,7 +1774,14 @@ export class Orchestrator {
     const identityPilot = this.getIdentityPilot();
     const plannerTools = socialPlannerTools(toolDefs).filter((tool) => !interestRefs.length
       || ['web_search', 'web_fetch'].includes(tool.name) || tool.socialSource === true);
-    const replyerTools = socialReplyerTools(toolDefs);
+    const replyerTools = socialReplyerTools(toolDefs, {
+      maxMessagesPerTurn: socialConfig.maxMessagesPerTurn,
+      getSendActions: () => session.socialSendActions,
+      countTextParts: (messages) => prepareTextParts(messages, {
+        preserveCode: cfg.persona.behaviorProfile === 'grounded',
+        hardSplitAt: getConfig().send?.hardSplitAt
+      }).length
+    });
     const makeToolContext = (pluginContext, deliveryGuard = null, sender = this.sender) => ({
       chatKey,
       kind,
@@ -1918,21 +1927,10 @@ export class Orchestrator {
         knownSourceRefs
       });
       if (!validated.ok) {
-        const repairMessages = [
-          {
-            role: 'system',
-            content: '仅修复结构，不重新规划。根据同一 scene 与 source ID，输出一个符合指定 JSON schema 的有效决定；不要调用工具，不要解释。'
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              invalidReason: validated.reason,
-              rawDecision: String(plannerResult.content || '').slice(0, 4000),
-              allowedActions: ['reply', 'share', 'react', 'listen', 'wait', 'close'],
-              sourceRefs: knownSourceRefs.slice(0, 16)
-            })
-          }
-        ];
+        const repairMessages = buildSocialDecisionRepairMessages({
+          invalidReason: validated.reason, rawDecision: plannerResult.content,
+          scene, knownMessages: plannerMessages, sourceRefs: knownSourceRefs
+        });
         const repaired = await this.#runSocialPhase({
           phase: 'planner',
           session,
@@ -1991,6 +1989,18 @@ export class Orchestrator {
       if (!finalDecision.topicId && intent?.topicId
         && scene.topics.some((topic) => String(topic.id) === String(intent.topicId))) {
         finalDecision.topicId = String(intent.topicId);
+      }
+      // A leased opportunity is scoped to one topic. Reject a model's topic
+      // switch before moving messages or dispatching the Replyer, rather than
+      // discovering the mismatch only after it attempts an external write.
+      if (intent?.topicId && finalDecision.topicId
+        && String(finalDecision.topicId) !== String(intent.topicId)) {
+        session.socialAudit.decision = 'invalid';
+        session.socialAudit.validation = 'intent_topic_mismatch';
+        state.finishIntent({ ...scope, id: String(intent.id), leaseId: socialLeaseId,
+          status: 'completed', reason: 'planner selected a different topic from the leased opportunity' });
+        session.finishReason = '规划话题超出当前意图范围，未发送';
+        return { social: true, silent: true, invalidDecision: true };
       }
 
       if (!finalDecision.topicId && finalDecision.sourceMessageIds.length) {
@@ -2242,6 +2252,7 @@ export class Orchestrator {
         diagnostics: extensionContext.diagnostics,
         degraded: extensionContext.degraded === true
       };
+      const visibleLimit = Math.max(1, Math.min(6, Number(socialConfig.maxMessagesPerTurn) || 3));
       const replyPrompt = buildSocialReplyerPrompts({
         persona: cfg.persona,
         selfNickname,
@@ -2253,6 +2264,7 @@ export class Orchestrator {
         memoryText,
         pluginContext: extensionText,
         decision: finalDecision,
+        maxMessagesPerTurn: visibleLimit,
         dueIntent: intent,
         now: Date.now()
       });
@@ -2273,7 +2285,6 @@ export class Orchestrator {
         { role: 'system', content: replyPrompt.system },
         { role: 'user', content: replyerUserContent }
       ];
-      const visibleLimit = Math.max(1, Math.min(6, Number(socialConfig.maxMessagesPerTurn) || 3));
       const sentThisTurn = new Set();
       const deliveryGuard = async ({ payload = {}, options = {} } = {}) => {
         runSignal.throwIfAborted();
@@ -2713,7 +2724,9 @@ export class Orchestrator {
           imageMessages.push({
             role: 'user',
             content: [
-              { type: 'text', text: '以下是工具 ' + name + ' 返回的图片，请按所选话题理解后回应。' },
+              { type: 'text', text: '以下是工具 ' + name + ' 返回的图片，请按所选话题理解后回应。'
+                + (phase === 'replyer' ? '看图不重置本轮目标和历史：再次对照已经发过的文字，不要原句或换词复述同一包袱。当前新增点（数据）：'
+                  + JSON.stringify(String(session.socialAudit?.novelty || '').slice(0, 200)) : '') },
               ...images
             ]
           });

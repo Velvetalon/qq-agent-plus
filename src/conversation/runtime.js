@@ -1,3 +1,5 @@
+import { normalizeMessageList } from '../core/util.js';
+
 const SOCIAL_ACTIONS = new Set(['reply', 'share', 'react', 'listen', 'wait', 'close']);
 const SOCIAL_CONTROL_TOOLS = new Set(['finish', 'stay_silent', 'schedule_wake']);
 const GUARDED_VISIBLE_TOOLS = new Set(['send_message', 'send_sticker', 'send_face', 'send_poke']);
@@ -159,7 +161,8 @@ export function socialPlannerTools(toolDefs = []) {
     .map((tool) => ({ ...tool }));
 }
 
-export function socialReplyerTools(toolDefs = []) {
+export function socialReplyerTools(toolDefs = [], { maxMessagesPerTurn = 3, getSendActions = null, countTextParts = null } = {}) {
+  const cap = Math.max(1, Math.min(6, Math.floor(Number(maxMessagesPerTurn) || 3)));
   return toolDefs
     .filter((tool) => {
       const name = String(tool?.name || '');
@@ -170,9 +173,50 @@ export function socialReplyerTools(toolDefs = []) {
     })
     .map((tool) => {
       if (tool.name === 'send_message') {
+        const parameters = tool.parameters ? structuredClone(tool.parameters) : undefined;
+        const messagesSchema = parameters?.properties?.messages;
+        const boundArray = (schema) => {
+          if (!schema || typeof schema !== 'object') return;
+          if (schema.type === 'array' || (Array.isArray(schema.type) && schema.type.includes('array'))) {
+            schema.maxItems = Math.min(cap, Number.isInteger(schema.maxItems) ? schema.maxItems : cap);
+          }
+          for (const alternative of [...(schema.oneOf || []), ...(schema.anyOf || [])]) boundArray(alternative);
+        };
+        boundArray(messagesSchema);
         return {
           ...tool,
-          description: 'Send one natural message or a short list only when distinct thoughts genuinely belong in separate messages. A single message is normal; do not split or pad for appearance.'
+          ...(parameters ? { parameters } : {}),
+          description: `Send one natural message or a short list only when distinct thoughts genuinely belong in separate messages. A single message is normal; do not split or pad for appearance. This turn allows at most ${cap} visible messages/actions in total, including earlier sends. Long text may split into multiple physical QQ messages. Shorten your own reply to fit the remaining budget; merging array entries alone may not help. An oversized batch sends nothing.`,
+          async execute(ctx, args) {
+            // Exactly the messaging tool's normalization, without modifying its
+            // arguments or text. Validate the complete batch before any enqueue.
+            const messages = normalizeMessageList(args?.messages);
+            const requested = typeof countTextParts === 'function' ? countTextParts(messages) : messages.length;
+            // The messaging facade deliberately does not expose host counters.
+            // A read-only host closure keeps that boundary narrow and current.
+            const used = typeof getSendActions === 'function' ? getSendActions() : ctx?.session?.socialSendActions;
+            const alreadySent = Math.max(0, Math.floor(Number(used) || 0));
+            const remaining = Math.max(0, cap - alreadySent);
+            if (requested > remaining) {
+              return {
+                content: JSON.stringify({
+                  error: remaining > 0
+                    ? `本批经 QQ 文本转换及长度分片后为 ${requested} 条，超过本轮剩余 ${remaining} 条额度，整批未执行，0 条已发送。请自行压缩、缩短内容到最多 ${remaining} 条实际消息后重新调用 send_message；仅合并数组项可能仍超额，不要重发此前已成功的消息。`
+                    : `本轮可见动作额度已用完，整批未执行，0 条已发送。请结束本轮，不要重试或重发此前已成功的消息。`,
+                  code: 'SOCIAL_MESSAGE_BATCH_LIMIT',
+                  requested,
+                  remaining,
+                  sent: 0,
+                  retryable: remaining > 0
+                }),
+                isError: true,
+                errorCode: 'SOCIAL_MESSAGE_BATCH_LIMIT',
+                reportIncident: false,
+                skipped: true
+              };
+            }
+            return tool.execute(ctx, args);
+          }
         };
       }
       if (tool.name === 'send_sticker') {
