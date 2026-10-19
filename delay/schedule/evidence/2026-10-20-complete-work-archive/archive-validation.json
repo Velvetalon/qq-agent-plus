@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "observedAt": "2026-10-19T19:53:27.256629+00:00",
+  "stagedFilesCheckedBeforeValidationArtifact": 30,
+  "markdownLocalLinksChecked": 126,
+  "jsonFilesParsed": 3,
+  "operatorManifestFiles": 16,
+  "snapshotHashesMatch": true,
+  "blockedExecutionTests": 16,
+  "shellSyntaxFiles": 14,
+  "pythonSyntaxFiles": 2,
+  "knownSecretPatternScan": "PASS",
+  "exactSshSecretAbsenceScan": "PASS",
+  "privateCredentialPathAndServerAddressAbsent": true,
+  "untrackedMemoNotReadOrStaged": true,
+  "businessSourceUnchangedSince930": true,
+  "noProductionOrModelOperations": true
+}

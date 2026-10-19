@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-20",
+  "timeZone": "Asia/Hong_Kong",
+  "status": "ARCHIVED_WIP_PRODUCTION_NOT_UPDATED",
+  "repositoryBeforeArchive": "930bfb900557b544888dfba29c9957cc3978018d",
+  "archiveIsNotDeployment": true,
+  "desiredModels": {
+    "chat": "deepseek/deepseek-v4.1-flash-1017",
+    "embedding": "Qwen/Qwen3-Embedding-4B",
+    "dimension": 2560
+  },
+  "liveObserved": {
+    "observedAt": "2026-10-19T19:32:58.610848+00:00",
+    "deployedRevision": "059eba574a5e440fb9c385de5305f7afcc585a82",
+    "packageVersion": "0.6.18",
+    "health": {
+      "ok": true,
+      "name": "qq-agent-plus",
+      "version": "0.6.18",
+      "uptimeSeconds": 740419,
+      "onebotConnected": false,
+      "timestamp": 1792438378602
+    },
+    "runtime": {
+      "mode": "active",
+      "paused": false
+    },
+    "conversationMode": "lifecycle",
+    "chatModel": "qwen/qwen3.8-27b-uncensored:thinking",
+    "chatCredentialPresent": true,
+    "embeddingPersisted": {
+      "enabled": null,
+      "model": null,
+      "dimension": null,
+      "keyPresent": false
+    },
+    "existingMemoryFlags": {
+      "master": true,
+      "retrieval": true,
+      "reflection": true
+    },
+    "notebookCount": 293,
+    "deploymentLockExists": false,
+    "maintenanceFiles": {
+      "apply-update.sh": {
+        "exists": true,
+        "sha256": "61e6343f272256c596b2906d558eca36938647d2f2b6ef95b220d7d00979abbe",
+        "bytes": 14909
+      },
+      "launch.lock": {
+        "exists": true
+      },
+      "rollout.lock": {
+        "exists": true
+      },
+      "update-result.json": {
+        "exists": false
+      },
+      "update.pid": {
+        "exists": false
+      },
+      "application-backup": {
+        "exists": false
+      },
+      "data-backup": {
+        "exists": false
+      },
+      "original-config.json": {
+        "exists": false
+      },
+      "units-backup": {
+        "exists": false
+      },
+      "prior-deploy-backups": {
+        "exists": false
+      }
+    },
+    "archivedAttempt": {
+      "status": "FAILED",
+      "exitCode": 1,
+      "serviceStoppedForUpdate": false,
+      "deployFinished": false
+    },
+    "existingDeploymentBackupCount": 3,
+    "service": {
+      "NRestarts": "0",
+      "ExecMainStatus": "0",
+      "ActiveState": "active",
+      "SubState": "running",
+      "UnitFileState": "enabled"
+    },
+    "updateTimer": {
+      "ActiveState": "active",
+      "SubState": "waiting",
+      "UnitFileState": "enabled"
+    },
+    "updateService": {
+      "NRestarts": "0",
+      "ExecMainStatus": "0",
+      "ActiveState": "inactive",
+      "SubState": "dead",
+      "UnitFileState": "static"
+    },
+    "originalServiceProcessUnchanged": true
+  },
+  "releaseCandidate": {
+    "commit": "930bfb900557b544888dfba29c9957cc3978018d",
+    "sourceArchiveSHA256": "c3dc47754d3c81ef7776c1ee56ecc99898f7d957b6978cc755de27804b152a5b",
+    "sourceArchiveBytes": 3083106,
+    "controlledSourceFiles": 142,
+    "sourceManifestSHA256": "afca77f6d8e867c64498bd6bf7a5eb0db9b84764653b1cbf68c817faf055f7f3",
+    "linuxNode": "22.23.2",
+    "linuxUnit": {
+      "exitCode": 0,
+      "tests": 852,
+      "pass": 852,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "failureTitles": []
+    },
+    "auxiliary": {
+      "results": [
+        {
+          "check": "syntax",
+          "files": 280,
+          "exitCode": 0
+        },
+        {
+          "command": [
+            "node",
+            "src/ops.js",
+            "scan",
+            "--strict"
+          ],
+          "exitCode": 0
+        },
+        {
+          "command": [
+            "node",
+            "test/local/run.mjs"
+          ],
+          "exitCode": 0
+        },
+        {
+          "command": [
+            "node",
+            "test/test-prompt.mjs"
+          ],
+          "exitCode": 0
+        },
+        {
+          "command": [
+            "node",
+            "test/render-test.mjs"
+          ],
+          "exitCode": 0
+        },
+        {
+          "command": [
+            "node",
+            "test/scroll-test.mjs"
+          ],
+          "exitCode": 0
+        },
+        {
+          "command": [
+            "node",
+            "test/usage-e2e.mjs"
+          ],
+          "exitCode": 0
+        },
+        {
+          "command": [
+            "node",
+            "scripts/sqlite-vec-smoke.mjs"
+          ],
+          "exitCode": 0
+        }
+      ]
+    },
+    "candidatePassedDoesNotProveInstalled": true
+  },
+  "productionEmbeddingAuthorization": {
+    "userExplicitlySelectedEnable": true,
+    "noteCountDisclosed": 293,
+    "cloudDataAndCostDisclosed": true,
+    "allowQuery": true,
+    "allowPrivate": false,
+    "settingsApplied": false,
+    "noteIndexingStartedByThisWork": false
+  },
+  "embeddingFixedTextProbes": {
+    "initial": {
+      "calls": 1,
+      "httpStatus": null,
+      "code": "EMBEDDING_TIMEOUT",
+      "latencyMs": 15004,
+      "outcomeAndCost": "UNKNOWN_NO_HTTP_RESPONSE",
+      "realNoteInputs": 0
+    },
+    "diagnosedTransport": {
+      "ok": true,
+      "code": "EMBEDDING_PROBE_OK",
+      "dimension": 2560,
+      "latencyMs": 13840,
+      "gateway": "https://api.nano-gpt.com/api/v1",
+      "model": "Qwen/Qwen3-Embedding-4B",
+      "timeoutMs": 60000,
+      "calls": 1,
+      "httpStatus": 200,
+      "reportedTokens": 7,
+      "diagnostics": [
+        {
+          "gateway": "https://api.nano-gpt.com/api/v1",
+          "status": 405,
+          "latencyMs": 1250
+        },
+        {
+          "gateway": "https://nano-gpt.com/api/v1",
+          "status": 405,
+          "latencyMs": 546
+        }
+      ],
+      "syntheticFixedTextOnly": true,
+      "realNoteInputs": 0
+    },
+    "modelOrCredentialChanged": false,
+    "isProductionNotebookIndexProof": false
+  },
+  "operatorCode": {
+    "snapshotCount": 16,
+    "executionBlocked": true,
+    "latestLocalWorkerOriginalSHA256": "8a610c64648c986539f64fd3b1f958202c64fb557ff5a7a3a0a588878ba602c6",
+    "serverWorkerSHA256": "61e6343f272256c596b2906d558eca36938647d2f2b6ef95b220d7d00979abbe",
+    "serverWorkerMatchesLatestLocalDraft": false,
+    "lastExceptionCleanupPatch": "LOCAL_IMPLEMENTED_SYNTAX_CHECKED_NOT_UPLOADED_NOT_FAULT_INJECTION_TESTED",
+    "lastOperatorSyntaxAndGuardTests": {
+      "shellFiles": 5,
+      "pythonBlocks": 8,
+      "javascriptBlocks": 4,
+      "guardCases": 12,
+      "oldBashHazardsReproduced": 2,
+      "status": "PASS"
+    },
+    "latestCleanupPatchIndependentRecheck": "NOT_RUN",
+    "latestCleanupFaultInjection": "NOT_RUN",
+    "lunaExplicitlySelectedOrDispatched": false,
+    "workflowModelOverrideInvocation": "NOT_RUN_USER_ASKED_DIFFERENCE_THEN_REQUESTED_ARCHIVE"
+  },
+  "deploymentOutcome": {
+    "attemptsLaunched": 1,
+    "attemptOutcome": "FAILED_BEFORE_STOP_DUE_TO_INCORRECT_DISABLED_MEMORY_ASSUMPTION",
+    "stoppedOriginalService": false,
+    "deployedCode": false,
+    "changedLiveModelOrEmbeddingConfig": false,
+    "newApplicationOrDataBackupCreated": false,
+    "previousThreeBackupsPreservedInPlace": true,
+    "failedAttemptArchived": true,
+    "newAttemptLaunchedAfterRearm": false,
+    "pending": true
+  },
+  "remaining": {
+    "productionRelease": true,
+    "exceptionCleanupFaultInjectionAndFinalReview": true,
+    "lunaExecutorTask": true,
+    "productionEmbeddingEnableAndActualNotebookIndex": true,
+    "B07VisualNovelty": true,
+    "R06B10WiderMatrix": true,
+    "newModelFullChatReflectionEmbeddingRecall": true,
+    "OneBotDisconnectedBeforeMaintenance": true,
+    "SC8RealQQAcceptance": "USER_PAUSED",
+    "windowsFailures": "44 historical failures and3 skips not repaired; targetLinux852 passed"
+  },
+  "latestUserExecutionPolicy": {
+    "necessaryOperationsAuthorized": true,
+    "doNotAskFurtherConfirmation": true,
+    "executeActuallyReceivedQueuedInstructions": true,
+    "doNotInventUnreceivedTasksOrReportUnperformedSuccess": true
+  },
+  "archiveFactReview": {
+    "verdict": "PASS_FOR_ARCHIVE_INTERNAL_CONSISTENCY_ONLY",
+    "genericReviewerModelVerified": false,
+    "scope": "specified handoff/task/README/JSON materials and one blocked snapshot excerpt",
+    "noProductionOrOriginalEvidenceIndependentlyVerified": true,
+    "notDeploymentPatchFinalAcceptance": true
+  },
+  "archiveSafety": {
+    "credentialsCopiedToGit": false,
+    "rawChatOrNotebookDataCopied": false,
+    "databaseOrFullLogsCopied": false,
+    "serverHostOrCloudCredentialsIncluded": false,
+    "localUntrackedMemoReadOrCommitted": false,
+    "newDeploymentOrModelCallsDuringArchive": false,
+    "rawEvidenceRemainsPrivate": true,
+    "privateConversationAndToolInputsNotCoveredByNonPersistenceClaim": true
+  },
+  "rawEvidenceSHA256": {
+    "preflight.stdout.log": "63c561606ec8f33a7b314ead0441aa6de9ae30b50d530efbfdcaa0360be29803",
+    "inventory.stdout.log": "862ae06879f2040bace52f56d7bbffea88b13dbcb2613e94f5dfe31ef4d87662",
+    "prepare.stdout.log": "1606e994084976b55b6f222b5fdbf891e8b196e935a5ea86dc074c830044bd16",
+    "linux-validation.stdout.log": "68c40d3f9f38ec41bc1da9670efa224370e334efe9217b96fa87f4cb02de6bad",
+    "prelaunch-check.stdout.log": "008fffc71b85d8001ae9e8c08827e655adb0432425811a999464b8f92cd73aef",
+    "rollout.stdout.log": "5e8f6a288b8daaac6248d842ecaf53d2c73bbfe47b965f3632c16ccd9b8c4bc8",
+    "rollout-diagnostic.stdout.log": "4bfb2fb60639210ed44def5e38487e136d90a01b71d7c4082538b55b6e01c3cb",
+    "legacy-memory.stdout.log": "98f1c8d0b60d93158c63e69108326b1bc015a5cfc9ab1ab48bfed1e760a806e2",
+    "production-embedding-probe.stdout.log": "b9d424232d102f9853128ecd757922caf4ff1ac967665e5320a7aa58904e6c8b",
+    "embedding-network.stdout.log": "1da8b1efbf2e315a22540671172ec486fdf63dcb765c9fa49d29ca3f0d77c9ce",
+    "embedding-transport-probe.stdout.log": "6d5b56b0fea9a3a119021de1a2b477183f394f7875db46516e0905311ef986b4",
+    "archive-prestop-attempt.stdout.log": "2b0fc805e450c6598d3b9f1f696539c263d5cd096e8c742ee456c7258400e179",
+    "archive-live-status.stdout.log": "0df83460489f037c54c2bb4f313ad0a26d8d0bdfdeb28273cdd9f5ba369c5d96",
+    "operator-script-tests.json": "264ce31040592f6f309b68ccd4a2ad9a615395b2e572c9ca6171e2d37aa172d8"
+  }
+}

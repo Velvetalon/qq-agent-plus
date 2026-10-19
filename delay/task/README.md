@@ -1,6 +1,16 @@
 # 项目开发任务索引
 
-## 最新：2026-10-20 DeepSeek Flash模型选择与原身份正例完成（WIP）
+## 最新：2026-10-20 全量归档与未完成发布交接
+
+[完整进度/代码/部署总交接](../schedule/2026-10-20-complete-work-archive.md)、[脱敏证据](../schedule/evidence/2026-10-20-complete-work-archive/result.json)、[16份运维代码封存](../implementation/2026-10-20-production-update/README.md)、[发布续做卡](DEPLOY-2026-10-20-resume.md)、[分工规则](../coordination-policy-snapshot.md)。
+
+- 已完成：此前业务修复/提交、DeepSeek短问答/身份原fixture正例、目标Linux候选852项全通过、运维守卫/并发锁修订及模拟验证、固定文本4B实际探针、用户启用/费用授权。
+- 未完成：生产实际仍059/Qwen；正式发布、真实业务备份、线上DeepSeek/4B配置与293笔记索引未执行。本地异常清理补丁未上传/故障注入/最终复核；服务器旧稿不能直接运行；Luna执行任务未派发。
+- 继续时由主协调者读总交接和续做卡后定案，不把归档完成当上线通过，也不由执行者决定架构/优先级。SC8真实QQ、B07/R06/B10广矩阵、完整新模型记忆链与适用平台/浏览器验收各保留未完成状态。Linux候选门禁已完成，不再写成未运行。
+
+以下为历史记录，不覆盖本节。
+
+## 历史检查点：2026-10-20 DeepSeek Flash模型选择与原身份正例完成（WIP）
 
 [当前进度](../schedule/2026-10-20-deepseek-chat-profile.md)、[计划](../../plan_doc/2026-10-20-deepseek-chat-profile.md)、[脱敏证据](../schedule/evidence/2026-10-20-deepseek-chat-profile/result.json)。源码 `ef4e806` 按用户指定，将测试及待授权上线配置统一为NanoGPT `deepseek/deepseek-v4.1-flash-1017`，Embedding保持Qwen3-Embedding-4B/2560；67项专项通过。
 

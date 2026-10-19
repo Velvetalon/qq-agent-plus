@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-19T19:40:03.486025+00:00",
+  "status": "FROZEN_INCOMPLETE_NON_EXECUTABLE_SNAPSHOT",
+  "releaseCandidate": "930bfb900557b544888dfba29c9957cc3978018d",
+  "notProductionDeploymentProof": true,
+  "containsCredentialsOrBusinessData": false,
+  "files": [
+    {
+      "file": "ssh_remote.py",
+      "originalPrivateSHA256": "3983074704aff2f9854a7b1048be8bccc901f2f686e4acac2fcb7192ed2ade56",
+      "archivedSHA256": "f2686c76071fa5f4a464e63dbae9fd05d6867c105ee8dae1291497cf1a6d2470",
+      "originalBytes": 2720,
+      "archivedBytes": 3293,
+      "executionBlocked": true,
+      "sanitization": [
+        "external SSH credential path supplied only by environment",
+        "evidence directory supplied by environment, forbidden inside checkout",
+        "evidence label restricted to safe basename"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "preflight.sh",
+      "originalPrivateSHA256": "43ed45945876140be269a6b6e85b8d25bcefd79728aa6cd73256ecae11f37c88",
+      "archivedSHA256": "c8a47b3d73c645c2bfef4bace81ac3b9195170100ad2cf38c47f34c06bd2f7c3",
+      "originalBytes": 821,
+      "archivedBytes": 1077,
+      "executionBlocked": true,
+      "sanitization": [],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "inventory.sh",
+      "originalPrivateSHA256": "3fb6d6059310eda7f34ab677c8929fc617efa22135ffe066b24642c2adefa3e5",
+      "archivedSHA256": "bdadc5f11496cceb50bc4ddb64ec0d4d556d4dad5a18515b3d7bd76709a47bf7",
+      "originalBytes": 3477,
+      "archivedBytes": 3733,
+      "executionBlocked": true,
+      "sanitization": [],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "prepare.sh",
+      "originalPrivateSHA256": "beffb07e96dc3e6429b65f5892f32ee58e35007b87e12e7e3a68a3c810bfb7fa",
+      "archivedSHA256": "a7462b43ba0a9c45a6f5b32dad6cf22fdad49922ea5f088b5d3ee77b93a5883a",
+      "originalBytes": 1091,
+      "archivedBytes": 1342,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "validate.sh",
+      "originalPrivateSHA256": "af580f774097abd43dd8fdaff13382a53c2f0de5d7cbc940dcb37099c7084a95",
+      "archivedSHA256": "deaff6efeb915076660f4810fc525d0c067af9e8eebfa495170c6b98703cf376",
+      "originalBytes": 5538,
+      "archivedBytes": 5774,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "apply-update.sh",
+      "originalPrivateSHA256": "8a610c64648c986539f64fd3b1f958202c64fb557ff5a7a3a0a588878ba602c6",
+      "archivedSHA256": "d98db2904d66aa77803d426852bb25466ca499d6ec6af7827a28d483d9821348",
+      "originalBytes": 15154,
+      "archivedBytes": 15380,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "LOCAL_DRAFT_NOT_PRODUCTION_VALIDATED"
+    },
+    {
+      "file": "launch-update.sh",
+      "originalPrivateSHA256": "833ba5a19f5a58b799aa417e6f3f8fe6de78e54c25066744c642468f7e3d93ec",
+      "archivedSHA256": "c862cd9bf7ba708afc7b3c74aafaa9d6e3c0255e6f1fcac0e6110c5b6f166458",
+      "originalBytes": 888,
+      "archivedBytes": 1134,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "prelaunch-check.sh",
+      "originalPrivateSHA256": "2e5fe94699a79bf7b43222cdf7695d8f45a89a644720d50a585c3d9cbb2eb5ed",
+      "archivedSHA256": "edb443e537eea38f3fb64440a04162b04ba1c9ee71c7101c3845069cebd19de0",
+      "originalBytes": 1618,
+      "archivedBytes": 1864,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "check_operator_scripts.py",
+      "originalPrivateSHA256": "8f5efc3f1a4c7969ddf076d9df1e076fa80ab45f15cd944a9cf979a1e8a04848",
+      "archivedSHA256": "1d6a8a0d4798e2a9c351740299b23094916c0c60b2c9fde65c26cc14a6b8df09",
+      "originalBytes": 2748,
+      "archivedBytes": 2975,
+      "executionBlocked": true,
+      "sanitization": [],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "diagnose-rollout.sh",
+      "originalPrivateSHA256": "0aecdaccb831608f7fe5272bdf6458498ab79f8e746cbf0adcc1ab3583ad1793",
+      "archivedSHA256": "b31fa1f60dc453c19b74a053317e34d7aff0dcfc87f7801927543f2d1318944d",
+      "originalBytes": 1193,
+      "archivedBytes": 1439,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "inspect-legacy-memory.sh",
+      "originalPrivateSHA256": "31c70383f5e85963797d9db3bbbb97fb318d19bfb4385f5f1651e2d52d9b84b3",
+      "archivedSHA256": "5322eccbb817c2265b02ea348b8e07b7501e83c50a9eed9aaca8b126bc9178b7",
+      "originalBytes": 1410,
+      "archivedBytes": 1666,
+      "executionBlocked": true,
+      "sanitization": [],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "probe-production-embedding.sh",
+      "originalPrivateSHA256": "f1496f113b695f9f77098b804b3a5d5dc4aedb7483ed065537e4200cef080230",
+      "archivedSHA256": "bc60ce2baf449132afa2a5653e5c5170bb6ef533f2eb83125a0e1cee027e9b4f",
+      "originalBytes": 2002,
+      "archivedBytes": 2248,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "embedding-network-check.sh",
+      "originalPrivateSHA256": "6e98863342a2be0fd531e2b65c81d346132ca837cd49e0f209e4963482820787",
+      "archivedSHA256": "8402e7a6fad1d2b2b0b4ca2876ed850fab46d4c644e4789c493373cb18141a0f",
+      "originalBytes": 930,
+      "archivedBytes": 1186,
+      "executionBlocked": true,
+      "sanitization": [],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "probe-embedding-transport.sh",
+      "originalPrivateSHA256": "909fd37fe97d1d1cd6e91e510adf6d2668bf6b48057e56510c4dec92e7505eb1",
+      "archivedSHA256": "c44b7590426ce28ce0836d15444422795c606cbb61b753ccb200db466bce07e1",
+      "originalBytes": 2759,
+      "archivedBytes": 3000,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "rearm-known-failed-attempt.sh",
+      "originalPrivateSHA256": "e57b6385a84f46215b4ce12b6cf6da86f5b37c48c3265d45778dd8799a0b70ff",
+      "archivedSHA256": "73fd38afaf71f185158b8d27536309be4dcfa16e5af4a33efc982f1a68b3546c",
+      "originalBytes": 1811,
+      "archivedBytes": 2062,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    },
+    {
+      "file": "archive-readonly-status.sh",
+      "originalPrivateSHA256": "da0707d64ba656a81ab9cd09e908e2ab81f937f916229fa1f2778cbed45ac9a9",
+      "archivedSHA256": "77dec69bdd1f56bd858bc1cfe628d462968806cd032ed79a3cf4028c2efca15e",
+      "originalBytes": 2783,
+      "archivedBytes": 3034,
+      "executionBlocked": true,
+      "sanitization": [
+        "private maintenance directory replaced with a non-existing review placeholder"
+      ],
+      "status": "ARCHIVED_OPERATOR_SNAPSHOT"
+    }
+  ]
+}

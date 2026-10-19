@@ -1,6 +1,19 @@
 # 当前工作交接入口
 
-## 最新：2026-10-20 按用户选择改用DeepSeek Flash，原短问答/身份小样本实测正常（WIP）
+## 最新：2026-10-20 全部代码/进度/部署状态归档（WIP，生产未更新）
+
+**从[完整总交接](schedule/2026-10-20-complete-work-archive.md)开始**；同时提供[结构化证据](schedule/evidence/2026-10-20-complete-work-archive/result.json)、[16份禁止直接执行的运维代码快照](implementation/2026-10-20-production-update/README.md)、[准确续做卡](task/DEPLOY-2026-10-20-resume.md)及[分工规则快照](coordination-policy-snapshot.md)。既有历史不删除、不倒改。
+
+- 业务代码已在Git/main，归档前HEAD为930bfb9；face审核、thinking预算/快照、消息ID提示与DeepSeek测试档案已有对应提交。待发布候选在目标Linux **852/852 PASS、0失败/跳过**，辅助门禁通过。
+- **实际生产仍059eba5、原进程active/lifecycle、聊天仍Qwen、OneBot仍为既有断连。没有正式停服、创建新业务备份、替换安装或切换模型。** 版本号新旧均0.6.18，须看revision，不能仅看health版本号。
+- 首次发布尝试因主协调者把Embedding未配置误判为记忆关闭，在停服前被拒绝；实际记忆/检索/反思均true、293笔记存在。失败进程退出且标记已保存，之后没有再次启动发布。
+- 用户已明确允许符合策略的笔记发NanoGPT、启用4B/2560、query=true/private=false；固定文本探针真实HTTP200/2560维/7tokens。但**配置/真实笔记索引尚未应用**。
+- 本地最后异常清理补丁未上传、缺专门故障注入和最终复核；服务器旧稿有已知P2，不能直接运行。Luna尚未实际指定；不能把通用复核或解释workflow当已派发。
+- 本轮按最新要求只归档并推GitHub，不新增部署、模型调用或索引。SC8真实QQ、B07、更广R06/B10及完整新模型记忆链仍开放；Windows旧失败不冒充已修。
+
+以下均为历史时点，不覆盖本节的实际状态。
+
+## 历史检查点：2026-10-20 按用户选择改用DeepSeek Flash，原短问答/身份小样本实测正常（WIP）
 
 [本轮模型选择与实测](schedule/2026-10-20-deepseek-chat-profile.md)、[脱敏结果](schedule/evidence/2026-10-20-deepseek-chat-profile/result.json)。源码 `ef4e806` 将测试和待授权上线配置约定统一为NanoGPT `deepseek/deepseek-v4.1-flash-1017`；Embedding继续 `Qwen/Qwen3-Embedding-4B` / 2560。
 
