@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-19",
+  "baseline": "dc012094febc8521b5253592c854f7b0910db0b3",
+  "node": "22.22.2",
+  "unit": {
+    "pass": 759,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 17804.852914
+  },
+  "focused_pricing_and_lifecycle": 31,
+  "new_lifecycle_regressions": 9,
+  "local_scripts": "9/9",
+  "render": 138,
+  "scroll": 19,
+  "usage": 31,
+  "syntax_files": 256,
+  "strict_scan_suspect_calls": 0,
+  "browser": {
+    "checks": [
+      "real settings navigation, confirmation, source save/reload, escaping, schedule",
+      "390px mobile overflow/reachable cancellation and actual cancel handler",
+      "stale browser save preserves newer configuration and unsaved form input",
+      "real guarded session HTTP/UI distinguishes reply plan from non-delivery, with no synthetic credentials in response",
+      "mode fallback and app restart preserve the same historical guarded session in desktop/mobile browser"
+    ],
+    "layout": {
+      "overflow": 0,
+      "pageOverflow": 0,
+      "visible": true
+    },
+    "errors": [],
+    "modelCalls": 0,
+    "syntheticChatCalls": 2,
+    "sends": 0
+  },
+  "independent_review": {
+    "scope": "Test lifecycle and pricing isolation repairs only",
+    "found_and_fixed": [
+      "Live child kill error incorrectly counted as termination",
+      "Browser cleanup exception skipped remaining cleanup"
+    ],
+    "final_focused_pass": 31,
+    "new_blockers": 0
+  },
+  "logs": [
+    {
+      "log": "final-hermetic-unit.tap",
+      "sha256": "7c053caf4da78fb56ac730f5f36f66603985b621ff1665e9ded2978f16ebbd60",
+      "bytes": 203357,
+      "exit_code": 0
+    },
+    {
+      "log": "focused-final.tap",
+      "sha256": "b89b186490a36c936b6a4f5711e3d1d101d393c1605c102cbb4a8fad68a7545f",
+      "bytes": 7243,
+      "exit_code": 0
+    },
+    {
+      "log": "final-local.log",
+      "sha256": "2b7891ff16f2774ddf610585ad8dd2ea6024e1ce90440de56f523c93d3712524",
+      "bytes": 41130,
+      "exit_code": 0
+    },
+    {
+      "log": "final-prompt.log",
+      "sha256": "4630b6801f0137fff47dee6ebe29df3b7b664a7c66d43c9c5d68704ed341fadd",
+      "bytes": 301,
+      "exit_code": 0
+    },
+    {
+      "log": "final-render.log",
+      "sha256": "0cb444946fcfc14cc6dcaf275209ade9a0d22a697224f0326cc6ff02ebd49272",
+      "bytes": 7861,
+      "exit_code": 0
+    },
+    {
+      "log": "final-scroll.log",
+      "sha256": "983021966669d3f70df1927712f2d119722376cd47b0b9ec3edbc6cde0f2b02c",
+      "bytes": 1355,
+      "exit_code": 0
+    },
+    {
+      "log": "final-usage.log",
+      "sha256": "23d79491bc66447e77120a194ae3a1c387c71260a966893a0e4624b35a8dee0a",
+      "bytes": 1966,
+      "exit_code": 0
+    },
+    {
+      "log": "final-sqlite.log",
+      "sha256": "9ab91ef2b625b9c8be95640018feb9696fa5ad0ea87bc35db84146d1dd3f3824",
+      "bytes": 409,
+      "exit_code": 0
+    },
+    {
+      "log": "final-scan.log",
+      "sha256": "f53e5643b7bc2e37f4f62b8680da6b24e70d12f55de13b34c8d5d22805304470",
+      "bytes": 300,
+      "exit_code": 0
+    },
+    {
+      "log": "browser-native.log",
+      "sha256": "32a5352f81a0e89d54fda5b33dc53fd4ae1a2c8676a22567d39bf65a67cb6c19",
+      "bytes": 802,
+      "exit_code": 0
+    }
+  ],
+  "live_model": "NOT_RUN",
+  "live_embedding": "NOT_RUN",
+  "real_qq": "NOT_RUN",
+  "production": "USER_PAUSED",
+  "remote_unchanged": "dc012094febc8521b5253592c854f7b0910db0b3",
+  "publication": "LOCAL_ONLY_NOT_PUSHED",
+  "scope": "Local synthetic contracts only; no actual model quality or real QQ effect claim."
+}

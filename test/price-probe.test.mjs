@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { after, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,12 +7,21 @@ import path from 'node:path';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-price-probe-'));
 process.env.QQ_AGENT_DATA_DIR = root;
 
+// Startup refreshes must be scripted too; example fixture URLs are never live.
+const unexpectedFetches = [];
+const networkGuard = mock.method(globalThis, 'fetch', async (url) => {
+  unexpectedFetches.push(String(url));
+  throw new Error('Unscripted network request in price-probe fixture');
+});
+
 const probe = await import('../src/pricing/price-probe.js');
 const channel = await import('../src/pricing/channel-prices.js');
 const prices = await import('../src/pricing/model-prices.js');
 const feed = await import('../src/pricing/price-feed.js');
 
 after(() => {
+  networkGuard.mock.restore();
+  assert.deepEqual(unexpectedFetches, [], 'all pricing HTTP must be mocked');
   prices.setChannelPrices('demo-渠道', null);
   fs.rmSync(root, { recursive: true, force: true });
 });
@@ -148,7 +157,7 @@ test('渠道价目表参与查价：手填的价仍然优先', () => {
   }
 });
 
-test('渠道价目表落盘 + 拉取失败时保留上一次的表', async () => {
+test('渠道价目表落盘 + 拉取失败时保留上一次的表', async (t) => {
   const good = fakeFetch({ '/pricing.json': { prices: { 'keep-model': { in: 2, out: 8 } } } });
   let status = await channel.refreshChannelFeed('落盘渠道', 'https://data.example.com/pricing.json', { fetchImpl: good });
   assert.equal(status.length, 1);
@@ -163,7 +172,9 @@ test('渠道价目表落盘 + 拉取失败时保留上一次的表', async () =>
   assert.deepEqual(channel.channelPriceCounts()['落盘渠道'], 1, '失败不清表，继续用上一次的价');
 
   // 重启：缓存能读回来（配置里有这个渠道时才注入）
+  const startupFetch = t.mock.method(globalThis, 'fetch', good);
   channel.initChannelPrices([{ vendor: '落盘渠道', url: 'https://data.example.com/pricing.json' }]);
+  assert.equal(startupFetch.mock.callCount(), 1, 'stale cache startup refresh uses the scripted boundary');
   assert.deepEqual(channel.channelPriceCounts()['落盘渠道'], 1);
 
   // 配置里删掉这个渠道 → 不再注入
@@ -174,6 +185,8 @@ test('渠道价目表落盘 + 拉取失败时保留上一次的表', async () =>
   assert.equal(revoked.unpriced, true, '配置里删掉的渠道，注入要当场撤销');
 
   channel.removeChannelFeed('落盘渠道');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(channel.channelPriceCounts()['落盘渠道'], undefined, 'late startup refresh cannot revive the removed channel');
   assert.equal(channel.channelPriceStatus().length, 0);
 });
 

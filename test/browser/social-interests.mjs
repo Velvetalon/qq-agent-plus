@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import WebSocket from 'ws';
+import { trackChildProcess } from './child-process-lifecycle.mjs';
 
 const evidence = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-interest-browser-'));
 process.env.QQ_AGENT_DATA_DIR = path.join(evidence, 'synthetic-data');
@@ -13,7 +14,7 @@ const { DEFAULT_CONFIG, updateConfig } = await import('../../src/core/config.js'
 const { createApp } = await import('../../src/console/app.js');
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const originalFetch = globalThis.fetch;
-let app, chrome, ws, pending = new Map(), seq = 0;
+let app, chrome, chromeLifecycle, ws, pending = new Map(), seq = 0;
 let modelCalls = 0, sends = 0;
 let scriptedModel = null, syntheticChatCalls = 0;
 const errors = [], checks = [], unexpectedCalls = [], unexpectedProtocol = [];
@@ -62,8 +63,9 @@ try {
   chrome = spawn('/usr/bin/chromium', ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage',
     '--disable-background-networking', '--no-first-run', '--disable-sync', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+  chromeLifecycle = trackChildProcess(chrome);
   const activePort = path.join(profile, 'DevToolsActivePort');
-  for (let attempt = 0; !fs.existsSync(activePort) && attempt < 200; attempt += 1) await wait(25);
+  await chromeLifecycle.waitForFile(activePort);
   const debugPort = fs.readFileSync(activePort, 'utf8').split('\n')[0];
   const pages = await (await originalFetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
   ws = new WebSocket(pages[0].webSocketDebuggerUrl);
@@ -189,9 +191,12 @@ try {
   fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ checks, layout, errors, modelCalls, syntheticChatCalls, sends }, null, 2));
   console.log(JSON.stringify({ evidence, checks, layout, errors, modelCalls, syntheticChatCalls, sends }));
 } finally {
-  for (const task of pending.values()) clearTimeout(task.timer);
-  ws?.close();
-  if (chrome && chrome.exitCode === null) { chrome.kill('SIGTERM'); await new Promise((resolve) => chrome.once('exit', resolve)); }
-  if (app) await app.stop();
-  globalThis.fetch = originalFetch;
+  try {
+    for (const task of pending.values()) clearTimeout(task.timer);
+    ws?.close();
+    await chromeLifecycle?.stop();
+  } finally {
+    try { if (app) await app.stop(); }
+    finally { globalThis.fetch = originalFetch; }
+  }
 }

@@ -6,10 +6,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { after, mock, test } from 'node:test';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-price-feed-'));
 process.env.QQ_AGENT_DATA_DIR = root;
+const unexpectedFetches = [];
+const networkGuard = mock.method(globalThis, 'fetch', async (url) => {
+  unexpectedFetches.push(String(url));
+  throw new Error('Unscripted network request in price-feed fixture');
+});
+after(() => {
+  feed.initPriceFeed('none');
+  networkGuard.mock.restore();
+  assert.deepEqual(unexpectedFetches, [], 'all pricing HTTP must be mocked');
+});
 process.on('exit', () => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* Windows 上可能还被占用 */ } });
 
 const feed = await import('../src/pricing/price-feed.js');
@@ -89,13 +99,19 @@ test('切成 none：当场回落到内置表，不再沿用已拉到的远程表
   assert.notEqual(resolveModelPrice('demo-model').in, 111, '本次进程就要失效，不能等重启');
 });
 
-test('none 之后重新启用：磁盘缓存顶上，拉到新的再覆盖', async () => {
+test('none 之后重新启用：磁盘缓存顶上，拉到新的再覆盖', async (t) => {
   const { resolveModelPrice } = await import('../src/pricing/model-prices.js');
   const url = 'https://again.example.com/prices.json';
   await feed.refreshPriceFeed(url, { fetchImpl: fakeFetch({ prices: { 'again-model': { in: 5, out: 6 } } }, 0) });
   feed.initPriceFeed('none');
   assert.notEqual(resolveModelPrice('again-model').in, 5);
   // 缓存是有意保留的：重新启用时先用它顶上（离线也不至于没有价）
+  const refreshed = fakeFetch({ prices: { 'again-model': { in: 7, out: 8 } } }, 10);
+  t.mock.method(globalThis, 'fetch', refreshed);
   feed.initPriceFeed(url);
   assert.equal(resolveModelPrice('again-model').in, 5, '缓存里的价要先顶上');
+  await feed.refreshPriceFeed(url, { fetchImpl: refreshed });
+  assert.equal(refreshed.calls, 1, 'startup and explicit refresh share the scripted request');
+  assert.equal(resolveModelPrice('again-model').in, 7, 'fresh response replaces the cached price');
+  feed.initPriceFeed('none');
 });
