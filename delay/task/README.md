@@ -1,6 +1,16 @@
 # 项目开发任务索引
 
-## 最新：2026-10-19 云环境代码交付（仍为 WIP）
+## 最新：2026-10-19 本地接管与指定 Qwen 模型（WIP）
+
+[当前进度与后续优先级](../schedule/2026-10-19-local-takeover-face-review.md)、[结构化证据](../schedule/evidence/2026-10-19-social-face-review/result.json)。源码 `cd7b7d2` 已闭合 face caption 审核绕过；62项专项与独立复核通过。本轮18项新增全部通过；Windows全量仍有与旧基线完全同名的44失败及3跳过，不标全绿。
+
+用户指定测试/后续上线均使用 NanoGPT `qwen/qwen3.8-27b-uncensored:thinking` 与 `Qwen/Qwen3-Embedding-4B`（2560）。真实4B独立链路17次HTTP通过；当前模型身份回放因审核截断/超时为 **NOT_PASS / OPEN**，短问答正例不能替代它。B07未复测；SC8继续USER_PAUSED。
+
+下一项由主协调者亲自完成thinking审核输出/超时兼容方案，保持严格校验和共享预算，再实施/自测/独立复核及真实原fixture验收。另保留messaging提示缺失recent能力、完整chat记忆链及目标Linux验证项。不允许执行者决定方案或用零输出关闭任务卡。
+
+以下为历史时点，不代表新模型或本轮全量已通过。
+
+## 历史检查点：2026-10-19 云环境代码交付（仍为 WIP）
 
 [云交付记录](../schedule/2026-10-19-cloud-handoff-delivery.md) 保存恢复链、实际命令/退出码和未完成项。
 源码 `bc0a77d1f65edcc009ac6d5d463af2b7866e31fe` 的最新离线单测为 **819 PASS / 0 FAIL / 0 SKIP**；

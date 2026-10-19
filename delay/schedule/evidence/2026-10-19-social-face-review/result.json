@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-19",
+  "timeZone": "Asia/Hong_Kong",
+  "baselineCommit": "188ba2232d78b4613000c015ecada0f782d3d23f",
+  "codeCommit": "cd7b7d2a987f7f300bad298bf246ae3508de6473",
+  "runtime": { "platform": "win32", "node": "v22.22.2" },
+  "status": "SCOPED_FIX_VERIFIED_PROJECT_STILL_WIP",
+  "offline": {
+    "newCaptionTestsBeforeFix": { "tests": 13, "pass": 2, "fail": 11, "exitCode": 1 },
+    "focusedFinal": { "tests": 62, "pass": 62, "fail": 0, "cancelled": 0, "skipped": 0, "exitCode": 0 },
+    "fullFinal": { "tests": 837, "pass": 790, "fail": 44, "cancelled": 0, "skipped": 3, "exitCode": 1 },
+    "untouchedBaseline": { "tests": 819, "pass": 772, "fail": 44, "cancelled": 0, "skipped": 3, "exitCode": 1 },
+    "failureTitleComparison": { "identical": true, "added": [], "removed": [], "addedPassingTests": 18 },
+    "baselineMethod": "git archive of the exact baseline into an external temporary directory; junction to unchanged installed dependencies; same Windows Node, concurrency=4 and network guard",
+    "existingFailureCategories": [ "Linux shell and fake Git fixture paths", "POSIX mode expectations on Windows", "SQLite fixture handle cleanup and Windows signal semantics" ],
+    "syntax": { "recursiveFilesInitiallyChecked": 278, "additionalHelperChecked": 1, "finalLiveEntrypointsRechecked": true, "exitCode": 0 },
+    "auxiliary": { "strictScan": "PASS", "local": "9/9 PASS", "prompt": "PASS", "renderAssertions": 138, "scrollAssertions": 19, "usageAssertions": 31, "sqliteVec": "0.1.9 PASS", "exitCode": 0 },
+    "newSkipOrWeakenedAssertion": false,
+    "targetLinuxFullSuite": "NOT_RUN_IN_THIS_ROUND",
+    "browser": "NOT_RUN_IN_THIS_ROUND_NO_UI_CHANGE"
+  },
+  "independentReview": {
+    "caption": {
+      "tests": "13/13 PASS",
+      "initialFinding": "P2: raw CQ literal did not equal the actual OneBot text segment",
+      "coordinatorDecision": "reuse escapeCqText for face review and Sender approval comparison without changing protocol",
+      "recheck": "PASS; reviewed text equals actual protocol segment; stale CQ approval rejected before chain/outbox",
+      "additionalChecks": [ "unknown outcome gate", "last-moment permission", "abort", "host chat/run/signal/guard binding" ]
+    },
+    "liveProfile": {
+      "tests": "9/9 PASS",
+      "initialFinding": "key-file pointer remained in inheritable environment",
+      "coordinatorDecision": "remove both credential environment variables after reading, never delete source file",
+      "recheck": "PASS within the specified static and offline-test scope",
+      "limits": "no live entrypoint, actual credential/environment inspection, real child inheritance, proxy handshake or full-suite recheck by reviewer"
+    },
+    "designAndFinalDecisionsByCoordinator": true
+  },
+  "selectedModels": {
+    "provider": "NanoGPT",
+    "chat": "qwen/qwen3.8-27b-uncensored:thinking",
+    "thinking": "on",
+    "fallback": false,
+    "embedding": "Qwen/Qwen3-Embedding-4B",
+    "dimension": 2560,
+    "productionConfigurationChanged": false
+  },
+  "live": {
+    "canary": { "status": "CORRECT_SHORT_ANSWER_WITH_TOOL_ERRORS_AND_BLOCKED_DUPLICATE_ATTEMPT", "dispatches": 6, "httpResponses": 6, "reportedTokens": 32020, "syntheticOutputs": 1, "reviewFinalOutcome": "delivered", "semanticScope": "one fixed short-invitation sample, not general acceptance" },
+    "identity": { "status": "NOT_PASS_OPEN", "dispatches": 8, "httpResponses": 7, "reportedTokens": 45095, "unknownReservedTokens": 5191, "syntheticOutputs": 0, "reviewCodes": [ "REVIEW_INVALID", "review_unavailable" ], "observedCauses": [ "768 completion tokens exhausted, finish_reason=length, no valid verdict", "second review aborted at 15002ms" ], "automaticRetry": false },
+    "embeddingFirstAttempt": { "status": "LOCAL_PREFLIGHT_FAILURE", "recordedAttempts": 1, "httpResponses": 0, "cause": "dispatcher:null causes Node fetch assert(dispatcher)", "repair": "omit dispatcher without ProxyAgent in all three replay fetch sites" },
+    "embeddingAfterRepair": { "status": "PASS_SYNTHETIC_CALIBRATION", "httpResponses": 17, "reportedTokens": 424, "indexedDocuments": 6, "dimension": 2560, "closedAndReopened": true, "scopeIsolation": true, "positiveCalibration": 5, "negativeCalibration": 3, "confusion": { "TP": 5, "FN": 0, "FP": 0, "TN": 3 }, "heldOut": "2 positive / 1 negative PASS", "selectedFixtureDistance": 0.5370144993066788, "productionThresholdChanged": false, "profileMismatch": { "results": 0, "externalCalls": 0 }, "limits": "small synthetic Chinese sample, not general semantic calibration or chat reflection integration" },
+    "chatTotal": { "dispatches": 14, "httpResponses": 13, "reportedTokens": 77115, "responsesWithCost": 12, "reportedCostFieldSum": 0.05537645, "costCurrencyExplicitInCapturedField": false, "invoiceClaimed": false, "oneResponseAndOneTimedOutRequestCostUnknown": true },
+    "embeddingCost": "all 17 successful response cost fields missing; final billed cost unknown",
+    "currentModelB07": "NOT_RUN; historical failure remains open",
+    "currentModelR06B10": "NOT_PASS_OPEN",
+    "realQQSends": 0,
+    "rawEvidenceOutsideGit": true,
+    "rawCredentialPersisted": false,
+    "evidenceVersionLimits": "chat runs started from the uncommitted candidate and contain their own pre-run source manifests; later credential-env/proxy fixes are not retroactively claimed to have been used by those chat runs; standalone embedding has no pre-run source manifest"
+  },
+  "safety": { "upstreamAccess": false, "productionConnection": false, "productionDeploy": false, "tagOrRelease": false, "productionDataCleanup": false, "untrackedLocalFilePreserved": true, "SC8": "USER_PAUSED" },
+  "rawEvidenceSHA256": {
+    "before-fix.utf8.log": "cc8a24d0ef423f541a864d6610a3a67d28cfc717760d433b6aa4d51bbf1454e4",
+    "final-focused.log": "66bfc2bd9959ff94bd09c12c7d694f22f1825e20a7703ddd0d2bbfa500608188",
+    "final-unit.log": "3eb16a30cd6b7cfc3d10256a35eb39f3e9ed60c1eafc126ebc9e287a023b6159",
+    "baseline-unit.log": "c12b04d632f46f4e0c3b13b1be1eb4aa80daa7d9c11483ab388d8ee7968f26a9",
+    "offline-checks.json": "de5812861ba1eb32ec4228f3269d8fd91f6cca27d0747fd10ebf64bf4a1ad27e",
+    "live-canary/result.json": "02a25db3d348ef117fa1c4f7f9abcd94e3d2e44bae22daaacd93c90dd63ca30a",
+    "live-canary/code-manifest.json": "ef2aa07d84c7e882c1567c1958ea0dfdc7111c1cf964f7e1dfe864e57b9c7f22",
+    "live-identity/result.json": "0b057f43be92cd69eace34fb776cd91c21ade2b4bfc6ae8661094ad12535197f",
+    "live-identity/code-manifest.json": "ef2aa07d84c7e882c1567c1958ea0dfdc7111c1cf964f7e1dfe864e57b9c7f22",
+    "live-embedding/result.json": "17eb3539783a9051398e87f4df39812d2e0829622b66f002bf893a2296ba9a7e",
+    "live-embedding-direct/result.json": "d25bc37a5ed8bf48905a20a9a0a011fec6f390648597f569f535df9c0dfed88a"
+  }
+}

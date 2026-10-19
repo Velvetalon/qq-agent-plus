@@ -1,6 +1,17 @@
 # 当前工作交接入口
 
-## 最新：2026-10-19 云环境代码交付（仍为 WIP）
+## 最新：2026-10-19 本地接管、表情审核与指定 Qwen 实测（WIP）
+
+先读 [本轮接管进度](schedule/2026-10-19-local-takeover-face-review.md) 和 [结构化结果](schedule/evidence/2026-10-19-social-face-review/result.json)。源码 `cd7b7d2` 修复 face caption 绕过审核、协议CQ文本一致性和无代理回放请求；方案由主协调者亲自确定，独立限域复核通过。
+
+- 专项 **62/62**；Windows全量 **790 PASS / 44 FAIL / 3 SKIP**。精确旧基线同环境为 **772/44/3**，失败名称完全一致，本轮18项新增全部通过；不宣称完整CI已绿。
+- 用户指定测试及后续上线：NanoGPT `qwen/qwen3.8-27b-uncensored:thinking` + `Qwen/Qwen3-Embedding-4B` / 2560。密钥只在进程认证，不入Git或生产配置。
+- 真实短问答有1条正确输出；身份两轮受768-token截断及15秒审核超时影响，**NOT_PASS / OPEN**。真实4B独立记忆索引/重开/检索17次HTTP成功，小样本校准通过。
+- 下一步先由主协调者处理thinking审核兼容和工具错误提示缺口，再做同模型B07/R06/B10及完整记忆链；当前不是可上线版本。SC8/真实QQ/生产部署仍 **USER_PAUSED / NOT_RUN**。
+
+以下是历史检查点，不覆盖本节当前状态和模型选择。
+
+## 历史检查点：2026-10-19 云环境代码交付（仍为 WIP）
 
 [云交付记录](schedule/2026-10-19-cloud-handoff-delivery.md)：安全包恢复原提交及全部 28 个未提交文件；
 最新源码 `bc0a77d1f65edcc009ac6d5d463af2b7866e31fe`，Node 24 离线单测 **819 PASS / 0 FAIL / 0 SKIP**，
