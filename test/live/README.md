@@ -5,9 +5,19 @@ checked-in synthetic fixtures to the exact user-selected NanoGPT models. They do
 not instantiate OneBot or send QQ messages. All outputs and runtime SQLite files
 must remain outside the checkout, and no real key is saved to QQ configuration.
 
-## Current user-selected profile (2026-10-19)
+## Current user-selected profile (2026-10-20)
 
 Testing and future production use NanoGPT chat `qwen/qwen3.8-27b-uncensored:thinking` with `api.thinking='on'`, no fallback to another model, and embedding `Qwen/Qwen3-Embedding-4B` / 2560 dimensions. The replay explicitly preserves native thinking rather than sending the usual chat thinking-off flag. This does not change any existing production configuration or authorize SC8 deployment/QQ sends. Earlier DeepSeek results remain historical evidence, not acceptance for this new model.
+
+### Bounded review settings
+
+The replay explicitly sets `conversation.social.reviewMaxOutputTokens=2048` and `reviewTimeoutMs=45000` for this thinking model. Requests, output-token admission and the per-request timeout use the same immutable run limits; the existing whole-run deadline and token/exploration budgets still apply. Before an authorized future deployment, use the same explicit settings rather than relying on old defaults:
+
+```json
+{"conversation":{"social":{"reviewMaxOutputTokens":2048,"reviewTimeoutMs":45000}}}
+```
+
+Existing installations keep the old defaults (768 tokens / 15000 ms). Valid ranges are 128–4096 output tokens and 1000–60000 ms; invalid types/nonfinite values use defaults. Saving, reloading and direct runtime injection use one bounded policy. This documentation does not change production configuration. Truncated/filtered verdicts remain rejected as `REVIEW_INCOMPLETE`, and malformed JSON is never repaired into approval.
 
 ## Chat and integrated reflection/Notebook replay
 

@@ -8,7 +8,7 @@ import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { syncBuiltinESMExports } from 'node:module';
 import { ProxyAgent } from 'undici';
-import { boundedChatTransport, LIVE_ENDPOINT, LIVE_MODEL, LIVE_THINKING } from './bounded-chat-transport.mjs';
+import { boundedChatTransport, LIVE_ENDPOINT, LIVE_MODEL, LIVE_THINKING, LIVE_REVIEW_LIMITS } from './bounded-chat-transport.mjs';
 import { readReplayKey } from './replay-credentials.mjs';
 import { replayProxyOptions } from './replay-fetch-options.mjs';
 import { collectNewSessionAudit } from './replay-session-audit.mjs';
@@ -92,6 +92,9 @@ async function runCase(spec) {
   const cfg = structuredClone(DEFAULT_CONFIG);
   cfg.runtime.mode = 'active'; cfg.allow.groups = ['1']; cfg.conversation.mode = 'social';
   Object.assign(cfg.api, { model: LIVE_MODEL, baseUrl: LIVE_ENDPOINT.replace('/chat/completions', ''), apiKey: key, provider: 'NanoGPT', thinking: LIVE_THINKING, fallback: { enabled: false }, temperature: 0.2, maxRounds: 4, timeoutMs: 60000, runTimeoutMs: 180000, maxRunTokens: 50000, priceRemoteUrl: 'none' });
+  cfg.conversation.social.reviewMaxOutputTokens = LIVE_REVIEW_LIMITS.maxOutputTokens;
+  cfg.conversation.social.reviewTimeoutMs = LIVE_REVIEW_LIMITS.timeoutMs;
+  current.reviewLimits = { ...LIVE_REVIEW_LIMITS };
   cfg.api.vision = Boolean(spec.vision); cfg.webSearch.enabled = false;
   cfg.sticker.enabled = false; cfg.memory.consolidateEnabled = false;
   cfg.send.minGapMs = 0; cfg.send.maxGapMs = 0; cfg.send.byLengthMs = 0;

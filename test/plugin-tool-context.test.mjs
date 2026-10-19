@@ -482,6 +482,54 @@ test('memory and runtime-control facades bind current chat, run, and signal', as
   assert.equal(session.handoffDraft.summary, 'done');
 });
 
+test('messaging ID hints expose only eight current-chat platform IDs, never full recent records', async () => {
+  const { hostCtx } = hostContext();
+  const reads = [];
+  hostCtx.store.recent = (chatKey, options) => {
+    reads.push({ chatKey, options });
+    return [...Array.from({ length: 12 }, (_, i) => ({ mid: String(9000 + i), text: SECRET, senderId: SECRET })),
+      { mid: '-77', text: SECRET }, { mid: '0' }, { mid: 'synthetic-101' }, { mid: '9;private' }, { mid: '9011' }];
+  };
+  const def = ownedDefs('messaging', ['send_message'])[0];
+  const callback = createToolCallbackContext(def, hostCtx);
+  assert.equal(Object.hasOwn(callback.store, 'recent'), false);
+  const ids = callback.store.recentMessageIds('private:attacker', { limit: 1000000 });
+  assert.equal(ids.length, 8); assert.ok(ids.includes('-77'));
+  assert.ok(ids.every(id => /^-?[1-9]\d*$/.test(id)));
+  assert.equal(JSON.stringify(ids).includes(SECRET), false);
+  assert.deepEqual(reads, [{ chatKey: 'group:100', options: { limit: 60 } }]);
+  assert.equal(Object.isFrozen(ids), true);
+});
+
+test('invalid send references return actionable ID hints through restricted messaging context with zero sends', async () => {
+  const { calls, hostCtx } = hostContext();
+  hostCtx.store.recent = () => [{ id: 999, mid: '77', text: SECRET }];
+  const defs = ownedDefs('messaging', ['send_message', 'send_face']);
+  for (const name of ['send_message', 'send_face']) {
+    for (const replyToMessageId of ['synthetic-101', '999']) {
+      const result = await executeTool(defs, hostCtx, name, JSON.stringify({ messages: 'hello', name: '14', replyToMessageId }));
+      assert.equal(result.isError, true);
+      assert.ok(result.content.includes('77'), result.content);
+      assert.equal(result.content.includes('recent is not a function'), false);
+      assert.equal(result.content.includes(SECRET), false);
+    }
+  }
+  assert.deepEqual(calls.sender, []);
+});
+
+test('missing ID lookup capability and legacy contexts do not crash parameter validation', async () => {
+  const { calls, hostCtx } = hostContext();
+  const defs = ownedDefs('messaging', ['send_message']);
+  const missing = await executeTool(defs, hostCtx, 'send_message', JSON.stringify({ messages: 'hello', replyToMessageId: 'invalid' }));
+  assert.equal(missing.isError, true);
+  assert.equal(missing.content.includes('is not a function'), false);
+  assert.match(missing.content, /replyToMessageId/);
+  hostCtx.store.recent = () => [{ mid: '77' }];
+  const legacy = await executeTool(buildToolDefs(), hostCtx, 'send_message', JSON.stringify({ messages: 'hello', replyToMessageId: 'invalid' }));
+  assert.equal(legacy.isError, true); assert.ok(legacy.content.includes('77'));
+  assert.deepEqual(calls.sender, []);
+});
+
 test('snapshotPluginConfig redacts auth material and token-shaped values', () => {
   const secret = snapshotPluginConfig({
     api: { apiKey: 'fixture-api-key' },

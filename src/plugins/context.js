@@ -241,6 +241,12 @@ function participantStoreFacade(hostCtx) {
     },
     findByMid(_chatKey, mid) {
       return typeof store?.findByMid === 'function' ? store.findByMid(chatKey, mid) : null;
+    },
+    recentMessageIds() {
+      // A bounded metadata capability, not access to recent message bodies/chats.
+      const entries = store?.recent?.(chatKey, { limit: 60 }) || [];
+      const ids = entries.map(entry => String(entry?.mid ?? '').trim()).filter(id => /^-?[1-9]\d*$/.test(id));
+      return Object.freeze([...new Set(ids)].slice(-8));
     }
   });
 }

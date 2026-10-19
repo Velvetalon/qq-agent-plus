@@ -96,7 +96,7 @@ import { vendorOfConfig } from '../pricing/model-prices.js';
 import { ZONE_OFFSET_MS, minuteOfDayInZone, randInt, sleep, createEventBus, todayKey, sanitizeUserText, escapeCqText } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from '../llm/prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError, resolveApiKey } from '../llm/llm.js';
-import { reviewSocialDraft, socialDraftEvidence, SocialDraftReviewError } from '../conversation/draft-review.js';
+import { reviewSocialDraft, socialDraftEvidence, SocialDraftReviewError, normalizeSocialDraftReviewLimits } from '../conversation/draft-review.js';
 import { toOpenAiTools, executeTool } from '../tools/tools.js';
 import { modelImageVerdict } from '../llm/vision-scan.js';
 import { prepareTextParts } from '../onebot/sender.js';
@@ -1685,6 +1685,11 @@ export class Orchestrator {
     const state = this.getSocialState(chatKey);
     if (!state) throw new Error('Social state unavailable for the active conversation mode');
     const socialConfig = conversationCfg.social || {};
+    // Review admission belongs to the immutable run snapshot, not live settings.
+    const reviewLimits = Object.freeze(normalizeSocialDraftReviewLimits({
+      maxOutputTokens: cfg.conversation?.social?.reviewMaxOutputTokens,
+      timeoutMs: cfg.conversation?.social?.reviewTimeoutMs
+    }));
     const contextLimit = Math.min(200, Math.max(10, Number(socialConfig.contextLimit) || 60));
     const blocked = kind === 'group'
       ? new Set((cfg.blocklist?.[String(chatId)] || []).map(String))
@@ -2291,6 +2296,7 @@ export class Orchestrator {
         { role: 'user', content: replyerUserContent }
       ];
       const draftReview = session.socialAudit.draftReview = {
+        limits: reviewLimits,
         batches: [], calls: 0, approved: 0, rejected: 0, blocked: 0,
         latencyMs: 0, reservedTokens: 0, stopped: false, outcome: 'not_requested'
       };
@@ -2320,14 +2326,14 @@ export class Orchestrator {
         const batch = { index: draftReview.batches.length, drafts, approved: false, code: '', latencyMs: 0 };
         draftReview.batches.push(batch);
         try {
-          const result = await this.socialDraftReviewer({ drafts, rawDrafts, sources,
+          const result = await this.socialDraftReviewer({ drafts, rawDrafts, sources, limits: reviewLimits,
             images: [...new Map(replyerMessages.flatMap(m => Array.isArray(m.content) ? m.content.filter(p => p.type === 'image_url') : [])
               .map(p => [p.image_url?.url, p])).values()].slice(-4),
             targets: targetMessages.map(m => ({ id: `message:${m.id}`, actor: String(m.senderId || ''), text: String(m.text || '') })),
             signal: runSignal,
             complete: async (args) => {
               runSignal.throwIfAborted();
-              const reserve = estimateNextPromptTokens({ messages: args.messages, tools: [] }).estimatedPromptTokens + 768;
+              const reserve = estimateNextPromptTokens({ messages: args.messages, tools: [] }).estimatedPromptTokens + reviewLimits.maxOutputTokens;
               const limits = effectiveRunLimits(cfg);
               const exploration = session.socialExploration;
               if (draftReview.calls >= 4 || session.usage.totalTokens + draftReview.reservedTokens + reserve > limits.maxRunTokens
@@ -2344,9 +2350,9 @@ export class Orchestrator {
               const call = { phase: 'review', round: session.rounds, promptTokens: 0, completionTokens: 0, totalTokens: 0, latencyMs: 0, usageKnown: false };
               (session.callUsage ||= []).push(call);
               try {
-                const response = await chatCompletion({ ...args,
-                  signal: AbortSignal.any([runSignal, AbortSignal.timeout(15000)]),
-                  overrides: { ...cfg.api, apiKey: resolveApiKey(cfg), timeoutMs: 15000 } });
+                const response = await chatCompletion({ ...args, tools: [], maxTokens: reviewLimits.maxOutputTokens,
+                  signal: AbortSignal.any([runSignal, AbortSignal.timeout(reviewLimits.timeoutMs)]),
+                  overrides: { ...cfg.api, apiKey: resolveApiKey(cfg), timeoutMs: reviewLimits.timeoutMs } });
                 if (Number.isFinite(response.usage?.total_tokens)) {
                   draftReview.reservedTokens -= reserve;
                   call.usageKnown = true;

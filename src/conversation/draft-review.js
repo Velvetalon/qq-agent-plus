@@ -1,6 +1,22 @@
 const clip = (value, size) => String(value ?? '').slice(0, size);
 const rejected = (code, issues = []) => ({ allowed: false, code, issues, claims: [], reviewed: true });
 
+export const DEFAULT_DRAFT_REVIEW_LIMITS = Object.freeze({ maxOutputTokens: 768, timeoutMs: 15000 });
+
+/** One bounded policy for persisted settings and direct runtime injection. */
+export function normalizeSocialDraftReviewLimits(value = {}) {
+  const settings = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const bounded = (input, min, max, fallback) => {
+    if (!['number', 'string'].includes(typeof input) || String(input).trim() === '') return fallback;
+    const number = Number(input);
+    return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.round(number))) : fallback;
+  };
+  return {
+    maxOutputTokens: bounded(settings.maxOutputTokens, 128, 4096, DEFAULT_DRAFT_REVIEW_LIMITS.maxOutputTokens),
+    timeoutMs: bounded(settings.timeoutMs, 1000, 60000, DEFAULT_DRAFT_REVIEW_LIMITS.timeoutMs)
+  };
+}
+
 export class SocialDraftReviewError extends Error {
   constructor(result, retryable = false) {
     super(JSON.stringify({ code: result.code, error: '整批未入发送队列，0 条发送。' + (retryable
@@ -119,10 +135,12 @@ export function validateSocialDraftReview(raw, { drafts, sources, images = [] })
 }
 
 /** One request, current chat model, no tools/fallback/retry. Caller owns budgets. */
-export async function reviewSocialDraft({ drafts, rawDrafts, sources, targets, images = [], complete, signal }) {
+export async function reviewSocialDraft({ drafts, rawDrafts, sources, targets, images = [], complete, signal, limits }) {
   if (!drafts.length || drafts.join('\n').length > 12000) return rejected('REVIEW_DRAFT_LIMIT');
   const messages = buildSocialDraftReviewMessages({ drafts, rawDrafts, sources, targets, images });
-  const response = await complete({ messages, tools: [], temperature: 0, maxTokens: 768, signal, purpose: 'chat' });
+  const { maxOutputTokens } = normalizeSocialDraftReviewLimits(limits);
+  const response = await complete({ messages, tools: [], temperature: 0, maxTokens: maxOutputTokens, signal, purpose: 'chat' });
   if (response.message?.tool_calls?.length) return rejected('REVIEW_INVALID');
+  if (['length', 'content_filter'].includes(response.finishReason)) return rejected('REVIEW_INCOMPLETE');
   return validateSocialDraftReview(response.message?.content, { drafts, sources, images });
 }

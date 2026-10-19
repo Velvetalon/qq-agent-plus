@@ -31,7 +31,9 @@ test('social mode config and console state routes are scoped, bounded, and non-c
     minInitiativeGapMs: 1800000,
     maxUnansweredInitiatives: 1,
     replyTargetTtlMs: 180000,
-    maxMessagesPerTurn: 3
+    maxMessagesPerTurn: 3,
+    reviewMaxOutputTokens: 768,
+    reviewTimeoutMs: 15000
   });
   const clamped = updateConfig({ conversation: { social: {
     contextLimit: -1, maxPlannerRounds: 99, maxReplyRounds: 0, maxTopics: 999,
@@ -41,7 +43,8 @@ test('social mode config and console state routes are scoped, bounded, and non-c
   assert.deepEqual(clamped.conversation.social, {
     contextLimit: 10, maxPlannerRounds: 5, maxReplyRounds: 1, maxTopics: 20,
     topicIdleMs: 60000, intentTtlMs: 604800000, minInitiativeGapMs: 60000,
-    maxUnansweredInitiatives: 3, replyTargetTtlMs: 10000, maxMessagesPerTurn: 6
+    maxUnansweredInitiatives: 3, replyTargetTtlMs: 10000, maxMessagesPerTurn: 6,
+    reviewMaxOutputTokens: 768, reviewTimeoutMs: 15000
   });
   for (const invalid of [NaN, Infinity, -Infinity, 'not-a-number', null, {}, []]) {
     const invalidPatch = Object.fromEntries(Object.keys(DEFAULT_CONFIG.conversation.social).map((key) => [key, invalid]));

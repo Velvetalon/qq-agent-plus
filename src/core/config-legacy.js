@@ -12,6 +12,7 @@ import {
 import { DEFAULT_TIME_CONTROL, normalizeTimeControl } from './time-control.js';
 import { normalizeTokenSaverMode } from './token-saver.js';   // 零依赖模块，避免循环依赖
 import { normalizeMomentWindows } from '../features/moment-schedule.js';
+import { DEFAULT_DRAFT_REVIEW_LIMITS, normalizeSocialDraftReviewLimits } from '../conversation/draft-review.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 本文件在 src/core/ 下：仓库根要多退一层（挪目录时最容易漏的就是这里）
@@ -195,7 +196,9 @@ export const DEFAULT_CONFIG = {
       minInitiativeGapMs: 1800000,
       maxUnansweredInitiatives: 1,
       replyTargetTtlMs: 180000,
-      maxMessagesPerTurn: 3
+      maxMessagesPerTurn: 3,
+      reviewMaxOutputTokens: DEFAULT_DRAFT_REVIEW_LIMITS.maxOutputTokens,
+      reviewTimeoutMs: DEFAULT_DRAFT_REVIEW_LIMITS.timeoutMs
     }
   },
   // 发送保护
@@ -548,6 +551,13 @@ export function loadConfig() {
     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     const parsed = migrateConfig(JSON.parse(text));
     const merged = deepMerge(DEFAULT_CONFIG, parsed);
+    if (!isPlainObject(merged.conversation)) merged.conversation = structuredClone(DEFAULT_CONFIG.conversation);
+    if (!isPlainObject(merged.conversation.social)) merged.conversation.social = structuredClone(DEFAULT_CONFIG.conversation.social);
+    const reviewLimits = normalizeSocialDraftReviewLimits({
+      maxOutputTokens: merged.conversation.social.reviewMaxOutputTokens,
+      timeoutMs: merged.conversation.social.reviewTimeoutMs
+    });
+    Object.assign(merged.conversation.social, { reviewMaxOutputTokens: reviewLimits.maxOutputTokens, reviewTimeoutMs: reviewLimits.timeoutMs });
     applyPersonaTemplate(merged);   // 绑了内置卡就按 roles/*.md 刷新正文（卡文件是唯一来源）
     return merged;
   } catch (error) {
@@ -652,6 +662,7 @@ export function updateConfig(patch) {
     }
   }
   const social = isPlainObject(next.conversation?.social) ? next.conversation.social : {};
+  const reviewLimits = normalizeSocialDraftReviewLimits({ maxOutputTokens: social.reviewMaxOutputTokens, timeoutMs: social.reviewTimeoutMs });
   const socialInt = (value, min, max, fallback) => Math.min(
     max, Math.max(min, Number.isFinite(Number(value)) ? Math.round(Number(value)) : fallback)
   );
@@ -665,7 +676,9 @@ export function updateConfig(patch) {
     minInitiativeGapMs: socialInt(social.minInitiativeGapMs, 60000, 604800000, DEFAULT_CONFIG.conversation.social.minInitiativeGapMs),
     maxUnansweredInitiatives: socialInt(social.maxUnansweredInitiatives, 0, 3, DEFAULT_CONFIG.conversation.social.maxUnansweredInitiatives),
     replyTargetTtlMs: socialInt(social.replyTargetTtlMs, 10000, 1800000, DEFAULT_CONFIG.conversation.social.replyTargetTtlMs),
-    maxMessagesPerTurn: socialInt(social.maxMessagesPerTurn, 1, 6, DEFAULT_CONFIG.conversation.social.maxMessagesPerTurn)
+    maxMessagesPerTurn: socialInt(social.maxMessagesPerTurn, 1, 6, DEFAULT_CONFIG.conversation.social.maxMessagesPerTurn),
+    reviewMaxOutputTokens: reviewLimits.maxOutputTokens,
+    reviewTimeoutMs: reviewLimits.timeoutMs
   };
   next.api.maxRunTokens = Math.min(
     1000000,

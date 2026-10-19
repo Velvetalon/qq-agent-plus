@@ -162,13 +162,13 @@ function parseToolArguments(name, raw) {
 
 // 找不到消息 id 时，把当前会话真实可见的 id 告诉模型，避免它继续瞎猜。
 function midHint(ctx) {
-  const mids = ctx.store.recent(ctx.chatKey, { limit: 60 })
-    .map((m) => m.mid)
-    .filter((v) => v !== null && v !== undefined && String(v) !== '');
-  const uniq = [...new Set(mids.map(String))].slice(-8);
+  const mids = typeof ctx.store?.recentMessageIds === 'function'
+    ? ctx.store.recentMessageIds()
+    : (ctx.store?.recent?.(ctx.chatKey, { limit: 60 }) || []).map((m) => m.mid);
+  const uniq = [...new Set(mids.map((mid) => String(mid ?? '').trim()).filter((mid) => /^-?[1-9]\d*$/.test(mid)))].slice(-8);
   return uniq.length
     ? `消息 id 只能用聊天记录里每条消息前的 #数字（最近可见：${uniq.join(' ')}），不要自己编`
-    : '聊天记录里还没有带 #id 的消息';
+    : '当前上下文没有可用的整数消息 id；不需要引用时请省略 replyToMessageId，不要自行编造';
 }
 
 // 需要数字 QQ 号但模型传了名字时，把当前会话真实可见的成员列出来，让它选一个。
