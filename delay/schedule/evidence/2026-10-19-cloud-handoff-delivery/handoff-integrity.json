@@ -1,0 +1,22 @@
+{
+  "file_name": "qqagent-handoff-20261019.zip",
+  "bytes": 255376,
+  "sha256": "5cedc133bb404336bf309423004a0b906d7a496b3cfadd1b1aa84f45c6d3be5a",
+  "internal_sha256sum_entries": 10,
+  "internal_checksums_match": true,
+  "bundle_verified": true,
+  "bundle_base": "dc012094febc8521b5253592c854f7b0910db0b3",
+  "bundle_head": "54bf28d9311e592ad09b552ca379baec2606580e",
+  "tracked_modifications_restored": 24,
+  "new_files_restored": 4,
+  "restored_git_status_equals_manifest": true,
+  "restored_git_binary_diff_equals_patch": true,
+  "restored_new_files_byte_equal": true,
+  "staged_changes_in_source": 0,
+  "metadata_discrepancy": {
+    "field": "handoff-checks.json source_status_sha256",
+    "recorded": "ecff2bdf8605a3de7a9f6d66734a6fcb4c86ed7ec6ed6f5e8e6a655fd05693fb",
+    "manifest_and_restored_status_utf8_sha256": "e4030374efebf1099455e89475769d49321cf2c2c4741cf79c4381250d814442",
+    "status": "not reproduced; source status text equals manifest exactly and ZIP/internal checksums plus restored patch/new-file checks pass; no code omitted to reconcile metadata"
+  }
+}

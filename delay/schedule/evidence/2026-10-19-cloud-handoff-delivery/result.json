@@ -1,0 +1,254 @@
+{
+  "date": "2026-10-19",
+  "scope": "offline cloud handoff verification; no real provider or production QQ acceptance",
+  "repository": "https://github.com/Velvetalon/qq-agent-plus",
+  "branch": "fix/deploy-notebook-gate-20261016",
+  "source_commit": "bc0a77d1f65edcc009ac6d5d463af2b7866e31fe",
+  "source_tree": "68efbaf6b7a748f3341c74e8d032993c2a0f4264",
+  "node": "v24.19.0",
+  "platform": "linux x64",
+  "dependency_install": "npm ci --ignore-scripts --no-audit --no-fund; isolated empty npm configuration; lockfile unchanged",
+  "isolation": {
+    "data": "temporary QQ_AGENT_DATA_DIR per runner and per fixtures",
+    "environment": "allowlisted PATH/LANG/NODE_OPTIONS/QQ_AGENT_DATA_DIR; no inherited credential variables",
+    "network": "preloaded Node non-loopback TCP/UDP guard; Chromium non-loopback HTTP proxy to closed loopback port; provider and OneBot fixture mocks",
+    "non_loopback_socket_blocks_in_tests": 27,
+    "guard_selftest_blocks": 1,
+    "note": "Blocked attempts are recorded, not misreported as zero attempted network operations. No actual provider/model calls or production QQ sends were run.",
+    "guard_sha256": "8aa4b1f6c5becd2d28741c665f269b385df6e4e99f13778a94c9e4f8478d7923"
+  },
+  "checks": [
+    {
+      "name": "syntax",
+      "exit_code": 0,
+      "seconds": 4.08,
+      "command": "node --check on all src/scripts/test/ui .js/.mjs",
+      "files": 275
+    },
+    {
+      "name": "shell-syntax",
+      "exit_code": 0,
+      "seconds": 0.01,
+      "command": "bash -n deploy.sh deploy-all.sh manage.sh",
+      "full_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "full_log_size_bytes": 0,
+      "summary": []
+    },
+    {
+      "name": "strict-scan",
+      "exit_code": 0,
+      "seconds": 0.42,
+      "command": "node src/ops.js scan --strict",
+      "full_log_sha256": "b8237aa671f245635414c6d063389451057c6f3f5616db8230df2e3980a7c9a8",
+      "full_log_size_bytes": 29,
+      "summary": [
+        "",
+        "可疑未定义调用点: 0"
+      ]
+    },
+    {
+      "name": "unit",
+      "exit_code": 0,
+      "seconds": 33.45,
+      "command": "node --test test/*.test.mjs",
+      "full_log_sha256": "0b1dc849c679b97872c7fefa199233b57f7c268dd033530a45a78791cdd05ca1",
+      "full_log_size_bytes": 78309,
+      "summary": [
+        "✔ webSearch() 路由：provider=doubao 走豆包 (2.352252ms)",
+        "✔ /api/config 不泄露 webSearch.doubao.apiKey 明文（脱敏走通用 SECRET_KEY_PATTERN） (253.987256ms)",
+        "ℹ tests 819",
+        "ℹ suites 4",
+        "ℹ pass 819",
+        "ℹ fail 0",
+        "ℹ cancelled 0",
+        "ℹ skipped 0",
+        "ℹ todo 0",
+        "ℹ duration_ms 33290.813735"
+      ],
+      "counts": {
+        "tests": 819,
+        "pass": 819,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    {
+      "name": "local",
+      "exit_code": 0,
+      "seconds": 9.93,
+      "command": "node test/local/run.mjs",
+      "full_log_sha256": "0006bf65b4a0fea23ce67e8df464e113217459e9c22cc886023b2c568192674f",
+      "full_log_size_bytes": 39364,
+      "summary": [
+        "[onebot] 未能解析的卡片样本： {不是合法 json",
+        "PASS 自己的空间卡片（json）",
+        "PASS 别人的空间卡片（json）",
+        "PASS xml 卡片",
+        "PASS 损坏卡片兜底",
+        "PASS 与文字混排",
+        "结果: 5/5",
+        "PASS test-card-segments.mjs",
+        "",
+        "本地回归结果: 9/9 通过"
+      ],
+      "counts": {
+        "pass": 9,
+        "total": 9
+      }
+    },
+    {
+      "name": "prompt",
+      "exit_code": 0,
+      "seconds": 0.22,
+      "command": "node test/test-prompt.mjs",
+      "full_log_sha256": "8f80b3b84ce58849fb3ccea9587e39f1cd84eb4ab3f0dbc7b62fb12c64f6a5e4",
+      "full_log_size_bytes": 32,
+      "summary": [
+        "✓ 提示词自测全部通过"
+      ]
+    },
+    {
+      "name": "render",
+      "exit_code": 0,
+      "seconds": 4.23,
+      "command": "node test/render-test.mjs",
+      "full_log_sha256": "b09391d408c84a8e9d305cc687717488554e233b3047241e16e3ce20f751677b",
+      "full_log_size_bytes": 7592,
+      "summary": [
+        "  OK   新 Session 不抢占当前查看窗口",
+        "",
+        "=== 批量自定义价格编辑弹窗 ===",
+        "  OK   左列展示供应商列表",
+        "  OK   目录外已自定义模型归入虚拟供应商",
+        "  OK   右列展示选中供应商的模型",
+        "  OK   官方价不占列（太挤，改走占位符/悬停）",
+        "  OK   官方价仍在占位符与悬停提示里",
+        "",
+        "ALL PASSED 138"
+      ],
+      "assertions": 138
+    },
+    {
+      "name": "scroll",
+      "exit_code": 0,
+      "seconds": 2.59,
+      "command": "node test/scroll-test.mjs",
+      "full_log_sha256": "7545d96dbe7b1fedd5bd9768dcc289c9d8c3ac59d2e0f5dbe46777b3e72d73fb",
+      "full_log_size_bytes": 1179,
+      "summary": [
+        "=== ⑤ 轮询刷新保持已加载内容与位置 ===",
+        "  OK   轮询后已加载条数不变（900）",
+        "  OK   轮询后滚动位置不变",
+        "  OK   轮询后没有回到第一页（不是 500）",
+        "",
+        "=== ⑥ 快速滚到底：被节流的尾部事件必须补触发 ===",
+        "  OK   被节流的瞬间不加载（节流本身正常）",
+        "  OK   尾随调用补上了加载（900 → 1100）",
+        "",
+        "ALL PASSED 19"
+      ],
+      "assertions": 19
+    },
+    {
+      "name": "usage",
+      "exit_code": 0,
+      "seconds": 1.33,
+      "command": "node test/usage-e2e.mjs",
+      "full_log_sha256": "53e84241b6e3e455bc7de72abed6a67b651e0b523fb8299e53652a6bb8e8cf44",
+      "full_log_size_bytes": 1695,
+      "summary": [
+        "  OK   观测页只展示共享表情与黑话资产",
+        "  OK   观测页不是错误提示",
+        "",
+        "=== 回归：模拟真实点击「控制」页签 ===",
+        "  OK   控制页签已绑定点击事件",
+        "  OK   点击后 state.tab = control",
+        "  OK   控制页展示服务入口与密钥控制",
+        "  OK   控制页不是错误提示",
+        "",
+        "ALL PASSED 31"
+      ],
+      "assertions": 31
+    },
+    {
+      "name": "sqlite-vec",
+      "exit_code": 0,
+      "seconds": 0.07,
+      "command": "node scripts/sqlite-vec-smoke.mjs",
+      "full_log_sha256": "693dc942d7260a3b95e15b5df168d76f2034b13fb6a78ef07a702b5f5e262301",
+      "full_log_size_bytes": 138,
+      "summary": [
+        "{\"node\":\"v24.19.0\",\"platform\":\"linux\",\"arch\":\"x64\",\"sqlite\":\"3.53.3\",\"sqliteVecVersion\":\"v0.1.9\",\"sameDistance\":0,\"orthogonalDistance\":1}"
+      ]
+    },
+    {
+      "name": "browser-embedding",
+      "exit_code": 0,
+      "seconds": 4.34,
+      "command": "node test/browser/embedding-settings.mjs",
+      "full_log_sha256": "e467bddefc479983901890fe5283759da585491ed871901c50a85381254905f9",
+      "full_log_size_bytes": 928,
+      "browser_result": {
+        "checks": [
+          "permanent page, exact NanoGPT/4B/2560 defaults and explicit unconfigured no-call test",
+          "single save under duplicate clicks, key masking/blank preservation, field isolation, cancel without mutation",
+          "invalid dimension rejected, changed destination blocked, malformed vectors and HTTP errors fail truthfully, recovered test succeeds",
+          "single in-flight test, real abort reaches provider boundary, cancellation clears draft, navigation erases secret input",
+          "refresh/page reload restore saved configuration; real app stop/load/start preserves key and profile but not false health",
+          "390px mobile has no overflow and reachable actions; cleared key is unavailable without blocking console or making model calls"
+        ],
+        "layout": {
+          "overflow": 0,
+          "pageOverflow": 0,
+          "visible": true
+        },
+        "errors": [],
+        "requests": {
+          "save": 4,
+          "test": 7,
+          "embedding": 4,
+          "cancelled": 1
+        },
+        "externalNetworkCalls": 0,
+        "qqSends": 0
+      }
+    },
+    {
+      "name": "browser-social",
+      "exit_code": 0,
+      "seconds": 6.97,
+      "command": "node test/browser/social-interests.mjs",
+      "full_log_sha256": "9149ebf773dafa4f540e1d75f1762fec859eaf4aaba73484421d0ebe66f62cdb",
+      "full_log_size_bytes": 647,
+      "browser_result": {
+        "checks": [
+          "real settings navigation, confirmation, source save/reload, escaping, schedule",
+          "390px mobile overflow/reachable cancellation and actual cancel handler",
+          "stale browser save preserves newer configuration and unsaved form input",
+          "real guarded session HTTP/UI distinguishes reply plan from non-delivery, with no synthetic credentials in response",
+          "mode fallback and app restart preserve the same historical guarded session in desktop/mobile browser"
+        ],
+        "layout": {
+          "overflow": 0,
+          "pageOverflow": 0,
+          "visible": true
+        },
+        "errors": [],
+        "modelCalls": 0,
+        "syntheticChatCalls": 2,
+        "syntheticReviewCalls": 1,
+        "sends": 0
+      }
+    }
+  ],
+  "not_run": [
+    "Node 22 CI rerun",
+    "real DeepSeek semantic review regression",
+    "real Qwen embedding recalibration",
+    "real QQ platform acceptance",
+    "production deploy or SC8"
+  ],
+  "overall_offline_status": "PASS"
+}
