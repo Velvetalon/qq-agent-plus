@@ -55,3 +55,9 @@ In particular:
 - 发版流程见 [`docs/AUTO_UPDATE.md`](docs/AUTO_UPDATE.md)：推 `v*` tag → 工作流先跑与 CI 相同的检查、
   再建**草稿** Release → 填说明后发布。不要另用 `gh release create`：同一个 tag 会多出重复草稿。
 
+## 上游隔离
+
+本仓库是独立项目，不跟踪、不合并、不同步任何上游仓库。不要添加 `upstream` remote，也不要执行面向
+上游的 fetch / merge / rebase / cherry-pick；功能修改与依赖升级直接在本仓库完成。唯一远程是
+`origin`（`Velvetalon/qq-agent-plus`）。
+

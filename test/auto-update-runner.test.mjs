@@ -173,7 +173,7 @@ test('scheduled updater uses the persistent Git cache and records no-update', as
     autoUpdate: {
       enabled: true,
       ownerUin: '900001',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6
     },
@@ -232,7 +232,7 @@ test('no published release means the updater never fetches or deploys', async (t
     autoUpdate: {
       enabled: true,
       ownerUin: '900001',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6
     },
@@ -303,7 +303,7 @@ test('updater tests a checkout and delegates deployment with the exact revision'
     autoUpdate: {
       enabled: true,
       ownerUin: '900001',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6
     },
@@ -390,7 +390,7 @@ test('transient GitHub TLS failures are retried before fetch', async (t) => {
     autoUpdate: {
       enabled: true,
       ownerUin: '900001',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6,
       networkRetries: 3,
@@ -453,7 +453,7 @@ test('probe request checks repository and branch without fetching or deploying',
     autoUpdate: {
       enabled: false,
       ownerUin: '',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'feat/test-branch',
       intervalHours: 6
     },
@@ -579,7 +579,7 @@ test('git 通道不通时改用 API + codeload 源码包完成部署', async (t)
   const previousRevision = 'a'.repeat(40);
   const targetRevision = 'c'.repeat(40);
   // codeload 的压缩包顶层目录形如 <owner>-<repo>-<短 sha>，解包时要被 strip 掉
-  const topDir = `sakurawwwxh-qq-agent-plus-${targetRevision.slice(0, 7)}`;
+  const topDir = `Velvetalon-qq-agent-plus-${targetRevision.slice(0, 7)}`;
   const tree = path.join(packDir, topDir);
   for (const directory of [
     appDir,
@@ -598,7 +598,7 @@ test('git 通道不通时改用 API + codeload 源码包完成部署', async (t)
     autoUpdate: {
       enabled: true,
       ownerUin: '900001',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6,
       // 用例里不重试：假 git 立刻失败，重试只会白等
@@ -719,7 +719,7 @@ test('API 通道取源码失败时回退 git，并先 fetch 再 checkout', async
     autoUpdate: {
       enabled: true,
       ownerUin: '900001',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6,
       networkRetries: 0,
@@ -823,7 +823,7 @@ test('API 解析 tag 遇到瞬时 5xx 会按配置重试（不再一次抖动就
   const marker = path.join(root, 'deployed.txt');
   const previousRevision = 'a'.repeat(40);
   const targetRevision = 'e'.repeat(40);
-  const topDir = `sakurawwwxh-qq-agent-plus-${targetRevision.slice(0, 7)}`;
+  const topDir = `Velvetalon-qq-agent-plus-${targetRevision.slice(0, 7)}`;
   const tree = path.join(packDir, topDir);
   for (const directory of [
     appDir,
@@ -842,7 +842,7 @@ test('API 解析 tag 遇到瞬时 5xx 会按配置重试（不再一次抖动就
     autoUpdate: {
       enabled: true,
       ownerUin: '900001',
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6,
       // 允许 1 次重试、退避很短

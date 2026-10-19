@@ -29,7 +29,7 @@
     "ws": "^8.18.0"
   },
   "license": "MIT",
-  "author": "sakurawwwxh",
+  "author": "Velvetalon",
   "keywords": [
     "qq",
     "bot",
@@ -42,10 +42,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/sakurawwwxh/qq-agent-plus.git"
+    "url": "https://github.com/Velvetalon/qq-agent-plus.git"
   },
   "bugs": {
-    "url": "https://github.com/sakurawwwxh/qq-agent-plus/issues"
+    "url": "https://github.com/Velvetalon/qq-agent-plus/issues"
   },
-  "homepage": "https://github.com/sakurawwwxh/qq-agent-plus#readme"
+  "homepage": "https://github.com/Velvetalon/qq-agent-plus#readme"
 }

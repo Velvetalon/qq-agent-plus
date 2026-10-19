@@ -32,7 +32,7 @@ function fixture(t) {
     admin: { ownerUin: '900001' },
     autoUpdate: {
       enabled: false,
-      repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+      repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
       branch: 'main',
       intervalHours: 6,
       networkRetries: 4,

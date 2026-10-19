@@ -16,7 +16,7 @@ after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 const CONFIG = {
   autoUpdate: {
-    repository: 'https://github.com/sakurawwwxh/qq-agent-plus.git',
+    repository: 'https://github.com/Velvetalon/qq-agent-plus.git',
     branch: 'main'
   }
 };

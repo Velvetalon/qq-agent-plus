@@ -116,7 +116,7 @@ apt update && apt install -y rsync curl tar xz-utils
 
 ```bash
 su - qqagent          # 或 ssh qqagent@服务器地址
-git clone https://github.com/sakurawwwxh/qq-agent-plus.git ~/qq-agent-plus
+git clone https://github.com/Velvetalon/qq-agent-plus.git ~/qq-agent-plus
 cd ~/qq-agent-plus
 
 bash deploy.sh \

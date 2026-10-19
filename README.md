@@ -6,10 +6,10 @@
 
 面向 Linux 服务器的 QQ 群聊 Agent，支持分条发言、表情包收发、长期记忆与内置运维命令。
 
-[![CI](https://github.com/sakurawwwxh/qq-agent-plus/actions/workflows/ci.yml/badge.svg)](https://github.com/sakurawwwxh/qq-agent-plus/actions/workflows/ci.yml)
+[![CI](https://github.com/Velvetalon/qq-agent-plus/actions/workflows/ci.yml/badge.svg)](https://github.com/Velvetalon/qq-agent-plus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-3da639.svg)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/sakurawwwxh/qq-agent-plus?color=e8b400&label=stars&logo=github)](https://github.com/sakurawwwxh/qq-agent-plus/stargazers)
-[![Last commit](https://img.shields.io/github/last-commit/sakurawwwxh/qq-agent-plus?logo=git&logoColor=white)](https://github.com/sakurawwwxh/qq-agent-plus/commits/main)
+[![Stars](https://img.shields.io/github/stars/Velvetalon/qq-agent-plus?color=e8b400&label=stars&logo=github)](https://github.com/Velvetalon/qq-agent-plus/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/Velvetalon/qq-agent-plus?logo=git&logoColor=white)](https://github.com/Velvetalon/qq-agent-plus/commits/main)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522.13-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![Platform](https://img.shields.io/badge/platform-Linux-0b5fff?logo=linux&logoColor=white)](docs/LINUX.md)
 [![OneBot](https://img.shields.io/badge/protocol-OneBot%20v11-12b7f5)](https://github.com/botuniverse/onebot-11)
@@ -103,7 +103,7 @@ SnowLuma 已包含 OneBot，无需另行安装 NapCat 或 Lagrange。
 Docker 与开启 linger 时按需调用 `sudo`）。
 
 ```bash
-git clone https://github.com/sakurawwwxh/qq-agent-plus.git
+git clone https://github.com/Velvetalon/qq-agent-plus.git
 cd qq-agent-plus
 bash deploy-all.sh
 ```
@@ -176,7 +176,7 @@ bash deploy-all.sh --help
 systemd 用户服务托管，不应通过面板的 Node 项目或 PM2 启动。
 
 ```bash
-git clone https://github.com/sakurawwwxh/qq-agent-plus.git
+git clone https://github.com/Velvetalon/qq-agent-plus.git
 cd qq-agent-plus
 
 bash deploy.sh \

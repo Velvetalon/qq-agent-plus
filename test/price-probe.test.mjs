@@ -298,8 +298,8 @@ test('自动探测：已配过或刚探过就跳过', async () => {
 
 test('远程价格表默认地址：jsDelivr 优先、raw 兜底；填 none 关闭', async () => {
   assert.deepEqual(feed.priceFeedTargets(''), [
-    'https://cdn.jsdelivr.net/gh/sakurawwwxh/qq-agent-plus@main/prices.json',
-    'https://raw.githubusercontent.com/sakurawwwxh/qq-agent-plus/main/prices.json'
+    'https://cdn.jsdelivr.net/gh/Velvetalon/qq-agent-plus@main/prices.json',
+    'https://raw.githubusercontent.com/Velvetalon/qq-agent-plus/main/prices.json'
   ]);
   assert.deepEqual(feed.priceFeedTargets('https://mine.example.com/prices.json'), ['https://mine.example.com/prices.json']);
   assert.deepEqual(feed.priceFeedTargets('none'), []);

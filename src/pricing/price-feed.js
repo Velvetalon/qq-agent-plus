@@ -36,8 +36,8 @@ const TICK_MS = 3600 * 1000;                         // 每小时检查一次是
  * 想用自己的表就填 URL；`none` 表示完全不用远程表（只用内置表）。
  */
 const DEFAULT_FEED_URLS = [
-  'https://cdn.jsdelivr.net/gh/sakurawwwxh/qq-agent-plus@main/prices.json',
-  'https://raw.githubusercontent.com/sakurawwwxh/qq-agent-plus/main/prices.json'
+  'https://cdn.jsdelivr.net/gh/Velvetalon/qq-agent-plus@main/prices.json',
+  'https://raw.githubusercontent.com/Velvetalon/qq-agent-plus/main/prices.json'
 ];
 const DISABLED_VALUES = new Set(['none', 'off', 'false', '0', 'disabled']);
 
