@@ -1,6 +1,14 @@
 # 项目开发任务索引
 
-## 最新：2026-10-19 本地接管与指定 Qwen 模型（WIP）
+## 最新：2026-10-20 工程修复已验证，身份实测待余额恢复（WIP）
+
+[当前进度](../schedule/2026-10-20-thinking-review-repair.md)、[计划](../../plan_doc/2026-10-19-thinking-review-compatibility.md)、[脱敏证据](../schedule/evidence/2026-10-20-thinking-review-repair/result.json)。源码 `e870954` 已修有界thinking审核配置与消息提示recent崩溃，并闭合读盘归一化/不可变run限额两项复核P2。66项专项通过；新增14项全部通过；全量保留原44失败/3跳过。
+
+原短问答在指定Qwen模型上正常回复，identity首请求遇NanoGPT402 Insufficient balance，未获得身份判定。待用户确认余额可用后，主协调者先恢复原identity/R06/B10复验，再继续B07与完整新模型记忆链；不能将0输出当语义通过。模型不变、不换凭据、不自动探测余额；SC8/真实QQ/部署仍USER_PAUSED。
+
+以下为历史记录，不覆盖本节最新状态。
+
+## 历史检查点：2026-10-19 本地接管与指定 Qwen 模型（WIP）
 
 [当前进度与后续优先级](../schedule/2026-10-19-local-takeover-face-review.md)、[结构化证据](../schedule/evidence/2026-10-19-social-face-review/result.json)。源码 `cd7b7d2` 已闭合 face caption 审核绕过；62项专项与独立复核通过。本轮18项新增全部通过；Windows全量仍有与旧基线完全同名的44失败及3跳过，不标全绿。
 

@@ -1,6 +1,17 @@
 # 当前工作交接入口
 
-## 最新：2026-10-19 本地接管、表情审核与指定 Qwen 实测（WIP）
+## 最新：2026-10-20 Thinking审核与消息ID提示已修，身份复验受402中断（WIP）
+
+先读 [本轮修复与实测](schedule/2026-10-20-thinking-review-repair.md) 和 [脱敏结果](schedule/evidence/2026-10-20-thinking-review-repair/result.json)。源码 `e870954` 完成有界审核配置、读盘/保存/运行统一、不可变run快照和最小ID提示；主协调者亲自定方案，原两项独立复核P2已返修闭合。
+
+- 最终专项 **66/66**，新增14项全过；Windows全量 **804 PASS / 44 FAIL / 3 SKIP**，与上轮同源码基线失败名称完全一致，不标完整CI全绿。
+- 指定Qwen thinking回放使用2048tokens/45000ms（旧配置仍768/15000默认）；严格JSON/截断拒绝与共享预算、4审核/2拒绝、发送门不放松。
+- 原短问答真实4次HTTP200、1条正确回复，审核完整返回。identity首个实际请求被NanoGPT **402 / Insufficient balance** 拒绝；没有新增身份结论，不能算PASS。等待用户确认余额恢复后再继续实测，不自动重试/换模型或凭据。
+- 模型仍为 `qwen/qwen3.8-27b-uncensored:thinking` + `Qwen/Qwen3-Embedding-4B` / 2560；Embedding本轮未重跑。B07/R06/B10、完整记忆链和目标Linux验证仍开放，SC8/真实QQ/部署仍USER_PAUSED。
+
+以下均为历史时点，不覆盖本节当前状态。
+
+## 历史检查点：2026-10-19 本地接管、表情审核与指定 Qwen 实测（WIP）
 
 先读 [本轮接管进度](schedule/2026-10-19-local-takeover-face-review.md) 和 [结构化结果](schedule/evidence/2026-10-19-social-face-review/result.json)。源码 `cd7b7d2` 修复 face caption 绕过审核、协议CQ文本一致性和无代理回放请求；方案由主协调者亲自确定，独立限域复核通过。
 
