@@ -3895,7 +3895,11 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 200));
         try {
           return withNotebookStore((notebook) => {
-            const entries = notebook?.listForCleanup?.({ accountId: account.accountId, limit }) || [];
+            const entries = notebook?.listForCleanup?.({
+              accountId: account.accountId,
+              limit,
+              includeExcerpt: true
+            }) || [];
             const visible = entries.filter((entry) => {
               if (entry.recallable !== false) return false;
               if (entry.scope === 'global') return true;

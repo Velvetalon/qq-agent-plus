@@ -11518,9 +11518,16 @@ function renderSelfEvolutionQuarantine(data = {}) {
   const entries = Array.isArray(quarantine.entries) ? quarantine.entries : [];
   if (!entries.length) return '<div class="empty-hint">没有隔离笔记。</div>';
   return `<div class="asset-table-wrap"><table class="asset-table">
-    <thead><tr><th>笔记 ID</th><th>范围</th><th>类型</th><th>版本</th><th>隔离原因</th><th>更新时间</th></tr></thead>
+    <thead><tr><th>笔记 ID / 正文摘录</th><th>范围</th><th>类型</th><th>版本</th><th>隔离原因</th><th>更新时间</th></tr></thead>
     <tbody>${entries.map((entry) => `<tr>
-      <td>${esc(entry.id)}</td>
+      <td>
+        <details><summary>${esc(entry.id)}</summary>
+          ${entry.excerpt
+            ? `<div class="p7-note-excerpt">${esc(entry.excerpt)}${entry.excerptTruncated ? '…' : ''}</div>`
+            : '<div class="muted">该记录没有正文摘录</div>'}
+          <small>${esc((entry.tags || []).join(' · ') || '无标签')}</small>
+        </details>
+      </td>
       <td>${esc(entry.chatKey || entry.scope)}</td>
       <td>${esc(entry.type)}<small>${esc(entry.channel)}</small></td>
       <td>${esc(entry.revision)}</td>
@@ -11653,6 +11660,36 @@ function renderSelfEvolutionCandidates(data = {}) {
     }).join('')}</tbody></table></div>`;
 }
 
+function selfEvolutionJobEvidence(job = {}) {
+  const evidence = job.evidence && typeof job.evidence === 'object' ? job.evidence : {};
+  const parts = [];
+  const conversation = Array.isArray(evidence.conversationEvidence) ? evidence.conversationEvidence : [];
+  if (conversation.length) {
+    parts.push(`<div><strong>对话证据 ${conversation.length} 条</strong><ul class="p7-evidence-list">${
+      conversation.slice(0, 8).map((item) => `<li>${esc(item.speaker || item.role || '?')}：${
+        esc(String(item.text || '').slice(0, 240))}</li>`).join('')
+    }</ul></div>`);
+  }
+  const traits = Array.isArray(evidence.traitEvidencePool) ? evidence.traitEvidencePool : [];
+  if (traits.length) {
+    parts.push(`<div><strong>特质证据 ${traits.length} 条</strong><ul class="p7-evidence-list">${
+      traits.slice(0, 8).map((item) => `<li>${esc(String(item.text || '').slice(0, 240))}</li>`).join('')
+    }</ul></div>`);
+  }
+  const meta = [
+    Number(evidence.validSessionCount) > 0 ? `有效会话 ${evidence.validSessionCount}` : '',
+    evidence.behaviorChange === true
+      ? `行为变化${evidence.behaviorChangeEvidence ? `：${String(evidence.behaviorChangeEvidence).slice(0, 200)}` : ''}`
+      : '',
+    Array.isArray(evidence.failureKinds) && evidence.failureKinds.length
+      ? `失败类型：${evidence.failureKinds.map(String).slice(0, 8).join(' · ')}`
+      : ''
+  ].filter(Boolean);
+  if (meta.length) parts.push(`<small>${esc(meta.join(' · '))}</small>`);
+  if (job.observationKey) parts.push(`<small>观察键 ${esc(job.observationKey)}</small>`);
+  return parts.length ? parts.join('') : '<span class="muted">本次作业没有可展示的证据</span>';
+}
+
 function renderSelfEvolutionReflection(data = {}) {
   const jobs = data.jobs || {};
   const proposals = data.proposals || {};
@@ -11666,11 +11703,33 @@ function renderSelfEvolutionReflection(data = {}) {
     const error = [proposal.errorCode, proposal.errorMessage].filter(Boolean).join('：');
     return [base, proposal.detail, error].filter(Boolean).join(' · ') || '无详细内容';
   };
+  const proposalExpand = (proposal) => {
+    const parts = [];
+    if (proposal.payload && Object.keys(proposal.payload).length) {
+      parts.push(`<div><strong>结构化载荷</strong><pre class="p7-json">${esc(JSON.stringify(proposal.payload, null, 2).slice(0, 2000))}</pre></div>`);
+    }
+    const refs = Array.isArray(proposal.evidenceRefs) ? proposal.evidenceRefs : [];
+    if (refs.length) {
+      parts.push(`<div><strong>证据引用 ${refs.length} 条</strong><ul class="p7-evidence-list">${
+        refs.slice(0, 8).map((ref) => `<li>${esc(String(ref).slice(0, 240))}</li>`).join('')
+      }</ul></div>`);
+    }
+    const errorText = [proposal.errorCode, proposal.errorMessage].filter(Boolean).join('：');
+    if (errorText) parts.push(`<small>${esc(errorText)}</small>`);
+    if (proposal.reviewer) parts.push(`<small>审批人 ${esc(proposal.reviewer)}</small>`);
+    return parts.length ? parts.join('') : '<span class="muted">这条提案没有更多载荷</span>';
+  };
   const jobsHtml = jobEntries.length
     ? `<div class="asset-table-wrap"><table class="asset-table">
-        <thead><tr><th>作业</th><th>窗口</th><th>状态</th><th>尝试</th><th>错误</th></tr></thead>
+        <thead><tr><th>作业 / 证据</th><th>来源</th><th>窗口</th><th>状态</th><th>尝试</th><th>错误</th></tr></thead>
         <tbody>${jobEntries.map((job) => `<tr>
-          <td>${esc(job.id)}<small>${esc(job.sessionId || '')}</small></td>
+          <td>
+            <details><summary>${esc(job.id)}</summary>
+              ${selfEvolutionJobEvidence(job)}
+            </details>
+            <small>${esc(job.sessionId || '')}</small>
+          </td>
+          <td>${esc(job.sourceKind || '-')}<small>${esc(job.observerId || '')}</small></td>
           <td>${esc(job.chatKey || '-')}<small>${job.createdAt ? esc(fmtTime(job.createdAt)) : ''}</small></td>
           <td>${esc(job.status)}</td>
           <td>${esc(job.attempts)}/${esc(job.maxAttempts)}</td>
@@ -11685,7 +11744,11 @@ function renderSelfEvolutionReflection(data = {}) {
           <td>${esc(proposal.type)}</td>
           <td>${esc(proposal.risk)}</td>
           <td>${esc(proposal.status)}<small>期望 revision ${esc(proposal.expectedProfileRevision ?? 0)}</small></td>
-          <td>${esc(proposalDetail(proposal))}</td>
+          <td>
+            <details><summary>${esc(proposalDetail(proposal))}</summary>
+              ${proposalExpand(proposal)}
+            </details>
+          </td>
         </tr>`).join('')}</tbody></table></div>`
     : '<div class="empty-hint">没有反思提案历史。</div>';
   return `<h3 class="p7-subhead">作业</h3>${jobsHtml}

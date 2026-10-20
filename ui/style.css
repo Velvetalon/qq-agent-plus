@@ -3037,6 +3037,44 @@ dialog { margin: auto; max-height: 88vh; }
   min-width: 300px;
   max-width: 620px;
 }
+.p7-note-excerpt {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  margin: 6px 0;
+  border-left: 2px solid var(--border);
+  background: var(--bg-1, transparent);
+  border-radius: 4px;
+}
+.p7-evidence-list {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  max-height: 220px;
+  overflow: auto;
+}
+.p7-evidence-list li {
+  margin: 2px 0;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.p7-json {
+  max-height: 220px;
+  overflow: auto;
+  margin: 4px 0 8px;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  background: var(--bg-1, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .learned-profile-group {
   border-left: 2px solid var(--border);
   padding-left: 10px;

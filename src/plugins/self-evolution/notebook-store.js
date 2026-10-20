@@ -1429,7 +1429,13 @@ export class NotebookStore {
     }));
   }
 
-  listForCleanup({ accountId: rawAccount, limit = 100, offset = 0, includeArchived = false } = {}) {
+  listForCleanup({
+    accountId: rawAccount,
+    limit = 100,
+    offset = 0,
+    includeArchived = false,
+    includeExcerpt = false
+  } = {}) {
     const db = this.#requireDb();
     const account = accountId(rawAccount);
     const max = Math.min(500, Math.max(1, Number(limit) || 100));
@@ -1442,8 +1448,42 @@ export class NotebookStore {
     `).all(account, max, skip).map((row) => {
       const note = noteView(row);
       const { body: _body, content: _content, tags: _tags, ...metadata } = note;
-      return metadata;
+      if (includeExcerpt !== true) return metadata;
+      // 管理员排查用：只给截断摘录，不把完整正文塞进清理接口。
+      const body = String(note.body || '');
+      return {
+        ...metadata,
+        excerpt: body.slice(0, 600),
+        excerptTruncated: body.length > 600,
+        tags: note.tags.slice(0, 20)
+      };
     });
+  }
+
+  /**
+   * 管理员维护：清掉不属于当前 embedding profile 的遗留索引。
+   *
+   * 只删除派生表里的旧 profile 行和当前 profile 的 obsolete 行；不重新入队，
+   * 因此那些历史笔记不会再被纳入向量库，也不会产生新的远程调用。笔记正文、
+   * 版本历史和归档状态都不改。
+   */
+  purgeEmbeddingIndex({ profileId = '' } = {}) {
+    const db = this.#requireWritable();
+    const scope = text(profileId);
+    return this.#transaction((tx) => ({
+      foreignJobs: tx.prepare(
+        'DELETE FROM notebook_embedding_jobs WHERE profile_id<>?'
+      ).run(scope).changes,
+      obsoleteJobs: tx.prepare(
+        "DELETE FROM notebook_embedding_jobs WHERE profile_id=? AND status='obsolete'"
+      ).run(scope).changes,
+      foreignVectors: tx.prepare(
+        'DELETE FROM notebook_embeddings WHERE profile_id<>?'
+      ).run(scope).changes,
+      obsoleteVectors: tx.prepare(
+        "DELETE FROM notebook_embeddings WHERE profile_id=? AND status='obsolete'"
+      ).run(scope).changes
+    }));
   }
 
   counts({ accountId: rawAccount } = {}) {
