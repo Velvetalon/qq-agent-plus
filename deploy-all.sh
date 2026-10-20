@@ -636,6 +636,7 @@ services:
       SNOWLUMA_SCREEN: "${SNOWLUMA_SCREEN}"
       SNOWLUMA_HOOK_AUTOLOAD: "${SNOWLUMA_HOOK_AUTOLOAD}"
       SNOWLUMA_QQ_FLAGS: --disable-gpu --disable-software-rasterizer --disable-gpu-compositing
+      SNOWLUMA_EXTRA_QQ_HOMES: ""
       SNOWLUMA_TELEMETRY: "${SNOWLUMA_TELEMETRY}"
     ports:
       - "0.0.0.0:${NOVNC_PORT}:6081"
@@ -646,6 +647,8 @@ services:
       - ./data:/app/data
       - ./client-config:/app/.config
       - ./client-data:/app/.local/share
+      - ./qq-supervision/qq-supervisor.py:/opt/qq-agent/qq-supervisor.py:ro
+      - ./qq-supervision/qq-supervisor.conf:/etc/supervisor/conf.d/qq-agent-single-instance.conf:ro
 EOF
 mv "$COMPOSE_FILE.tmp" "$COMPOSE_FILE"
 chmod 600 "$COMPOSE_FILE"
@@ -771,6 +774,10 @@ fi
   --data-dir "$SNOWLUMA_DATA_DIR" \
   --http-port 3000 \
   --ws-port 3001
+
+step 'Installing single-instance QQ supervision'
+"$NODE_BIN" "$SOURCE_DIR/scripts/qq-supervision.mjs" \
+  --target-dir "$SNOWLUMA_DIR/qq-supervision"
 
 step 'Starting SnowLuma and OneBot'
 (cd "$SNOWLUMA_DIR" && docker_call compose --env-file .env up -d)

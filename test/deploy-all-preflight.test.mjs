@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { installQQSupervision } from '../scripts/qq-supervision.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const shellOptions = { skip: process.getuid?.() === 0 ? 'Installer must run as a non-root service user' : false };
@@ -19,7 +20,8 @@ function fixture(t) {
   fs.mkdirSync(bin);
   fs.mkdirSync(home);
   fs.mkdirSync(path.join(source, 'scripts'), { recursive: true });
-  for (const file of ['deploy-all.sh', 'scripts/check-stack-update.mjs', 'scripts/configure-snowluma.mjs']) {
+  for (const file of ['deploy-all.sh', 'scripts/check-stack-update.mjs', 'scripts/configure-snowluma.mjs',
+    'scripts/qq-supervision.mjs', 'scripts/qq-supervisor.py', 'scripts/qq-supervisor.conf']) {
     fs.copyFileSync(path.join(repo, file), path.join(source, file));
   }
   fs.writeFileSync(path.join(source, 'deploy.sh'), '#!/bin/bash\nexit 0\n');
@@ -317,6 +319,52 @@ for (const [name, mutate, pattern] of [
   test(`managed preflight refuses mismatched ${name} without writing`, shellOptions, (t) => {
     const f = fixture(t);
     managed(f);
+    mutate(f);
+    protectedRun(f, pattern);
+  });
+}
+
+function supervised(f) {
+  managed(f);
+  const folder = path.join(f.root, 'snowluma/qq-supervision');
+  installQQSupervision(folder);
+  const service = f.host.compose.services.snowluma;
+  service.volumes.push(
+    { type: 'bind', source: path.join(folder, 'qq-supervisor.py'), target: '/opt/qq-agent/qq-supervisor.py', read_only: true },
+    { type: 'bind', source: path.join(folder, 'qq-supervisor.conf'), target: '/etc/supervisor/conf.d/qq-agent-single-instance.conf', read_only: true }
+  );
+  service.environment.SNOWLUMA_EXTRA_QQ_HOMES = '';
+  f.host.containers[0].Config.Env = ['SNOWLUMA_EXTRA_QQ_HOMES='];
+  f.host.containers[0].Mounts = service.volumes.map((v) => ({
+    Type: v.type, Source: v.source, Destination: v.target, RW: !v.read_only
+  }));
+  write(path.join(f.root, 'snowluma/docker-compose.yml'), f.host.compose);
+}
+
+test('managed single-instance stack validates repeatedly without changing assets', shellOptions, (t) => {
+  const f = fixture(t);
+  supervised(f);
+  const before = snapshot(f.root);
+  for (let index = 0; index < 2; index++) {
+    const result = f.run();
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.deepEqual(snapshot(f.root), before);
+  }
+});
+
+for (const [name, mutate, pattern] of [
+  ['writable supervision code', (f) => { f.host.containers[0].Mounts.at(-1).RW = true; }, /must be read-only/],
+  ['partial supervision mounts', (f) => { f.host.containers[0].Mounts.pop(); }, /Unexpected SnowLuma mounts/],
+  ['modified supervision code', (f) => {
+    fs.appendFileSync(path.join(f.root, 'snowluma/qq-supervision/qq-supervisor.py'), '\n# changed externally\n');
+  }, /changed outside deployment/],
+  ['additional QQ homes', (f) => {
+    f.host.containers[0].Config.Env = ['SNOWLUMA_EXTRA_QQ_HOMES=/app/second'];
+  }, /Extra QQ homes/]
+]) {
+  test(`managed preflight protects ${name}`, shellOptions, (t) => {
+    const f = fixture(t);
+    supervised(f);
     mutate(f);
     protectedRun(f, pattern);
   });

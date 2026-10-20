@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { verifyQQSupervision } from './qq-supervision.mjs';
 
 // Read persisted files directly. Importing the application's config loader can
 // migrate/write configuration, which is not permitted during this preflight.
@@ -88,15 +89,28 @@ function check() {
     ['/app/.config', path.join(snowluma, 'client-config')],
     ['/app/.local/share', path.join(snowluma, 'client-data')]
   ]);
+  const supervisionDir = path.join(snowluma, 'qq-supervision');
+  const codeMounts = new Map([
+    ['/opt/qq-agent/qq-supervisor.py', path.join(supervisionDir, 'qq-supervisor.py')],
+    ['/etc/supervisor/conf.d/qq-agent-single-instance.conf', path.join(supervisionDir, 'qq-supervisor.conf')]
+  ]);
+  if (fs.existsSync(supervisionDir)) verifyQQSupervision(supervisionDir);
   function checkMounts(entries) {
-    requireMatch(Array.isArray(entries) && entries.length === mounts.size, 'Unexpected SnowLuma mounts');
+    requireMatch(Array.isArray(entries)
+      && [mounts.size, mounts.size + codeMounts.size].includes(entries.length), 'Unexpected SnowLuma mounts');
+    const supervised = entries.length > mounts.size;
+    const expected = new Map([...mounts, ...(supervised ? codeMounts : [])]);
     const seen = new Set();
-    for (const { type, source, target } of entries) {
+    for (const { type, source, target, readOnly } of entries) {
       requireMatch(type === 'bind' && typeof source === 'string'
-        && mounts.has(target) && canonical(source) === canonical(mounts.get(target))
-        && !seen.has(target), 'SnowLuma data volumes belong to a different installation');
+        && expected.has(target) && canonical(source) === canonical(expected.get(target))
+        && !seen.has(target), 'SnowLuma volumes belong to a different installation');
+      requireMatch(codeMounts.has(target) ? readOnly === true : readOnly !== true,
+        'QQ supervision code must be read-only and QQ data must remain writable');
       seen.add(target);
     }
+    if (supervised) verifyQQSupervision(supervisionDir);
+    return supervised;
   }
   const expectedPorts = new Map([
     [3000, ['127.0.0.1', env.ONEBOT_HTTP_PORT]],
@@ -121,7 +135,9 @@ function check() {
     const service = compose.services.snowluma;
     requireMatch(service?.container_name === env.SNOWLUMA_CONTAINER
       && service?.image === env.SNOWLUMA_IMAGE, 'Compose service does not match this stack');
-    checkMounts(service.volumes);
+    checkMounts(service.volumes?.map((entry) => ({ ...entry, readOnly: entry.read_only === true })));
+    requireMatch(!String(service.environment?.SNOWLUMA_EXTRA_QQ_HOMES || '').trim(),
+      'Extra QQ homes are incompatible with this single-instance stack');
     checkPorts(service.ports);
     requireMatch(service.environment?.VNC_PASSWD === env.VNC_PASSWD
       && service.environment?.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD === env.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD,
@@ -138,8 +154,14 @@ function check() {
     'SnowLuma container belongs to another Compose project');
     requireMatch(container.Config?.Image === env.SNOWLUMA_IMAGE, 'SnowLuma container image differs from the saved stack');
     checkMounts(container.Mounts?.map((entry) => ({
-      type: entry.Type, source: entry.Source, target: entry.Destination
+      type: entry.Type, source: entry.Source, target: entry.Destination, readOnly: entry.RW === false
     })));
+    const containerEnv = Object.fromEntries((container.Config?.Env || []).map((entry) => {
+      const index = entry.indexOf('=');
+      return [entry.slice(0, index), entry.slice(index + 1)];
+    }));
+    requireMatch(!String(containerEnv.SNOWLUMA_EXTRA_QQ_HOMES || '').trim(),
+      'Extra QQ homes are incompatible with this single-instance stack');
     checkPorts(Object.entries(container.HostConfig?.PortBindings || {}).flatMap(([key, bindings]) => {
       const [target, protocol] = key.split('/');
       return (bindings || []).map((binding) => ({

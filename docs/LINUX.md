@@ -59,6 +59,7 @@ STACK_ROOT/
     data/                  SnowLuma and OneBot configuration
     client-config/         QQ client configuration
     client-data/           QQ login state and cache
+    qq-supervision/        project-owned guardian, Supervisor override and hashes
   deployment-access.txt   generated URLs and credentials (0600)
 ```
 
@@ -86,6 +87,36 @@ wiring keys — container name, internal WebUI/OneBot host and port, uid/gid,
 telemetry and hook flags — always come from the installer, and
 `docker-compose.yml` is regenerated entirely, including the `SNOWLUMA_QQ_FLAGS`
 that disable GPU compositing on headless hosts.
+
+### QQ single-instance supervision
+
+Full-stack deployment installs a project-owned guardian and a small Supervisor
+include file from `scripts/qq-supervisor.py` and `scripts/qq-supervisor.conf`.
+Both are mounted read-only; the three existing QQ/OneBot data mounts are unchanged.
+The installer explicitly disables extra QQ homes for this single-account stack.
+The image already contains the Python runtime used by the guardian; this does not
+add a host Python requirement to Agent-only deployment.
+
+Supervisor tracks the stable guardian rather than a replaceable QQ PID. When QQ
+relaunches, the guardian adopts the replacement instead of starting another QQ.
+An existing ambiguous/multiple-main state is refused, not silently resolved by
+choosing a login window or deleting QQ lock files. Normal Chromium zygote/renderer
+children are not extra QQ main instances.
+
+Hooked QQ can protect its executable/environment metadata from its own UID.
+The production override therefore explicitly selects the dedicated-container
+scope, validating the service UID, public command identity and PID start marker
+inside the fixed SnowLuma PID namespace. It does not give the guardian root or
+ptrace capabilities, and this compatibility mode is refused outside that scope.
+
+Re-running the current installer preserves the supervision assets, verifies their
+hashes and refuses writable code mounts or unexpected data paths. Do not repair
+an old double-instance installation by only restarting Supervisor's `qq` process:
+an earlier relaunch may have left a separate process group. First keep the Agent
+in observe mode, preserve the original data and inspect process ownership; then
+perform a controlled single-container transition. Never start another protocol
+container against the same QQ account or replace its data directory to bypass a
+failed ownership check.
 
 ### Docker Hub is unreachable (mainland China)
 
@@ -489,5 +520,12 @@ Three additional failure modes require attention:
   automatic backoff and reconnection and no restart required; grey = never
   connected.
 
-A logged-out QQ account is not a connection failure: the socket stays up and only
-`get_login_info` is missing. Watch it with `node src/ops.js watch-login`.
+A QQ online/offline flag alone is not enough to diagnose the socket. In SnowLuma,
+OneBot network instances follow account/Hook session lifecycles: if the old QQ
+process disconnects and its last account binding is retired, the HTTP/WS listeners
+can disappear until a valid replacement login establishes a new account session,
+even while the container and WebUI still run. Conversely, a live Hook pipe does
+not prove `loggedIn=true`. Check the process/login state and actual container-side
+listeners, not only Docker's published ports. Once one supervised QQ main instance
+is established, let the operator log in the original account and verify with
+`node src/ops.js watch-login` before leaving observe mode.
