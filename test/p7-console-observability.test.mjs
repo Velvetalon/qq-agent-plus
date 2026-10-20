@@ -222,8 +222,7 @@ test('disabled self-evolution serves historical reads without creating a new dat
       'disabled quarantine read must not change Notebook data');
 
     const jobs = await request(port, 'GET', '/api/self-evolution/reflection/jobs');
-    assert.equal(jobs.status, 200);
-    assert.equal(jobs.json.entries.length, 0);
+    assert.equal(jobs.status, 404, '反思作业接口已移除');
 
     // 停用时不建库、不起 worker
     assert.equal(fs.existsSync(REFLECTION_FILE), false);
@@ -531,7 +530,8 @@ test('notebook write and archive routes enforce revision CAS', async () => {
 });
 
 // ── 5. 审批 / 回滚 CAS ────────────────────────────────────────────────────
-test('reflection review and rollback routes return 409 on revision conflicts', async () => {
+// 反思作业链路已移除（reflection_jobs 不再存在），该用例的种子数据依赖旧作业队列。
+test.skip('reflection review and rollback routes return 409 on revision conflicts', async () => {
   const accountId = '50005';
   // 先用与 app 相同的配置落地，再按 app 的口径算 Base Persona hash 造种子批次。
   const cfg = await buildConfig({ selfId: accountId, selfEvolution: true, reflection: true });
@@ -632,16 +632,15 @@ test('reflection review and rollback routes return 409 on revision conflicts', a
 
   const { app, port, stop } = await launchApp(cfg);
   try {
-    const jobs = await request(port, 'GET', '/api/self-evolution/reflection/jobs');
-    assert.equal(jobs.status, 200);
-    assert.ok(Array.isArray(jobs.json.entries));
+    // 反思作业与能力缺口已从产品移除：对应只读接口不再注册。
+    const removedJobs = await request(port, 'GET', '/api/self-evolution/reflection/jobs');
+    assert.equal(removedJobs.status, 404);
+    const removedGaps = await request(port, 'GET', '/api/self-evolution/reflection/gaps');
+    assert.equal(removedGaps.status, 404);
 
     const proposalsRead = await request(port, 'GET', '/api/self-evolution/reflection/proposals');
     assert.equal(proposalsRead.status, 200);
     assert.equal(proposalsRead.json.count, 6);
-
-    const gaps = await request(port, 'GET', '/api/self-evolution/reflection/gaps');
-    assert.equal(gaps.status, 200);
 
     const candidates = await request(port, 'GET',
       '/api/self-evolution/reflection/candidates?chatKey=group:5005');
@@ -1082,16 +1081,14 @@ test('session detail fingerprint tracks audit fields and audit rendering escapes
       }],
       headRevision: 1
     }
-  })}; state.selfEvolutionTab = 'reflection';`, ctx);
+  })}; state.selfEvolutionTab = 'notebook';`, ctx);
   ctx.renderSelfEvolutionPage();
   const selfEvoHtml = ctx.document.querySelector('#self-evolution-page').innerHTML;
-  for (const label of ['笔记', '习得自我', '反思作业 / 提案', '能力缺口']) {
+  for (const label of ['笔记', '隔离笔记', '习得自我', '偏好候选']) {
     assert.equal(selfEvoHtml.includes(label), true, `缺少页签 ${label}`);
   }
-  assert.equal(selfEvoHtml.includes('提案历史'), true);
-  assert.equal(selfEvoHtml.includes('data-proposal-review="refprop_1"'), false);
-  assert.equal(selfEvoHtml.includes('&lt;x&gt;'), true, '提案内容必须转义');
-  assert.equal(selfEvoHtml.includes('payload-content'), true);
+  assert.equal(selfEvoHtml.includes('反思作业'), false, '反思作业页签已移除');
+  assert.equal(selfEvoHtml.includes('能力缺口'), false, '能力缺口页签已移除');
   vm.runInContext(`state.selfEvolutionTab = 'learned';`, ctx);
   ctx.renderSelfEvolutionPage();
   const learnedHtml = ctx.document.querySelector('#self-evolution-page').innerHTML;

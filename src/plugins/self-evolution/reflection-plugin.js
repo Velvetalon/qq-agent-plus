@@ -114,25 +114,9 @@ export function createReflectionPlugin({
         limits: selectedLimits,
         now
       });
-      worker.start({
-        enabled: true,
-        services: _services,
-        pollIntervalMs: selected.pollIntervalMs,
-        getBasePersona: typeof getBasePersona === 'function'
-          ? () => getBasePersona(selected, _services)
-          : () => selected.basePersona,
-        getMode: typeof getMode === 'function'
-          ? () => getMode(selected, _services)
-          : () => selected.mode,
-        getExpectedProfileRevision: typeof getExpectedProfileRevision === 'function'
-          ? () => getExpectedProfileRevision(selected, _services)
-          : () => {
-              const accountId = selected.accountId || getAccountId?.(selected, _services) || '';
-              if (!accountId) return null;
-              return store.getLearnedSelfRevision({ accountId });
-            },
-        notebook: notebookAdapter || notebook
-      });
+      // 反思作业与能力缺口已从产品中移除：不再启动作业 worker，也就不会产生新的
+      // reflection_jobs / capability_gaps 行。store 仍然创建，供「习得自我」读取
+      // 历史版本并继续注入，也供「偏好候选」读取历史提案。
       return { store, worker };
     },
     async stop(reason) {

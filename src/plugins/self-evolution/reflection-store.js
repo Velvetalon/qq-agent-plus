@@ -1877,35 +1877,6 @@ export class ReflectionStore {
         PRAGMA busy_timeout=5000;
         PRAGMA foreign_keys=ON;
 
-        CREATE TABLE IF NOT EXISTS reflection_jobs (
-          id TEXT PRIMARY KEY,
-          observation_key TEXT NOT NULL UNIQUE,
-          observer_id TEXT NOT NULL,
-          observer_plugin_id TEXT NOT NULL,
-          account_id TEXT NOT NULL,
-          chat_key TEXT NOT NULL DEFAULT '',
-          session_id TEXT NOT NULL,
-          run_id TEXT NOT NULL DEFAULT '',
-          plugin_generation INTEGER NOT NULL DEFAULT 0,
-          source_kind TEXT NOT NULL CHECK(source_kind='run_completion'),
-          evidence_json TEXT NOT NULL,
-          evidence_hash TEXT NOT NULL,
-          status TEXT NOT NULL,
-          attempts INTEGER NOT NULL DEFAULT 0,
-          max_attempts INTEGER NOT NULL,
-          lease_owner TEXT NOT NULL DEFAULT '',
-          lease_generation INTEGER NOT NULL DEFAULT 0,
-          lease_token TEXT NOT NULL DEFAULT '',
-          lease_expires_at INTEGER NOT NULL DEFAULT 0,
-          available_at INTEGER NOT NULL DEFAULT 0,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          completed_at INTEGER NOT NULL DEFAULT 0,
-          last_error TEXT NOT NULL DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS reflection_jobs_pending
-          ON reflection_jobs(status, available_at, created_at);
-
         CREATE TABLE IF NOT EXISTS reflection_observations (
           id TEXT PRIMARY KEY,
           observation_window_key TEXT NOT NULL,
@@ -2045,25 +2016,6 @@ export class ReflectionStore {
           updated_at INTEGER NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS capability_gaps (
-          id TEXT PRIMARY KEY,
-          dedupe_key TEXT NOT NULL UNIQUE,
-          account_id TEXT NOT NULL,
-          category TEXT NOT NULL,
-          capability TEXT NOT NULL,
-          request_key TEXT NOT NULL,
-          scope TEXT NOT NULL DEFAULT '',
-          chat_key TEXT NOT NULL DEFAULT '',
-          detail TEXT NOT NULL DEFAULT '',
-          status TEXT NOT NULL DEFAULT 'open',
-          count INTEGER NOT NULL DEFAULT 1,
-          evidence_refs_json TEXT NOT NULL DEFAULT '[]',
-          first_seen_at INTEGER NOT NULL,
-          last_seen_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS capability_gaps_lookup
-          ON capability_gaps(account_id, category, last_seen_at DESC);
-
         CREATE TABLE IF NOT EXISTS reflection_audit (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           account_id TEXT NOT NULL DEFAULT '',
@@ -2077,8 +2029,6 @@ export class ReflectionStore {
       `);
       ensureColumn(this.db, 'reflection_worker_state', 'budget_blocked_until',
         'INTEGER NOT NULL DEFAULT 0');
-      ensureColumn(this.db, 'reflection_jobs', 'lease_token',
-        "TEXT NOT NULL DEFAULT ''");
     } else {
       this.db.exec('PRAGMA busy_timeout=5000;');
     }
@@ -2099,6 +2049,25 @@ export class ReflectionStore {
   #requireDb() {
     if (!this.db) fail('REFLECTION_DISABLED', 'self-evolution Reflection is not enabled');
     return this.db;
+  }
+
+  #jobsPresent;
+
+  /**
+   * 反思作业表已从产品中移除。这里统一探测一次，让旧调用方在表缺失时拿到
+   * 安全的空结果，而不是让整个反思/记忆链路在启动时崩掉。
+   */
+  #jobsAvailable() {
+    if (this.#jobsPresent === undefined) {
+      try {
+        this.#jobsPresent = Boolean(this.#requireDb().prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reflection_jobs'"
+        ).get());
+      } catch {
+        this.#jobsPresent = false;
+      }
+    }
+    return this.#jobsPresent === true;
   }
 
   #requireWritable() {
@@ -2456,6 +2425,7 @@ export class ReflectionStore {
     if (sourceKind !== 'run_completion') {
       fail('REFLECTION_SOURCE_LINEAGE', 'only host-verified run completion observations may enqueue jobs');
     }
+    if (!this.#jobsAvailable()) return { enqueued: false, reason: 'jobs-removed' };
     const input = observationWindowId
       ? { ...event, observationWindowId }
       : event;
@@ -2590,6 +2560,7 @@ export class ReflectionStore {
   }
 
   hasProcessedEvidence({ accountId, observerId, evidenceHash } = {}) {
+    if (!this.#jobsAvailable()) return false;
     const db = this.#requireDb();
     const row = db.prepare(`
       SELECT 1 FROM reflection_jobs
@@ -2622,6 +2593,7 @@ export class ReflectionStore {
     leaseMs = this.limits.leaseMs,
     workerLeaseMs = this.limits.workerLeaseMs
   } = {}) {
+    if (!this.#jobsAvailable()) return { status: 'jobs-removed', job: null };
     const worker = text(String(owner || ''), 'owner', 160);
     const generationValue = Number(generation);
     if (!Number.isSafeInteger(generationValue) || generationValue < 1) {
@@ -2718,6 +2690,7 @@ export class ReflectionStore {
   }
 
   releaseWorkerLease({ owner, generation, reason = 'stopped' } = {}) {
+    if (!this.#jobsAvailable()) return { released: false, at: 0 };
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
       const ownerValue = String(owner || '');
@@ -2816,6 +2789,7 @@ export class ReflectionStore {
   }
 
   failJob({ job, owner, generation, error = 'reflection failed' } = {}) {
+    if (!this.#jobsAvailable()) return { accepted: false, reason: 'jobs-removed' };
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
       const current = db.prepare('SELECT * FROM reflection_jobs WHERE id=?').get(String(job?.id || ''));
@@ -2903,6 +2877,7 @@ export class ReflectionStore {
   }
 
   invalidateJob({ job, owner, generation, error, status = 'invalid' } = {}) {
+    if (!this.#jobsAvailable()) return { accepted: false, reason: 'jobs-removed' };
     const finalStatus = status === 'stale' ? 'stale' : 'invalid';
     return this.#transaction((db) => {
       const ts = nowValue(this.now);
@@ -3558,24 +3533,10 @@ export class ReflectionStore {
     });
   }
 
-  listJobs({ status = '', accountId = '', limit = 100 } = {}) {
-    const db = this.#requireDb();
-    const filters = [];
-    const params = [];
-    if (status) {
-      filters.push('status=?');
-      params.push(validateJobStatus(String(status)));
-    }
-    if (accountId) {
-      filters.push('account_id=?');
-      params.push(String(accountId));
-    }
-    const max = Math.min(500, Math.max(1, Number(limit) || 100));
-    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-    return db.prepare(`
-      SELECT * FROM reflection_jobs ${where}
-      ORDER BY created_at,id LIMIT ?
-    `).all(...params, max).map(jobView);
+  listJobs() {
+    // 反思作业表已从产品与数据库移除；保留空实现以兼容旧的只读调用方。
+    this.#requireDb();
+    return [];
   }
 
   reviewBatch({
@@ -4514,27 +4475,10 @@ export class ReflectionStore {
     });
   }
 
-  listCapabilityGaps({ accountId = '', category = '', limit = 100 } = {}) {
-    const db = this.#requireDb();
-    const filters = [];
-    const params = [];
-    if (accountId) {
-      filters.push('account_id=?');
-      params.push(String(accountId));
-    }
-    if (category) {
-      if (!CATEGORY_SET.has(String(category))) {
-        fail('REFLECTION_INVALID_ARGUMENT', 'unknown capability gap category');
-      }
-      filters.push('category=?');
-      params.push(String(category));
-    }
-    const max = Math.min(500, Math.max(1, Number(limit) || 100));
-    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-    return db.prepare(`
-      SELECT * FROM capability_gaps ${where}
-      ORDER BY last_seen_at DESC, id LIMIT ?
-    `).all(...params, max).map(gapView);
+  listCapabilityGaps() {
+    // 能力缺口表已从产品与数据库移除；保留空实现以兼容旧的只读调用方。
+    this.#requireDb();
+    return [];
   }
 
   listAudit({ accountId = '', jobId = '', limit = 100 } = {}) {
@@ -4579,10 +4523,12 @@ export class ReflectionStore {
     const active = profileRow
       ? activeProfile(parseJson(profileRow.profile_json, emptyProfile()), nowValue(this.now))
       : { activeCount: 0, expiredCount: 0 };
-    const jobRows = db.prepare(`
-      SELECT evidence_json FROM reflection_jobs
-      ${account ? 'WHERE account_id=?' : ''}
-    `).all(...(account ? [account] : []));
+    const jobRows = this.#jobsAvailable()
+      ? db.prepare(`
+          SELECT evidence_json FROM reflection_jobs
+          ${account ? 'WHERE account_id=?' : ''}
+        `).all(...(account ? [account] : []))
+      : [];
     const structuredJobs = jobRows
       .map((row) => parseJson(row.evidence_json, {}))
       .filter((evidence) => evidence.structuredEvidence === true);
@@ -4622,11 +4568,9 @@ export class ReflectionStore {
       `SELECT COUNT(*) AS n FROM ${table} ${filter}`
     ).get(...args)?.n) || 0;
     return {
-      jobs: count('reflection_jobs'),
       batches: count('reflection_batches'),
       proposals: count('reflection_proposals'),
-      profileVersions: count('learned_self_versions'),
-      capabilityGaps: count('capability_gaps')
+      profileVersions: count('learned_self_versions')
     };
   }
 
@@ -4689,53 +4633,9 @@ export class ReflectionStore {
     return 'low';
   }
 
-  #recordCapabilityGaps(db, job, gaps, ts) {
-    const ids = [];
-    for (const gap of gaps) {
-      const dedupeKey = hash(stableJson({
-        accountId: job.account_id,
-        category: gap.category,
-        capability: gap.capability,
-        requestKey: gap.requestKey,
-        scope: gap.scope,
-        chatKey: gap.chatKey
-      }));
-      const existing = db.prepare(
-        'SELECT * FROM capability_gaps WHERE dedupe_key=?'
-      ).get(dedupeKey);
-      if (existing) {
-        db.prepare(`
-          UPDATE capability_gaps
-          SET count=count+1,last_seen_at=?,evidence_refs_json=?,
-            detail=CASE WHEN ?='' THEN detail ELSE ? END
-          WHERE dedupe_key=?
-        `).run(ts, safeJson(gap.evidenceRefs), gap.detail, gap.detail, dedupeKey);
-        ids.push(String(existing.id));
-      } else {
-        const id = `refgap_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
-        db.prepare(`
-          INSERT INTO capability_gaps (
-            id,dedupe_key,account_id,category,capability,request_key,scope,chat_key,
-            detail,status,count,evidence_refs_json,first_seen_at,last_seen_at
-          ) VALUES (?,?,?,?,?,?,?,?,?,'open',1,?,?,?)
-        `).run(
-          id,
-          dedupeKey,
-          job.account_id,
-          gap.category,
-          gap.capability,
-          gap.requestKey,
-          gap.scope,
-          gap.chatKey,
-          gap.detail,
-          safeJson(gap.evidenceRefs),
-          ts,
-          ts
-        );
-        ids.push(id);
-      }
-    }
-    return { upserted: gaps.length, ids };
+  #recordCapabilityGaps() {
+    // 能力缺口表已移除：不再记录，也不再写库。
+    return { upserted: 0, ids: [] };
   }
 
   #traitSourcePool(db, accountId, currentChatKey, ts) {
@@ -5222,13 +5122,15 @@ export class ReflectionStore {
       SET status=?,reviewed_at=?,reviewer=?,error_code=?,error_message=?
       WHERE id=?
     `).run(status, ts, reviewer, String(code || ''), String(message || '').slice(0, 500), batchId);
-    db.prepare(`
-      UPDATE reflection_jobs
-      SET status=? WHERE id=(SELECT job_id FROM reflection_batches WHERE id=?)
-    `).run(
-      ['applied', 'rejected', 'stale', 'invalid'].includes(status) ? status : 'ready',
-      batchId
-    );
+    if (this.#jobsAvailable()) {
+      db.prepare(`
+        UPDATE reflection_jobs
+        SET status=? WHERE id=(SELECT job_id FROM reflection_batches WHERE id=?)
+      `).run(
+        ['applied', 'rejected', 'stale', 'invalid'].includes(status) ? status : 'ready',
+        batchId
+      );
+    }
   }
 
   #rejectBatch(db, batch, reviewer) {
@@ -5244,9 +5146,11 @@ export class ReflectionStore {
         SET status='rejected',reviewed_at=?,reviewer=?,error_code='',error_message=''
         WHERE id=?
       `).run(ts, reviewer, batch.id);
-      innerDb.prepare(
-        "UPDATE reflection_jobs SET status='rejected' WHERE id=?"
-      ).run(batch.jobId);
+      if (this.#jobsAvailable()) {
+        innerDb.prepare(
+          "UPDATE reflection_jobs SET status='rejected' WHERE id=?"
+        ).run(batch.jobId);
+      }
       return {
         reviewed: true,
         decision: 'reject',
@@ -5270,9 +5174,11 @@ export class ReflectionStore {
         SET status='stale',reviewed_at=?,error_code=?,error_message=?
         WHERE id=?
       `).run(ts, code, message, batchId);
-      db.prepare(`
-        UPDATE reflection_jobs SET status='stale' WHERE id=?
-      `).run(batch.job_id);
+      if (this.#jobsAvailable()) {
+        db.prepare(`
+          UPDATE reflection_jobs SET status='stale' WHERE id=?
+        `).run(batch.job_id);
+      }
       return {
         reviewed: false,
         reason: 'stale',

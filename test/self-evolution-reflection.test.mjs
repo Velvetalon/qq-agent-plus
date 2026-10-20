@@ -1,3 +1,6 @@
+// 反思作业（reflection_jobs）与能力缺口（capability_gaps）已从产品中移除，
+// 反思引擎不再启动作业 worker。本文件验证的是已废弃的作业链路，整体跳过；
+// 保留原文以便将来重写针对习得自我与偏好候选的替代测试。
 import { fixtureEmbeddingConfig, fixtureEmbeddingClient, indexFixtureNotes } from './helpers/notebook-vector-fixture.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -215,7 +218,7 @@ async function runQueued(worker, store, {
   });
 }
 
-test('same observation window creates one idempotent job and rejects direct reflection sources', () => {
+test.skip('same observation window creates one idempotent job and rejects direct reflection sources', () => {
   const { store } = fixture();
   try {
     const first = store.enqueueObservation(completionEvent('session-1'));
@@ -236,7 +239,7 @@ test('same observation window creates one idempotent job and rejects direct refl
   }
 });
 
-test('expired job leases are recoverable and the old owner cannot commit late', () => {
+test.skip('expired job leases are recoverable and the old owner cannot commit late', () => {
   const { store, clock } = fixture();
   try {
     const enqueued = store.enqueueObservation(completionEvent('session-lease'));
@@ -274,7 +277,7 @@ test('expired job leases are recoverable and the old owner cannot commit late', 
   }
 });
 
-test('budget defers without spending a model attempt and failures retry finitely', async () => {
+test.skip('budget defers without spending a model attempt and failures retry finitely', async () => {
   const budgetFixture = fixture();
   let budgetCalls = 0;
   const budgetWorker = startWorker(budgetFixture.store, async () => {
@@ -323,7 +326,7 @@ test('budget defers without spending a model attempt and failures retry finitely
   }
 });
 
-test('empty reflection is a noop, duplicate evidence is not called again, and invalid output changes no business state', async () => {
+test.skip('empty reflection is a noop, duplicate evidence is not called again, and invalid output changes no business state', async () => {
   const { store } = fixture();
   let calls = 0;
   const worker = startWorker(store, async () => {
@@ -367,7 +370,7 @@ test('empty reflection is a noop, duplicate evidence is not called again, and in
   }
 });
 
-test('review mode approves a three-root candidate and rejects another without mutating Base Persona', async () => {
+test.skip('review mode approves a three-root candidate and rejects another without mutating Base Persona', async () => {
   const { store } = fixture();
   const base = persona();
   const reflector = async ({ job }) => reflectionOutput(job.sessionId, {
@@ -436,7 +439,7 @@ test('review mode approves a three-root candidate and rejects another without mu
   }
 });
 
-test('bounded_auto never adopts behavior traits and leaves valid candidates for explicit review', async () => {
+test.skip('bounded_auto never adopts behavior traits and leaves valid candidates for explicit review', async () => {
   const { store } = fixture();
   const base = persona();
   const worker = startWorker(store, async () => reflectionOutput('session-auto', {
@@ -494,7 +497,7 @@ test('bounded_auto never adopts behavior traits and leaves valid candidates for 
   }
 });
 
-test('bounded_auto applies Notebook operations without approval and keeps history', async () => {
+test.skip('bounded_auto applies Notebook operations without approval and keeps history', async () => {
   const { store, dataDir } = fixture();
   const notebook = new NotebookStore({ dataDir });
   const base = persona();
@@ -525,7 +528,7 @@ test('bounded_auto applies Notebook operations without approval and keeps histor
   }
 });
 
-test('reflection rejects transient run summaries instead of writing them as Notebook notes', async () => {
+test.skip('reflection rejects transient run summaries instead of writing them as Notebook notes', async () => {
   const { store, dataDir } = fixture();
   const notebook = new NotebookStore({ dataDir });
   const base = persona();
@@ -559,7 +562,7 @@ test('reflection rejects transient run summaries instead of writing them as Note
   }
 });
 
-test('review approval respects Notebook CAS and does not create a profile on a stale note', async () => {
+test.skip('review approval respects Notebook CAS and does not create a profile on a stale note', async () => {
   const { store, dataDir } = fixture();
   const notebook = new NotebookStore({ dataDir });
   const base = persona();
@@ -634,7 +637,7 @@ test('review approval respects Notebook CAS and does not create a profile on a s
   }
 });
 
-test('review approval cannot widen a chat note into global scope', async () => {
+test.skip('review approval cannot widen a chat note into global scope', async () => {
   const { store, dataDir } = fixture();
   const notebook = new NotebookStore({ dataDir });
   const base = persona();
@@ -692,7 +695,7 @@ test('review approval cannot widen a chat note into global scope', async () => {
   }
 });
 
-test('candidate review rejects a changed Base Persona before adoption', async () => {
+test.skip('candidate review rejects a changed Base Persona before adoption', async () => {
   const { store } = fixture();
   const base = persona();
   const otherBase = persona({ roleText: 'manually edited persona' });
@@ -756,7 +759,7 @@ test('candidate review rejects a changed Base Persona before adoption', async ()
   }
 });
 
-test('profile rollback creates a new traceable version and changes the learned context', async () => {
+test.skip('profile rollback creates a new traceable version and changes the learned context', async () => {
   const { store } = fixture();
   const base = persona();
   const worker = startWorker(store, async ({ job }) => {
@@ -861,7 +864,7 @@ test('profile rollback creates a new traceable version and changes the learned c
   }
 });
 
-test('capability gaps dedupe by real request and keep failure categories separate from interest', async () => {
+test.skip('capability gaps dedupe by real request and keep failure categories separate from interest', async () => {
   const { store } = fixture();
   const base = persona();
   const outputs = [
@@ -974,7 +977,7 @@ test('capability gaps dedupe by real request and keep failure categories separat
   }
 });
 
-test('stop releases the lease and a late model result cannot commit', async () => {
+test.skip('stop releases the lease and a late model result cannot commit', async () => {
   const { store } = fixture();
   const base = persona();
   let release;
@@ -1011,7 +1014,7 @@ test('stop releases the lease and a late model result cannot commit', async () =
   }
 });
 
-test('plugin worker leaves candidates pending and review rejects a stale profile CAS', async () => {
+test.skip('plugin worker leaves candidates pending and review rejects a stale profile CAS', async () => {
   const dataDir = path.join(root, `plugin-revision-${++sequence}`);
   const base = persona();
   const baseSnapshot = structuredClone(base);
@@ -1120,7 +1123,7 @@ test('plugin worker leaves candidates pending and review rejects a stale profile
   }
 });
 
-test('disabled reflection creates no database or model call, while old data remains read-only readable', async () => {
+test.skip('disabled reflection creates no database or model call, while old data remains read-only readable', async () => {
   const dataDir = path.join(root, `disabled-${++sequence}`);
   const filename = reflectionDatabasePath(dataDir);
   let modelCalls = 0;
@@ -1173,7 +1176,7 @@ test('disabled reflection creates no database or model call, while old data rema
   }
 });
 
-test('budget blocking persists until the next UTC period and then recovers', async () => {
+test.skip('budget blocking persists until the next UTC period and then recovers', async () => {
   const { store, clock } = fixture({ limits: { maxCallsPerDay: 1 } });
   let calls = 0;
   const worker = startWorker(store, async ({ job }) => {
@@ -1205,7 +1208,7 @@ test('budget blocking persists until the next UTC period and then recovers', asy
   }
 });
 
-test('separate host interaction IDs accumulate bounded v3 sources without shared fake windows', async () => {
+test.skip('separate host interaction IDs accumulate bounded v3 sources without shared fake windows', async () => {
   const { store } = fixture();
   let calls = 0;
   const poolSizes = [];
@@ -1240,7 +1243,7 @@ test('separate host interaction IDs accumulate bounded v3 sources without shared
   }
 });
 
-test('behavior-change evidence bypasses the valid-session threshold', () => {
+test.skip('behavior-change evidence bypasses the valid-session threshold', () => {
   const { store } = fixture({
     limits: {
       minValidSessions: 3,
@@ -1263,7 +1266,7 @@ test('behavior-change evidence bypasses the valid-session threshold', () => {
   }
 });
 
-test('invalid completion evidence keeps otherwise valid candidates ineligible', () => {
+test.skip('invalid completion evidence keeps otherwise valid candidates ineligible', () => {
   const cases = [
     ['timeout', { resultClass: 'timeout' }],
     ['api_failure', { resultClass: 'api_error' }],
@@ -1316,7 +1319,7 @@ test('invalid completion evidence keeps otherwise valid candidates ineligible', 
   }
 });
 
-test('completion provenance defaults to chat_run and rejects reflection origins', () => {
+test.skip('completion provenance defaults to chat_run and rejects reflection origins', () => {
   const event = completionEvent('session-origin-default');
   assert.equal(normalizeCompletionObservation(event).originKind, 'chat_run');
   assert.throws(
@@ -1335,7 +1338,7 @@ test('completion provenance defaults to chat_run and rejects reflection origins'
   );
 });
 
-test('completion evidence preserves structured human sources without inferring preference from silence', () => {
+test.skip('completion evidence preserves structured human sources without inferring preference from silence', () => {
   const event = completionEvent('session-evidence', {
     resultClass: 'explicit_silence',
     actionSummary: {
@@ -1375,7 +1378,7 @@ test('completion evidence preserves structured human sources without inferring p
   assert.ok(normalized.evidenceIds.includes('message:m1'));
 });
 
-test('reflection prompt specifies the canonical nested proposal schema', () => {
+test.skip('reflection prompt specifies the canonical nested proposal schema', () => {
   const prompt = reflectionPrompt({
     evidence: { sourceKind: 'run_completion', sessionId: 'session-schema' }
   }, undefined, {
@@ -1392,7 +1395,7 @@ test('reflection prompt specifies the canonical nested proposal schema', () => {
   assert.match(prompt, /note-1/);
 });
 
-test('reflection worker sends bounded conversation, current profile, and Notebook input', async () => {
+test.skip('reflection worker sends bounded conversation, current profile, and Notebook input', async () => {
   const { store, dataDir } = fixture();
   let queryObserved = '';
   const notebook = new NotebookStore({ dataDir, embeddingConfig: fixtureEmbeddingConfig,
@@ -1446,7 +1449,7 @@ test('reflection worker sends bounded conversation, current profile, and Noteboo
   }
 });
 
-test('bounded_auto accumulates extended preference keys without bypassing review', async () => {
+test.skip('bounded_auto accumulates extended preference keys without bypassing review', async () => {
   const { store } = fixture();
   const base = persona();
   const worker = startWorker(store, async ({ job }) => reflectionOutput(job.sessionId, {

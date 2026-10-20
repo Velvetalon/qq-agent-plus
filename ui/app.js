@@ -11470,9 +11470,7 @@ const SELF_EVOLUTION_TABS = [
   ['notebook', '笔记'],
   ['quarantine', '隔离笔记'],
   ['learned', '习得自我'],
-  ['candidates', '偏好候选'],
-  ['reflection', '反思作业 / 提案'],
-  ['gaps', '能力缺口']
+  ['candidates', '偏好候选']
 ];
 
 function renderSelfEvolutionNotebook(data = {}) {
@@ -11660,116 +11658,6 @@ function renderSelfEvolutionCandidates(data = {}) {
     }).join('')}</tbody></table></div>`;
 }
 
-function selfEvolutionJobEvidence(job = {}) {
-  const evidence = job.evidence && typeof job.evidence === 'object' ? job.evidence : {};
-  const parts = [];
-  const conversation = Array.isArray(evidence.conversationEvidence) ? evidence.conversationEvidence : [];
-  if (conversation.length) {
-    parts.push(`<div><strong>对话证据 ${conversation.length} 条</strong><ul class="p7-evidence-list">${
-      conversation.slice(0, 8).map((item) => `<li>${esc(item.speaker || item.role || '?')}：${
-        esc(String(item.text || '').slice(0, 240))}</li>`).join('')
-    }</ul></div>`);
-  }
-  const traits = Array.isArray(evidence.traitEvidencePool) ? evidence.traitEvidencePool : [];
-  if (traits.length) {
-    parts.push(`<div><strong>特质证据 ${traits.length} 条</strong><ul class="p7-evidence-list">${
-      traits.slice(0, 8).map((item) => `<li>${esc(String(item.text || '').slice(0, 240))}</li>`).join('')
-    }</ul></div>`);
-  }
-  const meta = [
-    Number(evidence.validSessionCount) > 0 ? `有效会话 ${evidence.validSessionCount}` : '',
-    evidence.behaviorChange === true
-      ? `行为变化${evidence.behaviorChangeEvidence ? `：${String(evidence.behaviorChangeEvidence).slice(0, 200)}` : ''}`
-      : '',
-    Array.isArray(evidence.failureKinds) && evidence.failureKinds.length
-      ? `失败类型：${evidence.failureKinds.map(String).slice(0, 8).join(' · ')}`
-      : ''
-  ].filter(Boolean);
-  if (meta.length) parts.push(`<small>${esc(meta.join(' · '))}</small>`);
-  if (job.observationKey) parts.push(`<small>观察键 ${esc(job.observationKey)}</small>`);
-  return parts.length ? parts.join('') : '<span class="muted">本次作业没有可展示的证据</span>';
-}
-
-function renderSelfEvolutionReflection(data = {}) {
-  const jobs = data.jobs || {};
-  const proposals = data.proposals || {};
-  const jobEntries = Array.isArray(jobs.entries) ? jobs.entries : [];
-  const proposalEntries = Array.isArray(proposals.entries) ? proposals.entries : [];
-  const proposalDetail = (proposal) => {
-    const payload = proposal.payload || {};
-    const base = proposal.type === 'trait'
-      ? [payload.action, payload.key, payload.value].filter(Boolean).join('：')
-      : [payload.operation, payload.content || payload.noteId].filter(Boolean).join('：');
-    const error = [proposal.errorCode, proposal.errorMessage].filter(Boolean).join('：');
-    return [base, proposal.detail, error].filter(Boolean).join(' · ') || '无详细内容';
-  };
-  const proposalExpand = (proposal) => {
-    const parts = [];
-    if (proposal.payload && Object.keys(proposal.payload).length) {
-      parts.push(`<div><strong>结构化载荷</strong><pre class="p7-json">${esc(JSON.stringify(proposal.payload, null, 2).slice(0, 2000))}</pre></div>`);
-    }
-    const refs = Array.isArray(proposal.evidenceRefs) ? proposal.evidenceRefs : [];
-    if (refs.length) {
-      parts.push(`<div><strong>证据引用 ${refs.length} 条</strong><ul class="p7-evidence-list">${
-        refs.slice(0, 8).map((ref) => `<li>${esc(String(ref).slice(0, 240))}</li>`).join('')
-      }</ul></div>`);
-    }
-    const errorText = [proposal.errorCode, proposal.errorMessage].filter(Boolean).join('：');
-    if (errorText) parts.push(`<small>${esc(errorText)}</small>`);
-    if (proposal.reviewer) parts.push(`<small>审批人 ${esc(proposal.reviewer)}</small>`);
-    return parts.length ? parts.join('') : '<span class="muted">这条提案没有更多载荷</span>';
-  };
-  const jobsHtml = jobEntries.length
-    ? `<div class="asset-table-wrap"><table class="asset-table">
-        <thead><tr><th>作业 / 证据</th><th>来源</th><th>窗口</th><th>状态</th><th>尝试</th><th>错误</th></tr></thead>
-        <tbody>${jobEntries.map((job) => `<tr>
-          <td>
-            <details><summary>${esc(job.id)}</summary>
-              ${selfEvolutionJobEvidence(job)}
-            </details>
-            <small>${esc(job.sessionId || '')}</small>
-          </td>
-          <td>${esc(job.sourceKind || '-')}<small>${esc(job.observerId || '')}</small></td>
-          <td>${esc(job.chatKey || '-')}<small>${job.createdAt ? esc(fmtTime(job.createdAt)) : ''}</small></td>
-          <td>${esc(job.status)}</td>
-          <td>${esc(job.attempts)}/${esc(job.maxAttempts)}</td>
-          <td>${esc(job.lastError || '-')}</td>
-        </tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty-hint">没有反思作业。</div>';
-  const proposalsHtml = proposalEntries.length
-    ? `<div class="asset-table-wrap"><table class="asset-table">
-        <thead><tr><th>提案</th><th>类型</th><th>风险</th><th>状态</th><th>内容</th></tr></thead>
-        <tbody>${proposalEntries.map((proposal) => `<tr>
-          <td>${esc(proposal.id)}<small>batch ${esc(proposal.batchId)}</small></td>
-          <td>${esc(proposal.type)}</td>
-          <td>${esc(proposal.risk)}</td>
-          <td>${esc(proposal.status)}<small>期望 revision ${esc(proposal.expectedProfileRevision ?? 0)}</small></td>
-          <td>
-            <details><summary>${esc(proposalDetail(proposal))}</summary>
-              ${proposalExpand(proposal)}
-            </details>
-          </td>
-        </tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty-hint">没有反思提案历史。</div>';
-  return `<h3 class="p7-subhead">作业</h3>${jobsHtml}
-    <h3 class="p7-subhead">提案历史</h3>${proposalsHtml}`;
-}
-
-function renderSelfEvolutionGaps(data = {}) {
-  const gaps = data.gaps || {};
-  const entries = Array.isArray(gaps.entries) ? gaps.entries : [];
-  if (!entries.length) return '<div class="empty-hint">没有记录能力缺口。</div>';
-  return `<div class="asset-table-wrap"><table class="asset-table">
-    <thead><tr><th>能力</th><th>类别</th><th>状态</th><th>次数</th><th>最近出现</th></tr></thead>
-    <tbody>${entries.map((gap) => `<tr>
-      <td>${esc(gap.capability)}<small>${esc(gap.requestKey || '')}</small></td>
-      <td>${esc(gap.category)}</td>
-      <td>${esc(gap.status)}</td>
-      <td>${esc(gap.count)}</td>
-      <td>${gap.lastSeenAt ? esc(fmtTime(gap.lastSeenAt)) : '-'}</td>
-    </tr>`).join('')}</tbody></table></div>`;
-}
-
 function renderSelfEvolutionPage() {
   const box = $('#self-evolution-page');
   if (!box) return;
@@ -11780,9 +11668,7 @@ function renderSelfEvolutionPage() {
     : 'notebook';
   const body = tab === 'learned' ? renderSelfEvolutionLearned(data)
     : tab === 'quarantine' ? renderSelfEvolutionQuarantine(data)
-    : tab === 'candidates' ? renderSelfEvolutionCandidates(data)
-    : tab === 'reflection' ? renderSelfEvolutionReflection(data)
-      : tab === 'gaps' ? renderSelfEvolutionGaps(data)
+      : tab === 'candidates' ? renderSelfEvolutionCandidates(data)
         : renderSelfEvolutionNotebook(data.notebook || {});
   box.innerHTML = `
     <div class="asset-head">
@@ -11934,18 +11820,15 @@ async function loadSelfEvolutionPage() {
     error: error.message
   }));
   try {
-    const [status, notebook, jobs, proposals, gaps, profiles, candidates, quarantine] = await Promise.all([
+    const [status, notebook, profiles, candidates, quarantine] = await Promise.all([
       api('/api/self-evolution/status'),
       optional('/api/self-evolution/notebook?includeArchived=1&limit=200', { notes: [], count: 0 }),
-      optional('/api/self-evolution/reflection/jobs?limit=100', { entries: [], count: 0 }),
-      optional('/api/self-evolution/reflection/proposals?limit=100', { entries: [], count: 0 }),
-      optional('/api/self-evolution/reflection/gaps?limit=100', { entries: [], count: 0 }),
       optional('/api/self-evolution/reflection/profiles?limit=100', { entries: [], count: 0, headRevision: 0 }),
       optional('/api/self-evolution/reflection/candidates?limit=100', { entries: [], count: 0 }),
       optional('/api/self-evolution/notebook/quarantine?limit=200', { entries: [], count: 0 })
     ]);
     if (state.tab !== 'self-evolution') return;
-    state.selfEvolutionData = { status, notebook, jobs, proposals, gaps, profiles, candidates, quarantine };
+    state.selfEvolutionData = { status, notebook, profiles, candidates, quarantine };
     state.selfEvolutionError = '';
   } catch (error) {
     if (state.tab !== 'self-evolution') return;

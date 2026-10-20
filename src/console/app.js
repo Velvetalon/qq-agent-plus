@@ -4220,10 +4220,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         }
       }
 
+      // 反思作业与能力缺口已移除：只保留提案历史和习得自我版本两个只读列表。
       const reflectionListRoutes = new Map([
-        ['/api/self-evolution/reflection/jobs', 'jobs'],
         ['/api/self-evolution/reflection/proposals', 'proposals'],
-        ['/api/self-evolution/reflection/gaps', 'gaps'],
         ['/api/self-evolution/reflection/profiles', 'profiles']
       ]);
       if (reflectionListRoutes.has(pathname) && method === 'GET') {
@@ -4231,7 +4230,6 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         const account = accountNamespace();
         const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100));
         const status = String(url.searchParams.get('status') || '').slice(0, 40);
-        const category = String(url.searchParams.get('category') || '').slice(0, 40);
         const batchId = String(url.searchParams.get('batchId') || '').slice(0, 128);
         const disabled = !selfEvolutionEnabled();
         try {
@@ -4247,32 +4245,10 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
                 reason: 'reflection-unavailable'
               });
             }
-            if (kind === 'jobs') {
-              const entries = store.listJobs({ status, accountId: account.accountId, limit });
-              return json(res, 200, {
-                accountId: account.accountId,
-                accountSource: account.source,
-                kind,
-                entries,
-                count: entries.length,
-                disabled
-              });
-            }
             if (kind === 'proposals') {
               const entries = store.listProposals({
                 batchId, status, accountId: account.accountId, limit
               });
-              return json(res, 200, {
-                accountId: account.accountId,
-                accountSource: account.source,
-                kind,
-                entries,
-                count: entries.length,
-                disabled
-              });
-            }
-            if (kind === 'gaps') {
-              const entries = store.listCapabilityGaps({ accountId: account.accountId, category, limit });
               return json(res, 200, {
                 accountId: account.accountId,
                 accountSource: account.source,
