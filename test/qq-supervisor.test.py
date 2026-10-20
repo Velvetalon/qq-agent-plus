@@ -17,6 +17,9 @@ root=pathlib.Path(os.environ['HOME'])
 with (root/'events.jsonl').open('a') as log:
  log.write(json.dumps({'pid':os.getpid(),'args':sys.argv[1:]})+'\n')
 mode=os.environ.get('FAKE_QQ_MODE','normal')
+if '--become-child' in sys.argv:
+ time.sleep(0.15)
+ os.execve(sys.executable,[sys.executable,__file__,'--type=zygote'],os.environ)
 if '--type=zygote' not in sys.argv and '--relaunch' not in sys.argv:
  if mode=='relaunch':
   subprocess.Popen([sys.executable,__file__,'--relaunch'],start_new_session=True)
@@ -27,6 +30,8 @@ if '--type=zygote' not in sys.argv and '--relaunch' not in sys.argv:
   raise SystemExit(1)
  if mode=='with-child':
   subprocess.Popen([sys.executable,__file__,'--type=zygote'],start_new_session=True)
+ if mode=='with-transient-child':
+  subprocess.Popen([sys.executable,__file__,'--become-child'],start_new_session=True)
 while True: time.sleep(0.1)
 '''
 
@@ -164,6 +169,23 @@ class QQSupervisorTests(unittest.TestCase):
         self.assertEqual(len(self.events()), 1)
         self.assertIsNone(first.poll())
         self.stop_guard(first)
+
+    def test_transient_fork_settles_without_guard_restart(self):
+        guard = self.guard('with-transient-child')
+        self.wait_for(lambda: any('--type=zygote' in event['args'] for event in self.events()))
+        self.assertIsNone(guard.poll(), self.guardian_logs())
+        self.assertNotIn('refused', self.guardian_logs())
+        self.assertEqual(len({event['pid'] for event in self.events()}), 2)
+        self.stop_guard(guard)
+
+    def test_persistent_duplicate_during_run_fails_without_spawning_more(self):
+        guard = self.guard()
+        self.wait_for(lambda: len(self.events()) == 1)
+        other = self.start_fake()
+        self.assertEqual(guard.wait(timeout=6), 1)
+        self.assertIn('bounded handoff deadline', self.guardian_logs())
+        self.assertEqual(len(self.events()), 2)
+        self.assertIsNone(other.poll())
 
     def test_chromium_child_is_not_counted_as_second_main_and_is_stopped(self):
         guard = self.guard('with-child')

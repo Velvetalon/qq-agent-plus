@@ -255,6 +255,9 @@ test('ordinary managed update does not attempt password rotation and preserves A
   assert.match(result.stdout, /Deployment complete. Agent mode: active/);
   assert.equal(fs.readFileSync(configFile, 'utf8'), before);
   assert.doesNotMatch(result.stderr, /credential rotation/);
+  const calls = fs.readFileSync(f.callsFile, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(calls.some(([name, ...args]) => name === 'docker' && args.includes('up') && args.includes('--force-recreate')),
+    'new supervision assets must refresh bind-mounted file inodes');
 });
 
 test('a managed stack with a stopped container and Agent can be updated', shellOptions, (t) => {
@@ -340,6 +343,18 @@ function supervised(f) {
   }));
   write(path.join(f.root, 'snowluma/docker-compose.yml'), f.host.compose);
 }
+
+test('unchanged QQ supervision assets do not force container recreation', shellOptions, (t) => {
+  const f = fixture(t);
+  supervised(f);
+  f.host.allowMockWrites = true;
+  const result = f.run(['--yes']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const calls = fs.readFileSync(f.callsFile, 'utf8').trim().split('\n').map(JSON.parse);
+  const updates = calls.filter(([name, ...args]) => name === 'docker' && args.includes('up'));
+  assert.equal(updates.length, 1);
+  assert.ok(!updates[0].includes('--force-recreate'));
+});
 
 test('managed single-instance stack validates repeatedly without changing assets', shellOptions, (t) => {
   const f = fixture(t);

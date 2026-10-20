@@ -776,11 +776,17 @@ fi
   --ws-port 3001
 
 step 'Installing single-instance QQ supervision'
-"$NODE_BIN" "$SOURCE_DIR/scripts/qq-supervision.mjs" \
-  --target-dir "$SNOWLUMA_DIR/qq-supervision"
+QQ_SUPERVISION_RESULT="$("$NODE_BIN" "$SOURCE_DIR/scripts/qq-supervision.mjs" \
+  --target-dir "$SNOWLUMA_DIR/qq-supervision")"
+printf '%s\n' "$QQ_SUPERVISION_RESULT"
+QQ_SUPERVISION_CHANGED="$("$NODE_BIN" -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(0,"utf8")).changed ? "true" : "false")' <<<"$QQ_SUPERVISION_RESULT")"
+snowluma_up_args=(up -d)
+# Bind-mounted files pin their inode; atomically replaced assets require a new
+# container, even when Compose's paths and image reference did not change.
+if [[ "$QQ_SUPERVISION_CHANGED" == true ]]; then snowluma_up_args+=(--force-recreate); fi
 
 step 'Starting SnowLuma and OneBot'
-(cd "$SNOWLUMA_DIR" && docker_call compose --env-file .env up -d)
+(cd "$SNOWLUMA_DIR" && docker_call compose --env-file .env "${snowluma_up_args[@]}")
 wait_http "http://127.0.0.1:$SNOWLUMA_PORT/api/ui/public" 90 \
   || die "SnowLuma WebUI did not become ready; run: cd $SNOWLUMA_DIR && docker compose logs"
 wait_http "http://127.0.0.1:$NOVNC_PORT/" 30 \

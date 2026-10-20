@@ -110,7 +110,9 @@ inside the fixed SnowLuma PID namespace. It does not give the guardian root or
 ptrace capabilities, and this compatibility mode is refused outside that scope.
 
 Re-running the current installer preserves the supervision assets, verifies their
-hashes and refuses writable code mounts or unexpected data paths. Do not repair
+hashes and refuses writable code mounts or unexpected data paths. Changed assets
+force recreation of this container so atomically replaced bind-mounted files are
+actually rebound; unchanged assets alone do not force recreation. Do not repair
 an old double-instance installation by only restarting Supervisor's `qq` process:
 an earlier relaunch may have left a separate process group. First keep the Agent
 in observe mode, preserve the original data and inspect process ownership; then

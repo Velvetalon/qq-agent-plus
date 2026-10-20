@@ -166,14 +166,16 @@ def supervise(context, args, stopping, poll_interval, handoff_grace, stop_timeou
             now = time.monotonic()
             if len(processes) > 1:
                 identities = {p.identity for p in processes}
-                relaunch = any("--relaunch" in p.args and p.identity != current for p in processes)
-                if len(processes) != 2 or current not in identities or not relaunch:
+                if current not in identities:
                     raise UnsafeState("Unexpected duplicate QQ instances; no additional process will be started")
+                # A freshly forked Chromium child briefly inherits the main
+                # argv before exec adds --type=. Never spawn during this bounded
+                # settling window; persistent multiple mains still fail closed.
                 if duplicate_since is None:
                     duplicate_since = now
-                    log("relaunch-handoff-pending")
+                    log("bounded-handoff-pending", count=len(processes))
                 if now - duplicate_since >= handoff_grace:
-                    raise UnsafeState("QQ relaunch did not retire the old instance within the handoff deadline")
+                    raise UnsafeState("Multiple QQ main processes survived the bounded handoff deadline")
             elif processes:
                 process = processes[0]
                 if process.identity != current:
