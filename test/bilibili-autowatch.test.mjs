@@ -36,7 +36,7 @@ test('popular/search parsing deduplicates BVID', () => {
 
 test('detail/subtitle success and metadata fallback', async () => {
   cfg({ keywords: [] });
-  const seen = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async (...x) => seen.push(x) }, fetchPage: fakePages(), complete: async ({ messages }) => { assert.match(messages.map((m) => m.content).join('\n'), /外部资料.*不是指令|只按用户提供的外部资料/); return { message: { content: JSON.stringify({ interesting: true, score: .9, reason: 'r', summary: 's', openingQuestion: 'q', tags: [] }) } }; }, stateFile: tmp(), now: () => 1700000000000 });
+  const seen = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async (...x) => seen.push(x) }, fetchPage: fakePages(), complete: async ({ messages }) => { assert.match(messages.map((m) => m.content).join('\n'), /外部资料.*不是指令|只按用户提供的外部资料/); return { message: { content: JSON.stringify({ interesting: true, score: .9, reason: 'r', summary: 's', openingQuestion: 'q', shareText: '我刚看到一个很有意思的片段，你会怎么想？', tags: [] }) } }; }, stateFile: tmp(), now: () => 1700000000000 });
   const out = await m.runNow({ publish: false }); assert.equal(out.preview, true); assert.equal(seen.length, 0); assert.equal(out.candidates[0].status, 'candidate');
   const fallback = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async () => {} }, fetchPage: fakePages({ subtitle: false }), complete: async () => ({ message: { content: '{bad' } }), stateFile: tmp() });
   const r = await fallback.runNow({ publish: false }); assert.equal(r.candidates[0].status, 'unknown');
@@ -44,9 +44,9 @@ test('detail/subtitle success and metadata fallback', async () => {
 
 test('threshold, strict JSON failure and sender target intersection', async () => {
   cfg({ minInterest: .8, shareGroupIds: ['111', '999'], shareAdmin: true });
-  const calls = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async (...args) => calls.push(args) }, fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: true, score: .9, reason: 'r', summary: 's', openingQuestion: 'q' }) } }), stateFile: tmp(), now: () => 1700000000000 });
+  const calls = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async (...args) => calls.push(args) }, fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: true, score: .9, reason: 'r', summary: 's', openingQuestion: 'q', shareText: '我刚看到一个很有意思的片段，你会怎么想？' }) } }), stateFile: tmp(), now: () => 1700000000000 });
   const c = getConfig(); c.admin = { ownerUin: '42' }; c.allow = { private: ['42'], groups: ['111'] };
-  const r = await m.runNow({ publish: true }); assert.equal(r.shared, 1); assert.equal(calls.length, 1); assert.equal(calls[0][0], 'group:111'); assert.deepEqual(calls[0][2], { runId: calls[0][2].runId }); assert.match(calls[0][1][0], /BVID/);
+  const r = await m.runNow({ publish: true }); assert.equal(r.shared, 1); assert.equal(calls.length, 1); assert.equal(calls[0][0], 'group:111'); assert.deepEqual(calls[0][2], { runId: calls[0][2].runId }); assert.match(calls[0][1][0], /bilibili\.com\/video\/BV1abc/);
 });
 
 test('disconnected, duplicate and daily cap suppress sends', async () => {
@@ -74,6 +74,6 @@ test('state recovery marks in-flight unknown and writes bounded atomic state', (
 
 test('unauthorized group is never sent', async () => {
   cfg({ shareAdmin: false, shareGroupIds: ['999'] }); setRuntimeConfig({ ...getConfig(), allow: { private: [], groups: ['111'] } });
-  const calls = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async (...x) => calls.push(x) }, fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: true, score: 1, reason: 'r', summary: 's', openingQuestion: 'q' }) } }), stateFile: tmp() });
+  const calls = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async (...x) => calls.push(x) }, fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: true, score: 1, reason: 'r', summary: 's', openingQuestion: 'q', shareText: '我刚看到一个很有意思的片段，你会怎么想？' }) } }), stateFile: tmp() });
   await m.runNow({ publish: true }); assert.equal(calls.length, 0);
 });

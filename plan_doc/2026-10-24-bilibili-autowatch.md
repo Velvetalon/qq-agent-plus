@@ -28,7 +28,8 @@
 - `bilibiliAutowatch.enabled` 默认 false；启用后由现有 Agent 进程内定时器工作，受 `timeControl`、OneBot connected、运行中互斥、每日分享上限和冷却约束。
 - 生产配置显式启用时，目标默认为 `admin.ownerUin` 私聊；群目标只接受 `bilibiliAutowatch.shareGroupIds` 与 `allow.groups` 的交集，禁止向未授权群发送。
 - 分享调用现有 `SendQueue.sendTextBatch`，因此继承白名单/限频/outbox/unknown 停止策略；不自动重发 unknown，不扩大 allowlist。
-- 分享内容包含标题、UP、BVID/链接、模型生成的简短理由/摘要和自然问题（例如“你看过这类内容吗？”），形成正常自消息历史；管理员/群友后续回复由现有生命周期对话继续处理，不另建会话 Bot。
+- 分享内容由模型依据原有 `roleText` 生成一条有限长度的偶然发现式短消息，禁止固定“【B站分享】/UP/BVID/理由/摘要”报告模板；只在末尾附原视频链接。消息应包含具体观察和可自然承接的问题，但不编造亲身经历。管理员/群友后续回复由现有生命周期对话继续处理，不另建会话 Bot。
+- 默认低频策略：每日一轮（intervalMinutes=1440）、启动延迟10分钟、每日最多1条；用户反馈“过频且像搬运脚本”后，分享正文和调度均进一步收紧，保留模型自选是否有趣而不是强行发布。
 - 每轮最多分享一条，每日默认最多两条；同一 BVID 成功或 unknown 后不重复自动发送。无目标、OneBot 断开、抓取/模型失败都只记状态，不发异常消息。
 
 ### 3. 现有系统接线
