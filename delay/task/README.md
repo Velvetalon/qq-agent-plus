@@ -1,6 +1,14 @@
 # 项目开发任务索引
 
-## 最新：2026-10-20 上线后完整再归档
+## 最新：2026-10-24 低干预Harness与B站自主浏览
+
+- [B站当前部署/限制](../schedule/2026-10-24-bilibili-autowatch-result.md)：现有QQAgent内置B站发现/字幕理解/兴趣判断/管理员分享，线上92f89e4，低频每日一轮，群目标未启用。
+- [低干预提示词结果](../schedule/2026-10-24-neutral-harness-prompt-result.md)：删除人格风格竞争规则，保留安全/权限/工具/来源协议；78回归+4对照通过，6次线上合成模型对照HTTP200。
+- 待办：更广真实语义验收、B站接口长期稳定性、OneBot/SC8边界和CFG-RB01；不把一次管理员分享当全项目验收。
+
+以下历史进度保留。
+
+## 历史：2026-10-20 上线后完整再归档
 
 [当前全部工作与部署总交接](../schedule/2026-10-20-postdeployment-complete-archive.md)、[新鲜状态](../schedule/evidence/2026-10-20-postdeployment-complete-archive/result.json)、[新增17份运维源码封存](../implementation/2026-10-20-production-release-records/README.md)。全局workflow/model规则、五轮Luna工作、代码/测试、备份/失败/恢复、当前模型与隐私零索引都已串联。
 

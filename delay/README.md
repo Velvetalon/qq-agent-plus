@@ -1,6 +1,15 @@
 # 当前工作交接入口
 
-## 最新：2026-10-20 上线后全部工作再次完整归档
+## 最新：2026-10-24 中立Harness重构与B站自主浏览已部署
+
+- [B站功能与部署结果](schedule/2026-10-24-bilibili-autowatch-result.md)：线上revision `92f89e4`，OneBot connected，B站每日一轮/每日最多一条，今日旧格式历史分享2条，修正后未追加；未来分享改为roleText主导的短消息+链接。
+- [B站脱敏证据](schedule/evidence-2026-10-24-bilibili-autowatch.json)：8项B站测试、公开接口预览、Linux基线、数据备份和权限边界。
+- [低干预Harness结果](schedule/2026-10-24-neutral-harness-prompt-result.md)：提示词独立提交195aa11/8c8adcc/5710319，78项回归+4项对照、6次同上下文模型对照通过。
+- 当前未保存B站cookie/密码；公开接口已可用，登录验证码通道未具备。用户截图当前模型无法读取，不把无法观察的截图内容写成结论。
+
+以下为历史归档，不覆盖本节最新状态。
+
+## 历史：2026-10-20 上线后全部工作再次完整归档
 
 **先读[当前总交接](schedule/2026-10-20-postdeployment-complete-archive.md)**，配有[05:17新鲜只读状态](schedule/evidence/2026-10-20-postdeployment-complete-archive/result.json)和[17份新增上线/恢复源码封存](implementation/2026-10-20-production-release-records/README.md)。加上[此前16份准备期封存](implementation/2026-10-20-production-update/README.md)，关键运维代码不再仅留临时目录；业务代码/测试仍以Git为权威。
 
