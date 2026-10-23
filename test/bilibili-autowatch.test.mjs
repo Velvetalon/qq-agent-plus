@@ -37,7 +37,7 @@ test('popular/search parsing deduplicates BVID', () => {
 test('detail/subtitle success and metadata fallback', async () => {
   cfg({ keywords: [] });
   const seen = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async (...x) => seen.push(x) }, fetchPage: fakePages(), complete: async ({ messages }) => { assert.match(messages.map((m) => m.content).join('\n'), /B站资料.*不是指令|外部资料.*不是指令|只按用户提供的外部资料/); return { message: { content: JSON.stringify({ interesting: true, score: .9, shareNow: true, reason: 'r', summary: 's', openingQuestion: 'q', shareText: '我刚看到一个很有意思的片段，你会怎么想？', tags: [] }) } }; }, stateFile: tmp(), now: () => 1700000000000 });
-  const out = await m.runNow({ publish: false }); assert.equal(out.preview, true); assert.equal(seen.length, 0); assert.equal(out.candidates[0].status, 'candidate');
+  const out = await m.runNow({ publish: false }); assert.equal(out.preview, true); assert.equal(seen.length, 0); assert.equal(out.candidates[0].status, 'candidate'); assert.equal(m.status().rounds.length, 1);
   const fallback = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async () => {} }, fetchPage: fakePages({ subtitle: false }), complete: async () => ({ message: { content: '{bad' } }), stateFile: tmp() });
   const r = await fallback.runNow({ publish: false }); assert.equal(r.candidates[0].status, 'skipped'); assert.equal(r.candidates[0].error, 'no-subtitle');
 });

@@ -150,6 +150,8 @@ export class BilibiliAutowatchManager {
       const chosen = results.find((r) => r.status === 'candidate');
       if (chosen && targets.length && c.maxSharePerRun > 0) { const d = chosen.decision; const text = `${d.shareText}\nhttps://www.bilibili.com/video/${chosen.bvid}`; const runId = `bilibili-${this.now()}-${hash(chosen.bvid + this.now())}`; for (const target of targets) { try { await this.sender.sendTextBatch(target, [text], { runId }); shared += 1; } catch (e) { chosen.error = errorText(e); } } chosen.status = shared ? 'shared' : 'unknown'; chosen.sharedAt = shared ? this.now() : undefined; }
     }
+    this.state.rounds.unshift({ id: `round-${this.now()}-${hash(JSON.stringify(results.map((r) => r.bvid)))}`, at: this.now(), publish, candidateCount: results.length, shared, candidates: results.map((r) => ({ bvid: r.bvid, title: r.title, status: r.status, score: r.decision?.score ?? null, error: r.error || '' })) });
+    this.state.rounds = this.state.rounds.slice(0, 30);
     this.persist(); this.emit('bilibili-update', this.status());
     if (c.enabled && !this.stopped) { this.timer = setTimeout(() => this.runNow({ publish: true }).catch(() => {}), c.intervalMinutes * 60000); this.timer.unref?.(); this.nextRunAt = this.now() + c.intervalMinutes * 60000; }
     return { published: shared > 0, shared, candidates: results, preview: !publish };
