@@ -1,0 +1,15 @@
+{
+  "status": "DEPLOYED_AND_ADMIN_SHARE_VERIFIED",
+  "implementationCommits": ["d7c22c415f954a07a7af9c039fe9849c1a25b397", "1aba5b46bc77a913914b3a673bc0ceb1836a8685", "92f89e4b46dcd5141f0670ad9edeb12e897e7b47"],
+  "productionRevision": "92f89e4b46dcd5141f0670ad9edeb12e897e7b47",
+  "health": {"ok": true, "onebotConnected": true, "serviceActive": true, "restarts": 0},
+  "bilibili": {"enabled": true, "intervalMinutes": 1440, "startupDelayMs": 600000, "maxSharesPerDay": 1, "shareAdmin": true, "shareGroupIds": 0, "allowGroups": 1, "stateMode": "0600"},
+  "offlineTests": {"bilibili": {"pass": 8, "fail": 0, "skip": 0}, "promptRegression": {"pass": 78, "fail": 0, "skip": 0}, "neutralContrast": {"pass": 4, "fail": 0, "skip": 0}},
+  "publicBilibiliPreview": {"httpStatus": 200, "apiCode": 0, "candidateCount": 5, "login": false, "modelCalls": 0, "qqMessages": 0},
+  "controlledProductionRun": {"candidateCount": 3, "legacyFormatSharesBeforeHumanFeelFix": 2, "currentSharesTodayAfterFix": 2, "additionalShareAfterFix": 0, "qqTargetScope": "configured_admin_private_only", "unauthorizedGroupsSent": 0},
+  "linuxCandidateBaseline": {"pass": 833, "fail": 18, "skip": 26, "knownFailureFamily": "removed reflection/capability historical tests from origin 83f", "strictScan": "PASS"},
+  "businessBackup": {"sqliteQuickCheck": "ok", "messages": 11114, "outbox": 54, "conversationThreads": 2},
+  "credentials": {"bilibiliCookieOrPasswordPersisted": false, "qqOrModelCredentialsPrinted": false},
+  "limitations": ["Bilibili public endpoints are unofficial and may rate-limit/change", "no cookie means some subtitle/video cases degrade", "no video-frame/live-stream understanding", "not SC8 or general QQ acceptance"],
+  "rawOutputsStored": false
+}
