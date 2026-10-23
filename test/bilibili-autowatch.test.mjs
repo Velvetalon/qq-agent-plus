@@ -58,6 +58,14 @@ test('disconnected, duplicate and daily cap suppress sends', async () => {
   assert.equal((await m2.runNow({ publish: true })).reason, 'daily-cap'); assert.equal(calls.length, 0);
 });
 
+test('recent candidate is suppressed to avoid repeated model calls', async () => {
+  cfg({ maxSharesPerDay: 2 }); const state = tmp();
+  fs.writeFileSync(state, JSON.stringify({ records: [{ bvid: 'BV1abc', status: 'candidate', at: 1700000000000 }] }));
+  let calls = 0;
+  const m = new BilibiliAutowatchManager({ onebot: { connected: true }, sender: { sendTextBatch: async () => {} }, fetchPage: async (url) => { calls++; if (String(url).includes('/popular')) return result({ list: [{ bvid: 'BV1abc', title: 'one' }] }); throw new Error(`unexpected ${url}`); }, complete: async () => ({ message: { content: '{}' } }), stateFile: state, now: () => 1700000000000 + 1000 });
+  const output = await m.runNow({ publish: false }); assert.equal(output.candidates.length, 0); assert.equal(calls, 1);
+});
+
 test('state recovery marks in-flight unknown and writes bounded atomic state', () => {
   const state = tmp(); fs.writeFileSync(state, JSON.stringify({ records: [{ bvid: 'BVx', status: 'publishing' }] }));
   const m = new BilibiliAutowatchManager({ onebot: { connected: false }, stateFile: state, now: () => 123 });
