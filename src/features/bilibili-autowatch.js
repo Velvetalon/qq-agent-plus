@@ -10,7 +10,7 @@ import { timeControlState } from '../core/time-control.js';
 export const BILIBILI_STATE_FILE = path.join(DATA_DIR, 'bilibili-autowatch', 'state.json');
 export const DEFAULT_BILIBILI_AUTOWATCH = Object.freeze({
   enabled: false, intervalMinutes: 1440, startupDelayMs: 600000,
-  maxCandidates: 10, maxAnalyses: 3, maxSharePerRun: 1, maxSharesPerDay: 1,
+  maxCandidates: 10, maxAnalyses: 3, maxSharePerRun: 1, maxSharesPerDay: 1, maxOffersPerWeek: 2,
   minInterest: 0.7, keywords: [], shareAdmin: true, shareGroupIds: [],
   maxSubtitleChars: 12000, maxDescriptionChars: 1200, maxShareTextChars: 600,
   requireSubtitle: true
@@ -29,6 +29,7 @@ export function normalizeBilibiliConfig(raw = {}) {
     maxAnalyses: num(raw.maxAnalyses, 3, 1, 30),
     maxSharePerRun: num(raw.maxSharePerRun, 1, 0, 20),
     maxSharesPerDay: num(raw.maxSharesPerDay, 1, 0, 100),
+    maxOffersPerWeek: num(raw.maxOffersPerWeek, 2, 0, 20),
     minInterest: num(raw.minInterest, 0.7, 0, 1),
     keywords: Array.isArray(raw.keywords) ? raw.keywords.map((x) => clean(x, 80)).filter(Boolean).slice(0, 30) : [],
     shareAdmin: raw.shareAdmin !== false,
@@ -181,6 +182,7 @@ export class BilibiliAutowatchManager {
   status() {
     const config = this.cfg();
     const offersToday = this.state.records.filter((r) => r.status === 'offered' && dayKey(r.at || 0) === dayKey(this.now())).length;
+    const offersWeek = this.state.records.filter((r) => r.status === 'offered' && Number(r.at || 0) >= this.now() - 7 * DAY).length;
     return {
       enabled: config.enabled,
       running: Boolean(this.running),
@@ -189,6 +191,7 @@ export class BilibiliAutowatchManager {
       records: this.state.records.slice(0, 20),
       rounds: this.state.rounds.slice(0, 10),
       offersToday,
+      offersWeek,
       sharesToday: offersToday,
       shareDecisionDelegatedToLifecycle: true
     };
@@ -234,7 +237,9 @@ export class BilibiliAutowatchManager {
     assertTimeAllowed('');
     if (publish && this.onebot?.connected !== true) return { published: false, reason: 'onebot-disconnected', candidates: [] };
     const offersToday = this.state.records.filter((r) => r.status === 'offered' && dayKey(r.at || 0) === dayKey(this.now())).length;
+    const offersWeek = this.state.records.filter((r) => r.status === 'offered' && Number(r.at || 0) >= this.now() - 7 * DAY).length;
     if (publish && offersToday >= config.maxSharesPerDay) return { published: false, reason: 'daily-cap', candidates: [] };
+    if (publish && offersWeek >= config.maxOffersPerWeek) return { published: false, reason: 'weekly-cap', candidates: [] };
     const urls = config.keywords.length
       ? config.keywords.map((keyword) => `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(keyword)}`)
       : ['https://api.bilibili.com/x/web-interface/popular?ps=10'];

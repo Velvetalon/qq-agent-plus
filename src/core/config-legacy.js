@@ -264,6 +264,7 @@ export const DEFAULT_CONFIG = {
     maxAnalyses: 4,
     maxSharePerRun: 1,
     maxSharesPerDay: 1,
+    maxOffersPerWeek: 2,
     minInterest: 0.7,
     keywords: [],
     shareAdmin: true,
