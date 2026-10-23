@@ -18,6 +18,7 @@ import { SessionRegistry, personaLabelOfPrompt, sessionAuditView, sessionSocialA
 import { Orchestrator } from '../core/orchestrator.js';
 import { SocialInterestStore } from '../conversation/interests.js';
 import { DailyMomentsManager } from '../features/daily-moments.js';
+import { BilibiliAutowatchManager } from '../features/bilibili-autowatch.js';
 import { QzoneInteractionManager } from '../features/qzone-interactions.js';
 import { listModels, chatCompletion, resolveApiKey, cachedTokensOfUsage } from '../llm/llm.js';
 import { resolveOfficialPrice, listOfficialPrices, listModelAliases, isPeakHour, priceAt, resolveModelPrice, costModeOf, modelLabel, splitModelLabel, vendorOfConfig, UNKNOWN_VENDOR } from '../pricing/model-prices.js';
@@ -804,6 +805,12 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
       orchestrator.setProactiveSuppressed('daily-moments', suppressed),
     emit,
     log: moduleLog('daily-moments')
+  });
+  const bilibiliAutowatch = new BilibiliAutowatchManager({
+    sender,
+    onebot,
+    emit,
+    log: moduleLog('bilibili-autowatch')
   });
   const qzoneInteractions = new QzoneInteractionManager({
     onebot,
@@ -2688,6 +2695,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         const previousSelfEvolution = structuredClone(getConfig().selfEvolution || {});
         const previousProactive = JSON.stringify(cfgNow.proactive || {});
         const previousDailyMoments = JSON.stringify(cfgNow.dailyMoments || {});
+        const previousBilibiliAutowatch = JSON.stringify(cfgNow.bilibiliAutowatch || {});
         const previousQzoneInteractions = JSON.stringify(cfgNow.qzoneInteractions || {});
         const previousIdentityPilot = JSON.stringify(cfgNow.identityPilot || {});
         const previousPersona = JSON.stringify(cfgNow.persona || {});
@@ -2722,6 +2730,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
         }
         if (JSON.stringify(next.dailyMoments || {}) !== previousDailyMoments) {
           dailyMoments.reconfigure();
+        }
+        if (JSON.stringify(next.bilibiliAutowatch || {}) !== previousBilibiliAutowatch) {
+          bilibiliAutowatch.reconfigure();
         }
         if (JSON.stringify(next.qzoneInteractions || {}) !== previousQzoneInteractions) {
           qzoneInteractions.reconfigure();
@@ -2810,6 +2821,23 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
 
       if (pathname === '/api/daily-moments/status' && method === 'GET') {
         return json(res, 200, dailyMoments.status());
+      }
+
+      if (pathname === '/api/bilibili/status' && method === 'GET') {
+        if (!authorize(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        return json(res, 200, bilibiliAutowatch.status());
+      }
+      if (pathname === '/api/bilibili/run' && method === 'POST') {
+        if (!authorizeWrite(req)) return apiFailure(res, 401, 'UNAUTHORIZED', '未授权');
+        let body;
+        try { body = await readJsonBody(req); }
+        catch (error) { return apiFailure(res, error?.httpStatus || 400, error?.code || 'INVALID_BODY', String(error?.message ?? error)); }
+        try {
+          return json(res, 200, await bilibiliAutowatch.runNow({ publish: body?.publish === true }));
+        } catch (error) {
+          const safe = ['BILIBILI_BUSY', 'BILIBILI_DISABLED', 'TIME_CONTROL_INACTIVE'].includes(String(error?.code || ''));
+          return apiFailure(res, safe ? (error.httpStatus || 409) : 500, safe ? error.code : 'BILIBILI_RUN_FAILED', safe ? error.message : 'B站任务执行失败');
+        }
       }
 
       if (pathname === '/api/qzone-interactions/status' && method === 'GET') {
@@ -4560,6 +4588,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     });
     orchestrator.startRecoveryLoop();
     if (getConfig().dailyMoments?.enabled) dailyMoments.start();
+    if (getConfig().bilibiliAutowatch?.enabled) bilibiliAutowatch.start();
     if (getConfig().qzoneInteractions?.enabled) qzoneInteractions.start();
     if (getConfig().proactive?.enabled) orchestrator.startProactiveLoop();
     orchestrator.startScheduledWakeTicker();
@@ -4575,6 +4604,8 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     releaseTimeControl();
     dailyMoments.stop();
     dailyMoments.abort();
+    bilibiliAutowatch.stop();
+    bilibiliAutowatch.abort();
     qzoneInteractions.stop();
     await qzoneInteractions.abort();
     autoUpdate.stop();
@@ -4617,6 +4648,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     sessions,
     orchestrator,
     dailyMoments,
+    bilibiliAutowatch,
     qzoneInteractions,
     assetObserver,
     autoUpdate,

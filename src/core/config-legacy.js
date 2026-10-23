@@ -255,6 +255,22 @@ export const DEFAULT_CONFIG = {
     maxResearchCalls: 4,
     maxRounds: 8
   },
+  // B站公共视频候选与受限分享。默认关闭，不保存 cookie 或字幕全文。
+  bilibiliAutowatch: {
+    enabled: false,
+    intervalMinutes: 180,
+    startupDelayMs: 30000,
+    maxCandidates: 12,
+    maxAnalyses: 4,
+    maxSharePerRun: 1,
+    maxSharesPerDay: 2,
+    minInterest: 0.7,
+    keywords: [],
+    shareAdmin: true,
+    shareGroupIds: [],
+    maxSubtitleChars: 12000,
+    maxDescriptionChars: 1200
+  },
   // 好友动态阅览、点赞评论与评论回复。默认关闭，启用后按上海时间周期轮询。
   qzoneInteractions: {
     enabled: false,
