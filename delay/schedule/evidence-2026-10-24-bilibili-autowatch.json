@@ -6,7 +6,7 @@
   "bilibili": {"enabled": true, "intervalMinutes": 1440, "startupDelayMs": 600000, "maxSharesPerDay": 1, "shareAdmin": true, "shareGroupIds": 0, "allowGroups": 1, "requireSubtitle": true, "stateMode": "0600", "roundSummariesPersisted": true, "maxOffersPerWeek": 2},
   "offlineTests": {"bilibili": {"pass": 8, "fail": 0, "skip": 0}, "promptRegression": {"pass": 78, "fail": 0, "skip": 0}, "neutralContrast": {"pass": 4, "fail": 0, "skip": 0}},
   "publicBilibiliPreview": {"httpStatus": 200, "apiCode": 0, "candidateCount": 5, "login": false, "modelCalls": 0, "qqMessages": 0},
-  "controlledProductionRun": {"candidateCount": 3, "legacyFormatSharesBeforeHumanFeelFix": 2, "currentDirectSharesAfterLifecycleFix": 0, "qqTargetScope": "Lifecycle_wake_to_configured_admin_private_only", "unauthorizedGroupsSent": 0, "bilibiliDirectSenderCalls": 0, "decisionDelegatedToExistingAgent": true},
+  "controlledProductionRun": {"candidateCount": 3, "legacyFormatSharesBeforeHumanFeelFix": 2, "currentDirectSharesAfterLifecycleFix": 0, "lifecycleRoundCandidates": 2, "lifecycleRoundOffered": 0, "lifecycleRoundShared": 0, "qqTargetScope": "Lifecycle_wake_to_configured_admin_private_only", "unauthorizedGroupsSent": 0, "bilibiliDirectSenderCalls": 0, "decisionDelegatedToExistingAgent": true},
   "linuxCandidateBaseline": {"pass": 833, "fail": 18, "skip": 26, "knownFailureFamily": "removed reflection/capability historical tests from origin 83f", "strictScan": "PASS"},
   "businessBackup": {"sqliteQuickCheck": "ok", "messages": 11114, "outbox": 54, "conversationThreads": 2},
   "credentials": {"bilibiliCookieOrPasswordPersisted": false, "qqOrModelCredentialsPrinted": false},
