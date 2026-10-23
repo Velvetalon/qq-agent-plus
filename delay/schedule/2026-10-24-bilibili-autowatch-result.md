@@ -6,14 +6,14 @@
 
 没有安装独立 dsh Bot。参考了公开的 [`dsh-bili-scroll`](https://github.com/lll-77777777/dsh-bili-scroll)、[`dsh-bili-summary`](https://github.com/YZz-S/dsh-bili-summary) 和 [`dsh-bili-jar`](https://github.com/Debuger-114514/dsh-bili-jar)：它们共同的有效点是“定时一轮、字幕优先、有限候选、模型策展、默认限制评论/发送”，但各自依赖独立 DSH profile、Python/MCP/cookie 或自己的发送链，不适合直接塞进现有服务。
 
-用户指出第一版“固定报告模板+高频轮询”不像活在电脑里的QQAgent。已按 `dsh-bili-scroll` 的整体逻辑再次修正，而不是只改发送文本：每日一轮、字幕优先、轮次状态、近期候选抑制、当前管理员上下文参与“现在是否适合打扰”的判断、模型生成角色主导的短分享、无字幕默认跳过、每日一条上限。最终代码为 [`498c912`](https://github.com/Velvetalon/qq-agent-plus/commit/498c912e3125f384ab1a1a347891d0a709878713)。
+用户指出第一版“固定报告模板+高频轮询”不像活在电脑里的QQAgent。进一步阅读分享链接后确认，真正的架构问题是B站模块自己生成文案并直接发送，绕开了QQAgent Lifecycle。已按 `dsh-bili-scroll` 的整体逻辑和链接中的架构建议重构，而不是只改发送文本：后台每日轮次、字幕优先、轮次状态、近期候选抑制、B站只形成活动记录；再通过现有Orchestrator Lifecycle唤醒真正QQAgent，由人物卡、最近聊天、记忆和这次发现决定分享、延后或沉默。最终代码为 [`88588bd`](https://github.com/Velvetalon/qq-agent-plus/commit/88588bd463606774179bd8532bd681bf7a573e14)。
 
 本项目实现为 `src/features/bilibili-autowatch.js`：公开 B站 API + 现有安全抓取层 + 现有 DeepSeek + 现有 `SendQueue`。所有分享仍经白名单、限频、outbox、unknown 停止策略；管理员目标取 `admin.ownerUin` 且必须在 `allow.private`，群目标必须同时出现在 `shareGroupIds` 与 `allow.groups`。入站回复继续走已有 lifecycle 对话。
 
 ## 实际部署
 
 - 本地已快进 `origin/main` 到 `83f16f7`，之后推送提示词重构及B站实现提交。
-- 线上最终 revision：`01e9807ffff4aa5c010c683a5201a0f927b8c0e3`，服务 active/running/enabled，NRestarts=0，health ok，OneBot connected=true。该版本还持久化每轮候选/筛选/分享摘要，仍不保存字幕全文。
+- 线上最终 revision：`88588bd463606774179bd8532bd681bf7a573e14`，服务 active/running/enabled，NRestarts=0，health ok，OneBot connected=true。该版本把发现作为活动记录交给现有Lifecycle，仍不保存字幕全文。
 - 首次上线候选 `5710319` 已先做静止业务备份：SQLite quick_check=ok，聚合计数 messages=11114、outbox=54、conversation_threads=2；后续代码修正沿用原数据与部署快照。
 - B站最终配置：enabled=true、每日一轮 `intervalMinutes=1440`、启动延迟600000ms、每日最多1条、`requireSubtitle=true`、管理员分享开启、群目标0；allow.groups 当前仍有1个但未自动启用群分享。
 - 低频修正后没有追加新的测试消息；今日已有第一版旧模板分享2条，当前日上限1因此不会再发。旧记录保留，后续新轮采用角色主导的自然短消息格式。
@@ -23,7 +23,7 @@
 - B站离线专项最终 **8/8 PASS**；覆盖默认关闭、热门/搜索解析去重、详情/字幕降级、严格JSON、兴趣阈值、preview、管理员/allow群交集、OneBot断开、每日上限、近期候选抑制和状态恢复。
 - 本地公开B站热门接口预览成功：HTTP200、code0、取得5条候选；无登录、无模型、无QQ发送。
 - 目标Linux候选全量：833 PASS / 18 FAIL / 26 SKIP；18个失败均来自上游83f提交已移除 reflection/capability 功能的旧测试（如 reflection history/profile/leased jobs/UI），不是B站测试；严格未定义调用扫描通过。Windows全量仍有历史平台环境失败，不宣称全量绿。
-- 生产实际第一版自动/手动轮次共产生3候选、2条旧格式分享；用户反馈后已重新部署dsh式每日轮次/字幕优先版本，当前状态记录权限0600，未保存cookie或字幕全文；下一轮才会写入新的rounds摘要和自然分享格式。
+- 生产实际第一版自动/手动轮次共产生3候选、2条旧格式分享；用户反馈和架构复核后，已重新部署Lifecycle集成版本。当前状态记录权限0600，未保存cookie或字幕全文；下一轮只产生活动记录并唤醒QQAgent，是否发言由Lifecycle决定，B站模块不再直发。
 
 ## “活人感”修正
 
