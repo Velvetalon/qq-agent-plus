@@ -4,16 +4,18 @@
 
 ## 采用方案
 
+本次复核了用户提供的[ChatGPT架构讨论](https://chatgpt.com/share/6adbc07c-24b0-83e9-b747-e7038d37a5e8)。其中最关键的结论是：当前B站模块如果自己生成分享文案并直发，就算把文案改得口语化仍是搬运脚本；正确边界是“B站后台提供新经历，真正QQAgent Lifecycle获得一次聊天机会”。该结论已落实到88588bd/9d6b88d：B站模块不再直接调用SendQueue分享。
+
 没有安装独立 dsh Bot。参考了公开的 [`dsh-bili-scroll`](https://github.com/lll-77777777/dsh-bili-scroll)、[`dsh-bili-summary`](https://github.com/YZz-S/dsh-bili-summary) 和 [`dsh-bili-jar`](https://github.com/Debuger-114514/dsh-bili-jar)：它们共同的有效点是“定时一轮、字幕优先、有限候选、模型策展、默认限制评论/发送”，但各自依赖独立 DSH profile、Python/MCP/cookie 或自己的发送链，不适合直接塞进现有服务。
 
-用户指出第一版“固定报告模板+高频轮询”不像活在电脑里的QQAgent。进一步阅读分享链接后确认，真正的架构问题是B站模块自己生成文案并直接发送，绕开了QQAgent Lifecycle。已按 `dsh-bili-scroll` 的整体逻辑和链接中的架构建议重构，而不是只改发送文本：后台每日轮次、字幕优先、轮次状态、近期候选抑制、B站只形成活动记录；再通过现有Orchestrator Lifecycle唤醒真正QQAgent，由人物卡、最近聊天、记忆和这次发现决定分享、延后或沉默。最终代码为 [`88588bd`](https://github.com/Velvetalon/qq-agent-plus/commit/88588bd463606774179bd8532bd681bf7a573e14)。
+用户指出第一版“固定报告模板+高频轮询”不像活在电脑里的QQAgent。进一步阅读分享链接后确认，真正的架构问题是B站模块自己生成文案并直接发送，绕开了QQAgent Lifecycle。已按 `dsh-bili-scroll` 的整体逻辑和链接中的架构建议重构，而不是只改发送文本：后台每日轮次、字幕优先、轮次状态、近期候选抑制、B站只形成活动记录；再通过现有Orchestrator Lifecycle唤醒真正QQAgent，由人物卡、最近聊天、记忆和这次发现决定分享、延后或沉默。最终代码为 [`88588bd`](https://github.com/Velvetalon/qq-agent-plus/commit/88588bd463606774179bd8532bd681bf7a573e14)，之后又加入每周最多两次Lifecycle分享机会的 [`9d6b88d`](https://github.com/Velvetalon/qq-agent-plus/commit/9d6b88dbbce8a39092f132f7fd0e5e3144a280a6)。
 
 本项目实现为 `src/features/bilibili-autowatch.js`：公开 B站 API + 现有安全抓取层 + 现有 DeepSeek + 现有 `SendQueue`。所有分享仍经白名单、限频、outbox、unknown 停止策略；管理员目标取 `admin.ownerUin` 且必须在 `allow.private`，群目标必须同时出现在 `shareGroupIds` 与 `allow.groups`。入站回复继续走已有 lifecycle 对话。
 
 ## 实际部署
 
 - 本地已快进 `origin/main` 到 `83f16f7`，之后推送提示词重构及B站实现提交。
-- 线上最终 revision：`88588bd463606774179bd8532bd681bf7a573e14`，服务 active/running/enabled，NRestarts=0，health ok，OneBot connected=true。该版本把发现作为活动记录交给现有Lifecycle，仍不保存字幕全文。
+- 线上最终 revision：`9d6b88dbbce8a39092f132f7fd0e5e3144a280a6`，服务 active/running/enabled，NRestarts=0，health ok，OneBot connected=true。该版本把发现作为活动记录交给现有Lifecycle，仍不保存字幕全文。
 - 首次上线候选 `5710319` 已先做静止业务备份：SQLite quick_check=ok，聚合计数 messages=11114、outbox=54、conversation_threads=2；后续代码修正沿用原数据与部署快照。
 - B站最终配置：enabled=true、每日一轮 `intervalMinutes=1440`、启动延迟600000ms、每日最多1条、`requireSubtitle=true`、管理员分享开启、群目标0；allow.groups 当前仍有1个但未自动启用群分享。
 - 低频修正后没有追加新的测试消息；今日已有第一版旧模板分享2条，当前日上限1因此不会再发。旧记录保留，后续新轮采用角色主导的自然短消息格式。
