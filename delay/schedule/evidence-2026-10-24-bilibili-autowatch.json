@@ -1,9 +1,9 @@
 {
   "status": "DEPLOYED_AND_ADMIN_SHARE_VERIFIED",
-  "implementationCommits": ["d7c22c415f954a07a7af9c039fe9849c1a25b397", "1aba5b46bc77a913914b3a673bc0ceb1836a8685", "92f89e4b46dcd5141f0670ad9edeb12e897e7b47"],
-  "productionRevision": "92f89e4b46dcd5141f0670ad9edeb12e897e7b47",
+  "implementationCommits": ["d7c22c415f954a07a7af9c039fe9849c1a25b397", "1aba5b46bc77a913914b3a673bc0ceb1836a8685", "92f89e4b46dcd5141f0670ad9edeb12e897e7b47", "498c912e3125f384ab1a1a347891d0a709878713"],
+  "productionRevision": "498c912e3125f384ab1a1a347891d0a709878713",
   "health": {"ok": true, "onebotConnected": true, "serviceActive": true, "restarts": 0},
-  "bilibili": {"enabled": true, "intervalMinutes": 1440, "startupDelayMs": 600000, "maxSharesPerDay": 1, "shareAdmin": true, "shareGroupIds": 0, "allowGroups": 1, "stateMode": "0600"},
+  "bilibili": {"enabled": true, "intervalMinutes": 1440, "startupDelayMs": 600000, "maxSharesPerDay": 1, "shareAdmin": true, "shareGroupIds": 0, "allowGroups": 1, "requireSubtitle": true, "stateMode": "0600", "intervalMinutes": 1440, "maxSharesPerDay": 1},
   "offlineTests": {"bilibili": {"pass": 8, "fail": 0, "skip": 0}, "promptRegression": {"pass": 78, "fail": 0, "skip": 0}, "neutralContrast": {"pass": 4, "fail": 0, "skip": 0}},
   "publicBilibiliPreview": {"httpStatus": 200, "apiCode": 0, "candidateCount": 5, "login": false, "modelCalls": 0, "qqMessages": 0},
   "controlledProductionRun": {"candidateCount": 3, "legacyFormatSharesBeforeHumanFeelFix": 2, "currentSharesTodayAfterFix": 2, "additionalShareAfterFix": 0, "qqTargetScope": "configured_admin_private_only", "unauthorizedGroupsSent": 0},
