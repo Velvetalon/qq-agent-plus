@@ -807,9 +807,9 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
     log: moduleLog('daily-moments')
   });
   const bilibiliAutowatch = new BilibiliAutowatchManager({
-    sender,
     onebot,
     store,
+    wakeChat: (chatKey, wakeNote) => orchestrator.wake(chatKey, { proactive: true, wakeNote }),
     emit,
     log: moduleLog('bilibili-autowatch')
   });
