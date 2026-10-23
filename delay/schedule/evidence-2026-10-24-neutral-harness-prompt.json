@@ -1,0 +1,23 @@
+{
+  "status": "PASS_WITHIN_PROMPT_PROTOCOL_SCOPE",
+  "commit": "195aa118d61944907ba98789cb8f0efaa7e91eac",
+  "targetedRegression": {"tests": 78, "pass": 78, "fail": 0, "skipped": 0},
+  "contrastTest": {"tests": 4, "pass": 4, "fail": 0},
+  "liveModelComparison": {
+    "model": "deepseek/deepseek-v4.1-flash-1017",
+    "requests": 6,
+    "http200": 6,
+    "qqMessagesSent": 0,
+    "rawOutputsStored": false,
+    "before": {"mainChars": 7670, "socialPlannerChars": 1448, "socialReplyerChars": 960, "momentChars": 1885, "qzoneChars": 1050},
+    "after": {"mainChars": 4610, "socialPlannerChars": 1332, "socialReplyerChars": 735, "momentChars": 869, "qzoneChars": 674},
+    "mainToolCalls": ["send_message", "send_message"],
+    "plannerJson": [true, true],
+    "plannerActions": ["reply", "reply"],
+    "replyerToolCalls": ["send_message", "send_message"]
+  },
+  "roleTextKeptAsPrimarySource": true,
+  "runtimeSafetyAndToolProtocolKept": true,
+  "realQQAcceptance": false,
+  "generalNaturalnessProof": false
+}
