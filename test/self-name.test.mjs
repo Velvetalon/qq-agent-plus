@@ -23,17 +23,17 @@ test('名字优先级：群内展示名 > 账号昵称 > 机器人名字', () =>
 
 test('说说 / 空间互动 / 好友评估也认账号昵称，不再自称机器人名字', () => {
   const moment = buildMomentSystemPrompt(PERSONA, { accountNickname: '犊子' });
-  assert.ok(moment.includes('以「犊子」的身份'), `说说提示词该用群友看到的名字：${moment.slice(0, 60)}`);
+  assert.ok(moment.includes('以「犊子」的角色资料'), `说说提示词该用群友看到的名字：${moment.slice(0, 80)}`);
   assert.ok(!moment.includes('「小鲸鱼」'), '不该再出现机器人名字顶替群名片');
 
   const qzone = buildQzoneInteractionPrompt(PERSONA, { accountNickname: '犊子' });
-  assert.ok(qzone.includes('以「犊子」的身份'));
+  assert.ok(qzone.includes('以「犊子」的角色资料'));
 
   const review = buildFriendReviewSystemPrompt(PERSONA, { accountNickname: '犊子' });
   assert.ok(review.includes('你是「犊子」'));
 
   // 没传账号昵称时退回机器人名字（旧行为，保证兼容）
-  assert.ok(buildMomentSystemPrompt(PERSONA).includes('以「小鲸鱼」的身份'));
+  assert.ok(buildMomentSystemPrompt(PERSONA).includes('以「小鲸鱼」的角色资料'));
   assert.ok(buildFriendReviewSystemPrompt(PERSONA).includes('你是「小鲸鱼」'));
 });
 

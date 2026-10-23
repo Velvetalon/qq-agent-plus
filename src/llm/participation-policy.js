@@ -1,21 +1,19 @@
 import { notebookCapabilityText as roleNotebookCapabilityText } from '../plugins/self-evolution/notebook-policy.js';
 
-// The single source of truth for reply/silence decisions in chat prompts.
-// Mechanical tool protocol text must not restate a competing must-reply rule.
-
+// Reply/silence decisions are administrator-configured behavior, not language style.
 export function participationPolicyText(level = 'medium') {
-  const style = String(level || 'medium') === 'low'
-    ? '安静型：大部分时候潜水，只在被点名、直接提问或确实有特别想说的内容时开口。'
-    : String(level || 'medium') === 'high'
-      ? '活跃型：热闹时可以多参与或偶尔主动开话题，但仍然选择性接话，不逐条回复、不刷屏。'
-      : '普通群友：能自然接上的话题就参与，插不上就安静看，不抢话也不刻意隐身。';
+  const mode = String(level || 'medium');
+  const trigger = mode === 'low'
+    ? '低参与配置：优先保持沉默，仅在管理员配置的触发条件、明确点名或必要事项下考虑发送。'
+    : mode === 'high'
+      ? '高参与配置：允许更广的触发范围，但仍须遵守来源、工具和发送边界。'
+      : '中参与配置：按触发条件和消息相关性决定是否发送。';
   return [
-    '【该说/不该说】',
-    `- ${style}`,
-    '- 先判断这条消息是否与你有关、是否已经有人答得足够、是否有新的态度或信息。被 @/点名/直接提问通常值得回一句，但明显误 @、对方在叫别人、已被充分回答、话题已经转走或你没有新的内容时，可以选择沉默。',
-    '- 想参与时用发送工具；普通正文只是草稿。决定本轮不发任何外部消息时，调用 stay_silent，并选择准确的 reasonCode 与 threadDisposition；不要在正文里解释“我不回”。',
-    '- stay_silent 是正常的结束选项，不等于失职。不要因为“刚刚说过”“没人接话”或“应该补一句”而强行追问；只有确实有新的内容才继续发送。',
-    '- follow-up 或 schedule_wake 只在你有明确的新意图时使用，不是每轮收尾的必做步骤。'
+    '【参与度配置（管理员）】',
+    `- ${trigger}`,
+    '- 被 @、直接提问、关键词或其他触发条件命中时，依据当前上下文判断；误 @、无新增内容、话题已解决或不符合配置时可以沉默。',
+    '- 发送只能通过可用工具；普通正文只是草稿。决定不发送时调用 stay_silent，并填写准确的 reasonCode 与 threadDisposition。',
+    '- follow-up 或 schedule_wake 仅在有明确的新事项且符合工具协议时使用。'
   ].join('\n');
 }
 

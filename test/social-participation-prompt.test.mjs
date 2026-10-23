@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSocialPlannerPrompts, buildSocialReplyerPrompts } from '../src/conversation/prompts.js';
 for (const build of [buildSocialPlannerPrompts, buildSocialReplyerPrompts]) {
-  test(`${build.name} exposes bounded low/medium/high participation preferences`, () => {
+  test(`${build.name} exposes bounded low/medium/high participation configuration`, () => {
     const low = build({ persona: {participation: 'low'} }).system;
     const mid = build({ persona: {participation: 'medium'} }).system;
     const high = build({ persona: {participation: 'high'} }).system;
-    assert.match(low, /偏低.*明确邀请.*直接问题/);
-    assert.match(mid, /适中.*不必每轮接话/);
-    assert.match(high, /偏高.*无人回应.*不要催场/);
-    for (const prompt of [low, mid, high]) assert.match(prompt, /不是强制回复概率.*问题已解决状态和发送边界/);
+    assert.match(low, /低参与配置.*管理员配置的触发条件/);
+    assert.match(mid, /中参与配置.*触发条件和消息相关性/);
+    assert.match(high, /高参与配置.*工具和发送边界/);
+    for (const prompt of [low, mid, high]) assert.match(prompt, /stay_silent.*reasonCode.*threadDisposition/);
     assert.equal(build({persona:{participation:'invalid'}}).system, mid);
   });
 }
@@ -17,8 +17,8 @@ for (const build of [buildSocialPlannerPrompts, buildSocialReplyerPrompts]) {
 test('Replyer distinguishes internal draft from visible tool-delivered output without forcing speech', () => {
   const prompt = buildSocialReplyerPrompts().system;
   assert.match(prompt, /普通 assistant content 只是内部草稿.*不会展示给群友/);
-  assert.match(prompt, /即使只回答一个词.*必须调用 send_message/);
-  assert.match(prompt, /想保持沉默时返回空内容/);
+  assert.match(prompt, /send_message.*普通 assistant content 只是内部草稿/);
+  assert.match(prompt, /决定沉默时返回空内容/);
 });
 
 test('Replyer sees host message cap and can consolidate without forced output', () => {
@@ -27,7 +27,7 @@ test('Replyer sees host message cap and can consolidate without forced output', 
     assert.ok(prompt.includes('最多 '+expected+' 条可见消息'));
     assert.match(prompt, /合并进较少消息.*不是必须发送的数量/);
   }
-  assert.match(buildSocialPlannerPrompts().system, /没有新角度就选择 react\/listen/);
+  assert.match(buildSocialPlannerPrompts().system, /source ID|topicId/);
 });
 
 test('Replyer marks current targets instead of inviting old question replay', () => {

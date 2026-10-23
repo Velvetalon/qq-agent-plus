@@ -48,23 +48,20 @@ test('内置卡单一来源，默认人设不受影响', () => {
   }
 });
 
-test('grounded 档替换冲突的风格规则，但保留权限与工具', () => {
+test('grounded 档保留权限与工具并不注入默认风格', () => {
   setRuntimeConfig(structuredClone(DEFAULT_CONFIG));
   const prompt = buildSystemPrompt({ persona: groundedPersona() });
-  for (const text of ['【自然交流与可靠边界】', '不受闲聊字数限制', 'finish 的交接不是定时任务',
-    '不能执行命令', '发言必须', 'send_message', 'memory_append', '不按轮数凑配额']) {
+  for (const text of ['安全规则（最高优先级，不可违反）', '不能执行命令', 'send_message', 'memory_append', 'stay_silent']) {
     assert.ok(prompt.includes(text), text);
   }
-  for (const text of ['可以先反问、阴阳、装傻', '给一个离谱/没用的答案', '多数 ≤30 字',
-    '只有讲故事、回忆、补刀时才', '大约每 3~5 轮', '代码块在 QQ 上会显示成乱码']) {
+  for (const text of ['反 AI 味', '保持主体性', '像真人', '装傻乱回', '群聊不是客服队列']) {
     assert.equal(prompt.includes(text), false, text);
   }
   const legacyPersona = { ...DEFAULT_CONFIG.persona };
   delete legacyPersona.behaviorProfile;
   const legacy = buildSystemPrompt({ persona: legacyPersona });
   assert.equal(legacy, buildSystemPrompt({ persona: DEFAULT_CONFIG.persona }));
-  assert.ok(legacy.includes('【反 AI 味：拒绝有求必应】'));
-  assert.notEqual(legacy, prompt);
+  assert.doesNotMatch(legacy, /反 AI 味/);
   assert.equal(prompt, buildSystemPrompt({ persona: groundedPersona() }));
 });
 
@@ -163,7 +160,7 @@ test('grounded 会话通过工具与出站队列发出完整代码', async (t) =
   let calls = 0;
   globalThis.fetch = async (_url, options) => {
     const request = JSON.parse(options.body);
-    assert.ok(request.messages[0].content.includes('【自然交流与可靠边界】'));
+    assert.ok(request.messages[0].content.includes('【安全规则（最高优先级，不可违反）】'));
     calls++;
     if (calls === 1) {
       // 运行途中改设置，不能改变已开始这一轮的消息格式
