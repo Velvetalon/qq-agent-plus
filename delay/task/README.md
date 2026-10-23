@@ -2,7 +2,7 @@
 
 ## 最新：2026-10-24 低干预Harness与B站自主浏览
 
-- [B站当前部署/限制](../schedule/2026-10-24-bilibili-autowatch-result.md)：现有QQAgent内置B站发现/字幕理解/兴趣判断/管理员分享，线上92f89e4，低频每日一轮，群目标未启用。
+- [B站当前部署/限制](../schedule/2026-10-24-bilibili-autowatch-result.md)：现有QQAgent内置dsh式每日浏览轮次、字幕优先、候选筛选、上下文感知和管理员分享，线上01e9807，群目标未启用。
 - [低干预提示词结果](../schedule/2026-10-24-neutral-harness-prompt-result.md)：删除人格风格竞争规则，保留安全/权限/工具/来源协议；78回归+4对照通过，6次线上合成模型对照HTTP200。
 - 待办：更广真实语义验收、B站接口长期稳定性、OneBot/SC8边界和CFG-RB01；不把一次管理员分享当全项目验收。
 
