@@ -809,6 +809,7 @@ export function createApp({ log = console.log, autoUpdateOptions = {} } = {}) {
   const bilibiliAutowatch = new BilibiliAutowatchManager({
     sender,
     onebot,
+    store,
     emit,
     log: moduleLog('bilibili-autowatch')
   });

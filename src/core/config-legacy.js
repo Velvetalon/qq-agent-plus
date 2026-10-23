@@ -270,7 +270,8 @@ export const DEFAULT_CONFIG = {
     shareGroupIds: [],
     maxSubtitleChars: 12000,
     maxDescriptionChars: 1200,
-    maxShareTextChars: 600
+    maxShareTextChars: 600,
+    requireSubtitle: true
   },
   // 好友动态阅览、点赞评论与评论回复。默认关闭，启用后按上海时间周期轮询。
   qzoneInteractions: {
