@@ -13,7 +13,7 @@
 ## 实际部署
 
 - 本地已快进 `origin/main` 到 `83f16f7`，之后推送提示词重构及B站实现提交。
-- 线上最终 revision：`498c912e3125f384ab1a1a347891d0a709878713`，服务 active/running/enabled，NRestarts=0，health ok，OneBot connected=true。
+- 线上最终 revision：`01e9807ffff4aa5c010c683a5201a0f927b8c0e3`，服务 active/running/enabled，NRestarts=0，health ok，OneBot connected=true。该版本还持久化每轮候选/筛选/分享摘要，仍不保存字幕全文。
 - 首次上线候选 `5710319` 已先做静止业务备份：SQLite quick_check=ok，聚合计数 messages=11114、outbox=54、conversation_threads=2；后续代码修正沿用原数据与部署快照。
 - B站最终配置：enabled=true、每日一轮 `intervalMinutes=1440`、启动延迟600000ms、每日最多1条、`requireSubtitle=true`、管理员分享开启、群目标0；allow.groups 当前仍有1个但未自动启用群分享。
 - 低频修正后没有追加新的测试消息；今日已有第一版旧模板分享2条，当前日上限1因此不会再发。旧记录保留，后续新轮采用角色主导的自然短消息格式。
