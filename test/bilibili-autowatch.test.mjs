@@ -26,7 +26,7 @@ test.after(() => setRuntimeConfig(base));
 
 test('default config is disabled and bounded', () => {
   const c = normalizeBilibiliConfig({});
-  assert.equal(c.enabled, false); assert.equal(c.shareAdmin, true); assert.equal(c.maxSharePerRun, 1); assert.deepEqual(c.keywords, []);
+  assert.equal(c.enabled, false); assert.equal(c.shareAdmin, true); assert.equal(c.maxSharePerRun, 0); assert.equal(c.minIntervalMinutes, 10); assert.equal(c.maxIntervalMinutes, 30); assert.equal(c.maxSharesPerDay, 0); assert.equal(c.maxOffersPerWeek, 0); assert.deepEqual(c.keywords, []);
 });
 
 test('popular/search parsing deduplicates BVID', () => {
@@ -43,19 +43,20 @@ test('detail/subtitle success and metadata fallback', async () => {
 });
 
 test('threshold, strict JSON failure and sender target intersection', async () => {
-  cfg({ minInterest: .8, shareGroupIds: ['111', '999'], shareAdmin: true });
+  cfg({ minInterest: .8, shareGroupIds: ['111', '999'], shareAdmin: true, maxSharePerRun: 0 });
   const calls = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, wakeChat: async (...args) => calls.push(args), fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: true, score: .9, reason: 'r', summary: 's' }) } }), stateFile: tmp(), now: () => 1700000000000 });
   const c = getConfig(); c.admin = { ownerUin: '42' }; c.allow = { private: ['42'], groups: ['111'] };
-  const r = await m.runNow({ publish: true }); assert.equal(r.offered, 1); assert.equal(r.shared, 0); assert.equal(calls.length, 1); assert.equal(calls[0][0], 'group:111'); assert.match(calls[0][1], /bilibili\.com\/video\/BV1abc/);
+  const r = await m.runNow({ publish: true }); assert.equal(r.offered, 2); assert.equal(r.shared, 0); assert.equal(calls.length, 2); assert.equal(calls[0][0], 'group:111'); assert.equal(calls[1][0], 'group:111'); assert.match(calls[0][1], /bilibili\.com\/video\/BV1abc/); assert.match(calls[1][1], /bilibili\.com\/video\/BV2def/);
 });
 
-test('disconnected, duplicate and daily cap suppress sends', async () => {
-  cfg({ maxSharesPerDay: 1 }); const calls = []; const state = tmp();
+test('disconnected and duplicate suppress work, but daily/weekly caps do not', async () => {
+  cfg({ maxSharesPerDay: 0, maxOffersPerWeek: 0, shareGroupIds: ['111'] }); const calls = []; const state = tmp();
   const m = new BilibiliAutowatchManager({ onebot: { connected: false }, wakeChat: async (...x) => calls.push(x), fetchPage: fakePages(), complete: async () => ({ message: { content: '{}' } }), stateFile: state });
   assert.equal((await m.runNow({ publish: true })).reason, 'onebot-disconnected'); assert.equal(calls.length, 0);
   const s = { records: [{ bvid: 'BV1abc', status: 'offered', at: Date.now() }] }; fs.writeFileSync(state, JSON.stringify(s));
-  const m2 = new BilibiliAutowatchManager({ onebot: { connected: true }, wakeChat: async (...x) => calls.push(x), fetchPage: fakePages(), complete: async () => ({ message: { content: '{}' } }), stateFile: state });
-  assert.equal((await m2.runNow({ publish: true })).reason, 'daily-cap'); assert.equal(calls.length, 0);
+  const current = getConfig(); setRuntimeConfig({ ...current, allow: { private: [], groups: ['111'] }, bilibiliAutowatch: { ...current.bilibiliAutowatch, shareGroupIds: ['111'], maxSharePerRun: 0 } });
+  const m2 = new BilibiliAutowatchManager({ onebot: { connected: true }, wakeChat: async (...x) => calls.push(x), fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: true, score: .9, reason: 'r', summary: 's' }) } }), stateFile: state });
+  const output = await m2.runNow({ publish: true }); assert.equal(output.reason, undefined); assert.equal(output.offered, 1); assert.equal(calls.length, 1);
 });
 
 test('recent candidate is suppressed to avoid repeated model calls', async () => {
@@ -64,6 +65,13 @@ test('recent candidate is suppressed to avoid repeated model calls', async () =>
   let calls = 0;
   const m = new BilibiliAutowatchManager({ onebot: { connected: true }, wakeChat: async () => {}, fetchPage: async (url) => { calls++; if (String(url).includes('/popular')) return result({ list: [{ bvid: 'BV1abc', title: 'one' }] }); throw new Error(`unexpected ${url}`); }, complete: async () => ({ message: { content: '{}' } }), stateFile: state, now: () => 1700000000000 + 1000 });
   const output = await m.runNow({ publish: false }); assert.equal(output.candidates.length, 0); assert.equal(calls, 1);
+});
+
+test('next browsing round is randomized within the 10-30 minute window', async () => {
+  cfg({ minIntervalMinutes: 10, maxIntervalMinutes: 30 }); const at = 1700000000000;
+  const m = new BilibiliAutowatchManager({ onebot: { connected: true }, random: () => 0, fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: false, score: .1, reason: 'r', summary: 's' }) } }), stateFile: tmp(), now: () => at });
+  m.stopped = false;
+  await m.runNow({ publish: false }); assert.equal(m.status().nextRunAt, at + 10 * 60000); m.stop();
 });
 
 test('state recovery marks in-flight unknown and writes bounded atomic state', () => {

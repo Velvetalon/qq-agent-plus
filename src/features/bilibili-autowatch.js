@@ -9,8 +9,8 @@ import { timeControlState } from '../core/time-control.js';
 
 export const BILIBILI_STATE_FILE = path.join(DATA_DIR, 'bilibili-autowatch', 'state.json');
 export const DEFAULT_BILIBILI_AUTOWATCH = Object.freeze({
-  enabled: false, intervalMinutes: 1440, startupDelayMs: 600000,
-  maxCandidates: 10, maxAnalyses: 3, maxSharePerRun: 1, maxSharesPerDay: 1, maxOffersPerWeek: 2,
+  enabled: false, intervalMinutes: 20, minIntervalMinutes: 10, maxIntervalMinutes: 30, startupDelayMs: 600000,
+  maxCandidates: 20, maxAnalyses: 8, maxSharePerRun: 0, maxSharesPerDay: 0, maxOffersPerWeek: 0,
   minInterest: 0.7, keywords: [], shareAdmin: true, shareGroupIds: [],
   maxSubtitleChars: 12000, maxDescriptionChars: 1200, maxShareTextChars: 600,
   requireSubtitle: true
@@ -23,13 +23,15 @@ export function normalizeBilibiliConfig(raw = {}) {
   return {
     ...DEFAULT_BILIBILI_AUTOWATCH,
     enabled: raw.enabled === true,
-    intervalMinutes: num(raw.intervalMinutes, 1440, 1, 10080),
+    intervalMinutes: num(raw.intervalMinutes, 20, 1, 10080),
+    minIntervalMinutes: num(raw.minIntervalMinutes, 10, 1, 1440),
+    maxIntervalMinutes: num(raw.maxIntervalMinutes, 30, 1, 10080),
     startupDelayMs: num(raw.startupDelayMs, 600000, 0, 3600000),
-    maxCandidates: num(raw.maxCandidates, 10, 1, 100),
-    maxAnalyses: num(raw.maxAnalyses, 3, 1, 30),
-    maxSharePerRun: num(raw.maxSharePerRun, 1, 0, 20),
-    maxSharesPerDay: num(raw.maxSharesPerDay, 1, 0, 100),
-    maxOffersPerWeek: num(raw.maxOffersPerWeek, 2, 0, 20),
+    maxCandidates: num(raw.maxCandidates, 20, 1, 100),
+    maxAnalyses: num(raw.maxAnalyses, 8, 1, 30),
+    maxSharePerRun: num(raw.maxSharePerRun, 0, 0, 20),
+    maxSharesPerDay: num(raw.maxSharesPerDay, 0, 0, 100),
+    maxOffersPerWeek: num(raw.maxOffersPerWeek, 0, 0, 20),
     minInterest: num(raw.minInterest, 0.7, 0, 1),
     keywords: Array.isArray(raw.keywords) ? raw.keywords.map((x) => clean(x, 80)).filter(Boolean).slice(0, 30) : [],
     shareAdmin: raw.shareAdmin !== false,
@@ -119,6 +121,7 @@ export class BilibiliAutowatchManager {
     fetchPage = async (url, options) => safeFetch(url, options),
     stateFile = BILIBILI_STATE_FILE,
     now = () => Date.now(),
+    random = Math.random,
     log = console.log,
     emit = () => {}
   }) {
@@ -129,6 +132,7 @@ export class BilibiliAutowatchManager {
     this.fetchPage = fetchPage;
     this.stateFile = stateFile;
     this.now = now;
+    this.random = random;
     this.log = log;
     this.emit = emit;
     this.state = readState(stateFile);
@@ -154,6 +158,11 @@ export class BilibiliAutowatchManager {
 
   cfg() { return normalizeBilibiliConfig(getConfig().bilibiliAutowatch || {}); }
   persist() { this.state.updatedAt = this.now(); saveState(this.stateFile, this.state); }
+  #nextDelay(config) {
+    const min = Math.max(1, Number(config.minIntervalMinutes) || 10);
+    const max = Math.max(min, Number(config.maxIntervalMinutes) || 30);
+    return (min + Math.floor(Math.max(0, Math.min(0.999999, Number(this.random()) || 0)) * (max - min + 1))) * 60000;
+  }
   #schedule(delay) {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -203,7 +212,7 @@ export class BilibiliAutowatchManager {
     this.running = this.#run({ publish, signal: controller.signal }).finally(() => {
       this.running = null;
       if (this.controller === controller) this.controller = null;
-      if (!this.stopped && this.cfg().enabled && !this.timer) this.#schedule(this.cfg().intervalMinutes * 60000);
+      if (!this.stopped && this.cfg().enabled && !this.timer) this.#schedule(this.#nextDelay(this.cfg()));
     });
     return this.running;
   }
@@ -236,10 +245,6 @@ export class BilibiliAutowatchManager {
     if (!time.active) throw Object.assign(new Error('非活跃时间，B站任务未执行'), { code: 'TIME_CONTROL_INACTIVE', httpStatus: 409 });
     assertTimeAllowed('');
     if (publish && this.onebot?.connected !== true) return { published: false, reason: 'onebot-disconnected', candidates: [] };
-    const offersToday = this.state.records.filter((r) => r.status === 'offered' && dayKey(r.at || 0) === dayKey(this.now())).length;
-    const offersWeek = this.state.records.filter((r) => r.status === 'offered' && Number(r.at || 0) >= this.now() - 7 * DAY).length;
-    if (publish && offersToday >= config.maxSharesPerDay) return { published: false, reason: 'daily-cap', candidates: [] };
-    if (publish && offersWeek >= config.maxOffersPerWeek) return { published: false, reason: 'weekly-cap', candidates: [] };
     const urls = config.keywords.length
       ? config.keywords.map((keyword) => `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(keyword)}`)
       : ['https://api.bilibili.com/x/web-interface/popular?ps=10'];
@@ -287,19 +292,21 @@ export class BilibiliAutowatchManager {
       this.state.records.unshift(record); this.state.records = this.state.records.slice(0, 100); results.push(record);
     }
     let offered = 0; let target = '';
-    if (publish && config.maxSharePerRun > 0) {
-      const chosen = results.find((record) => record.status === 'candidate');
+    if (publish) {
+      const candidatesToOffer = results.filter((record) => record.status === 'candidate');
       const targets = this.#targets();
-      if (chosen && targets.length && typeof this.wakeChat === 'function') {
+      for (const chosen of candidatesToOffer) {
+        if (!targets.length || typeof this.wakeChat !== 'function') break;
+        if (config.maxSharePerRun > 0 && offered >= config.maxSharePerRun) break;
         target = targets[0];
         await this.wakeChat(target, this.#activityNote(chosen));
-        chosen.status = 'offered'; chosen.offeredAt = this.now(); chosen.target = target; offered = 1;
+        chosen.status = 'offered'; chosen.offeredAt = this.now(); chosen.target = target; offered += 1;
       }
     }
     this.state.rounds.unshift({ id: `round-${this.now()}-${hash(JSON.stringify(results.map((r) => r.bvid)))}`, at: this.now(), publish, candidateCount: results.length, offered, target, candidates: results.map(safeRoundCandidate) });
     this.state.rounds = this.state.rounds.slice(0, 30);
     this.persist(); this.emit('bilibili-update', this.status());
-    if (config.enabled && !this.stopped && !this.timer) this.#schedule(config.intervalMinutes * 60000);
+    if (config.enabled && !this.stopped && !this.timer) this.#schedule(this.#nextDelay(config));
     return { published: offered > 0, offered, shared: 0, candidates: results, preview: !publish, decisionDelegatedToLifecycle: true };
   }
 }
