@@ -1,9 +1,9 @@
 {
   "status": "DEPLOYED_AND_ADMIN_SHARE_VERIFIED",
-  "implementationCommits": ["d7c22c415f954a07a7af9c039fe9849c1a25b397", "1aba5b46bc77a913914b3a673bc0ceb1836a8685", "92f89e4b46dcd5141f0670ad9edeb12e897e7b47", "498c912e3125f384ab1a1a347891d0a709878713", "01e9807ffff4aa5c010c683a5201a0f927b8c0e3", "88588bd463606774179bd8532bd681bf7a573e14", "9d6b88dbbce8a39092f132f7fd0e5e3144a280a6"],
-  "productionRevision": "9d6b88dbbce8a39092f132f7fd0e5e3144a280a6",
+  "implementationCommits": ["d7c22c415f954a07a7af9c039fe9849c1a25b397", "1aba5b46bc77a913914b3a673bc0ceb1836a8685", "92f89e4b46dcd5141f0670ad9edeb12e897e7b47", "498c912e3125f384ab1a1a347891d0a709878713", "01e9807ffff4aa5c010c683a5201a0f927b8c0e3", "88588bd463606774179bd8532bd681bf7a573e14", "9d6b88dbbce8a39092f132f7fd0e5e3144a280a6", "d3c1e47ed7fd15513f0395f4a58cfcbf9f7edc51"],
+  "productionRevision": "d3c1e47ed7fd15513f0395f4a58cfcbf9f7edc51",
   "health": {"ok": true, "onebotConnected": true, "serviceActive": true, "restarts": 0},
-  "bilibili": {"enabled": true, "intervalMinutes": 1440, "startupDelayMs": 600000, "maxSharesPerDay": 1, "shareAdmin": true, "shareGroupIds": 0, "allowGroups": 1, "requireSubtitle": true, "stateMode": "0600", "roundSummariesPersisted": true, "maxOffersPerWeek": 2},
+  "bilibili": {"enabled": true, "intervalMinutes": 1440, "startupDelayMs": 600000, "maxSharesPerDay": 1, "shareAdmin": true, "shareGroupIds": 0, "allowGroups": 1, "requireSubtitle": true, "stateMode": "0600", "roundSummariesPersisted": true, "minIntervalMinutes": 10, "maxIntervalMinutes": 30, "maxSharePerRun": 0, "maxSharesPerDay": 0, "maxOffersPerWeek": 0},
   "offlineTests": {"bilibili": {"pass": 8, "fail": 0, "skip": 0}, "promptRegression": {"pass": 78, "fail": 0, "skip": 0}, "neutralContrast": {"pass": 4, "fail": 0, "skip": 0}},
   "publicBilibiliPreview": {"httpStatus": 200, "apiCode": 0, "candidateCount": 5, "login": false, "modelCalls": 0, "qqMessages": 0},
   "controlledProductionRun": {"candidateCount": 3, "legacyFormatSharesBeforeHumanFeelFix": 2, "currentDirectSharesAfterLifecycleFix": 0, "lifecycleRoundCandidates": 2, "lifecycleRoundOffered": 0, "lifecycleRoundShared": 0, "qqTargetScope": "Lifecycle_wake_to_configured_admin_private_only", "unauthorizedGroupsSent": 0, "bilibiliDirectSenderCalls": 0, "decisionDelegatedToExistingAgent": true},
