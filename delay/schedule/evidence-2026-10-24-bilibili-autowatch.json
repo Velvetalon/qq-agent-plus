@@ -11,5 +11,6 @@
   "businessBackup": {"sqliteQuickCheck": "ok", "messages": 11114, "outbox": 54, "conversationThreads": 2},
   "credentials": {"bilibiliCookieOrPasswordPersisted": false, "qqOrModelCredentialsPrinted": false},
   "limitations": ["Bilibili public endpoints are unofficial and may rate-limit/change", "no cookie means some subtitle/video cases degrade", "no video-frame/live-stream understanding", "not SC8 or general QQ acceptance"],
+  "incidentFix": {"commit":"8a03cf7297314453ce78ccd2b79b7a56626bf2de","productionRevision":"8a03cf7297314453ce78ccd2b79b7a56626bf2de","bilibiliTests":{"pass":10,"fail":0},"preview":{"healthOk":true,"candidateCount":0,"offered":0,"newIncidents":0},"resolvedIncident":"inc_4a1bf2e1ce2d4d1c"},
   "rawOutputsStored": false
 }

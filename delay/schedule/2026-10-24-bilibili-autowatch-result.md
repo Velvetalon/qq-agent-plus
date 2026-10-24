@@ -38,6 +38,19 @@
 - 删除固定报告字段、营销式摘要和机械问题；状态仍保留短摘要/分数供去重和审计。
 - 调度从每3小时/每日最多2条收紧为每日一轮/每日1条；同一候选7天内不重复分析，服务停止取消进行中任务。
 
+## 2026-10-25 HTML反爬响应修复
+
+线上出现过 `bilibili-autowatch` 的 `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`：B站接口在限流/反爬或网关异常时返回了HTML页面，旧实现直接对响应体做JSON.parse，并通过模块日志进入IncidentPilot。
+
+已在 [`8a03cf7`](https://github.com/Velvetalon/qq-agent-plus/commit/8a03cf7297314453ce78ccd2b79b7a56626bf2de) 修复并部署：
+
+- HTML、非JSON、B站非零API code 统一识别为可预期外部响应；
+- 详情/字幕失败时安静降级，不再把HTML解析细节当QQAgent错误告警；
+- 需要字幕时记录 `detail-unavailable` 并跳过候选，不调用模型伪造理解；
+- 非预期的内部异常仍继续进入IncidentPilot；
+- 新增“HTML反爬响应安静降级”回归测试，B站专项最终 **10/10 PASS**；
+- 线上preview验证：health正常、服务无重启、候选0、offered0、没有新Incident；原 `inc_4a1bf2e1ce2d4d1c` 已标记 resolved。
+
 ## 账号与限制
 
 用户提供了B站账号手机号/密码，希望登录拿cookie。当前会话/执行环境没有可用的图片输入、浏览器登录和验证码交互通道；公开接口已能完成首版发现/详情/字幕链路，所以**没有把密码写入脚本、服务器、Git或日志，也没有绕过验证码登录**。若后续需要登录态视频/字幕，需在有浏览器/验证码交互的安全入口完成扫码/登录，再单独接入cookie保管。

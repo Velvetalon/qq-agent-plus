@@ -2,7 +2,7 @@
 
 ## 最新：2026-10-24 中立Harness重构与B站自主浏览已部署
 
-- [B站功能与部署结果](schedule/2026-10-24-bilibili-autowatch-result.md)：线上revision `d3c1e47`，整体采用dsh式后台探索/字幕优先/活动记录，并由QQAgent Lifecycle决定是否分享；每10–30分钟随机浏览，不设每日/每周行为层分享配额，OneBot connected。
+- [B站功能与部署结果](schedule/2026-10-24-bilibili-autowatch-result.md)：线上revision `8a03cf7`，整体采用dsh式后台探索/字幕优先/活动记录，并由QQAgent Lifecycle决定是否分享；每10–30分钟随机浏览，不设每日/每周行为层分享配额，且已修复B站HTML反爬响应异常，OneBot connected。
 - 截图经线上DeepSeek Flash总结后提炼出“介绍+链接+临时补充、承接对方疲惫、不强行追问、给拒绝空间”的活人感原则；没有把截图原文或私人内容入库。
 - [B站脱敏证据](schedule/evidence-2026-10-24-bilibili-autowatch.json)：8项B站测试、公开接口预览、Linux基线、数据备份和权限边界。
 - [低干预Harness结果](schedule/2026-10-24-neutral-harness-prompt-result.md)：提示词独立提交195aa11/8c8adcc/5710319，78项回归+4项对照、6次同上下文模型对照通过。
