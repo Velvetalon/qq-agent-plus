@@ -42,6 +42,17 @@ test('detail/subtitle success and metadata fallback', async () => {
   const r = await fallback.runNow({ publish: false }); assert.equal(r.candidates[0].status, 'skipped'); assert.equal(r.candidates[0].error, 'no-subtitle');
 });
 
+test('HTML anti-bot response degrades quietly without an incident log', async () => {
+  cfg(); const logs = []; let completions = 0;
+  const m = new BilibiliAutowatchManager({ onebot: { connected: true }, fetchPage: async (url) => {
+    if (String(url).includes('/popular')) return result({ list: [{ bvid: 'BV1abc', title: 'one' }] });
+    return { statusCode: 403, contentType: 'text/html', body: '<!DOCTYPE html><html><title>blocked</title></html>' };
+  }, complete: async () => { completions += 1; return { message: { content: '{}' } }; }, log: (...args) => logs.push(args), stateFile: tmp() });
+  const output = await m.runNow({ publish: false });
+  assert.equal(output.candidates[0].status, 'skipped'); assert.equal(output.candidates[0].error, 'detail-unavailable');
+  assert.match(output.candidates[0].detailError, /B站上游返回HTML/); assert.equal(completions, 0); assert.equal(logs.length, 0);
+});
+
 test('threshold, strict JSON failure and sender target intersection', async () => {
   cfg({ minInterest: .8, shareGroupIds: ['111', '999'], shareAdmin: true, maxSharePerRun: 0 });
   const calls = []; const m = new BilibiliAutowatchManager({ onebot: { connected: true }, wakeChat: async (...args) => calls.push(args), fetchPage: fakePages(), complete: async () => ({ message: { content: JSON.stringify({ interesting: true, score: .9, reason: 'r', summary: 's' }) } }), stateFile: tmp(), now: () => 1700000000000 });
